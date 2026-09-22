@@ -324,8 +324,8 @@ func TestDashboardHandler_SyncNotice(t *testing.T) {
 	if !strings.Contains(body, "January 2027") {
 		t.Errorf("expected body to contain 'January 2027', got:\n%s", body)
 	}
-	if !strings.Contains(body, "sync-notice") {
-		t.Errorf("expected body to contain 'sync-notice' banner, got:\n%s", body)
+	if !strings.Contains(body, `class="alert alert-info"`) {
+		t.Errorf("expected body to contain 'alert alert-info', got:\n%s", body)
 	}
 }
 

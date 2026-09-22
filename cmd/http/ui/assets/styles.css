@@ -220,30 +220,36 @@ a:hover {
     color: var(--gold-light);
 }
 
-/* Sync Notice Banner */
-.sync-notice {
+/* Info Alert */
+.alert {
     display: flex;
     align-items: center;
     gap: 0.6rem;
     margin: -0.75rem 0 1.25rem;
     padding: 0.75rem 1rem;
-    background: var(--bg-card);
-    border: 1px solid var(--border-color);
-    border-left: 3px solid var(--gold);
     border-radius: 8px;
-    color: var(--text-muted);
     font-size: 0.875rem;
     line-height: 1.5;
 }
 
-.sync-notice-icon {
-    color: var(--gold);
+.alert-icon {
     font-size: 1rem;
     flex-shrink: 0;
 }
 
-.sync-notice strong {
-    color: var(--gold-light);
+.alert-info {
+    background: var(--cyan-glow);
+    border: 1px solid var(--cyan-dim);
+    border-left: 3px solid var(--cyan);
+    color: var(--text-muted);
+}
+
+.alert-info .alert-icon {
+    color: var(--cyan);
+}
+
+.alert-info strong {
+    color: var(--cyan);
     font-weight: 600;
 }
 
