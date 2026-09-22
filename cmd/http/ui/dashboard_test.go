@@ -306,6 +306,29 @@ func TestWorldDrilldownHandler(t *testing.T) {
 	}
 }
 
+func TestDashboardHandler_SyncNotice(t *testing.T) {
+	rig := newTestRig(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/ui/dashboard", nil)
+	rec := httptest.NewRecorder()
+	rig.ctrl.Dashboard(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	body := rec.Body.String()
+	if !strings.Contains(body, "Data sync in progress") {
+		t.Errorf("expected body to contain 'Data sync in progress', got:\n%s", body)
+	}
+	if !strings.Contains(body, "January 2027") {
+		t.Errorf("expected body to contain 'January 2027', got:\n%s", body)
+	}
+	if !strings.Contains(body, "sync-notice") {
+		t.Errorf("expected body to contain 'sync-notice' banner, got:\n%s", body)
+	}
+}
+
 func TestDashboardHandler_ExpansionSortOrder(t *testing.T) {
 	rig := newTestRig(t)
 	now := time.Now().UTC()
