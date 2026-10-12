@@ -22,7 +22,7 @@ func runTieredJob(t *testing.T, jobErr error) mockqueue.Retry {
 	t.Helper()
 	repo := repository.NewFakeProxyRepository(workerPolicy)
 	seedFreshProxies(t, repo, 4)
-	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, nil, retryFloor, workerPolicy).
+	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, retryFloor, workerPolicy).
 		WithDestinationCooldownCap(retryCap)
 	q := mockqueue.NewFake()
 	w := newTestCensusWorker(q, slog.New(slog.NewTextHandler(io.Discard, nil)))
