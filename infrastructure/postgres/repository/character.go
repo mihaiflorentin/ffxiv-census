@@ -72,23 +72,54 @@ func (r *CharacterRepository) Upsert(ctx context.Context, rec contract.Character
 		return fmt.Errorf("character upsert: %w", err)
 	}
 
+	ids, names, levels, exps := jobColumns(jobs)
+
+	// Remove only the jobs the character no longer has; the rest are updated in place below.
 	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM character_jobs WHERE character_id = $1`, rec.ID); err != nil {
+		`DELETE FROM character_jobs WHERE character_id = $1 AND class_job_id <> ALL($2::integer[])`,
+		rec.ID, ids); err != nil {
 		return fmt.Errorf("character upsert delete jobs: %w", err)
 	}
-	for _, j := range jobs {
+	if len(ids) > 0 {
 		if _, err := tx.ExecContext(ctx,
 			`INSERT INTO character_jobs (character_id, class_job_id, name, level, exp_level)
-			 VALUES ($1, $2, $3, $4, $5)
+			 SELECT $1, t.class_job_id, t.name, t.level, t.exp_level
+			   FROM unnest($2::integer[], $3::text[], $4::integer[], $5::bigint[])
+			        AS t(class_job_id, name, level, exp_level)
 			 ON CONFLICT (character_id, class_job_id) DO UPDATE SET
 				name = excluded.name,
 				level = excluded.level,
 				exp_level = excluded.exp_level`,
-			j.CharacterID, j.ClassJobID, j.Name, j.Level, j.ExpLevel); err != nil {
-			return fmt.Errorf("character upsert insert job: %w", err)
+			rec.ID, ids, names, levels, exps); err != nil {
+			return fmt.Errorf("character upsert insert jobs: %w", err)
 		}
 	}
 	return tx.Commit()
+}
+
+// jobColumns splits jobs into parallel column arrays for unnest. A repeated
+// class job ID keeps its last entry, because one INSERT ... ON CONFLICT
+// statement cannot update the same row twice. The slices are never nil: a nil
+// slice binds as SQL NULL, and "<> ALL(NULL)" would delete nothing.
+func jobColumns(jobs []contract.ClassJobRecord) (ids []int32, names []string, levels []int32, exps []int64) {
+	ids, names = make([]int32, 0, len(jobs)), make([]string, 0, len(jobs))
+	levels, exps = make([]int32, 0, len(jobs)), make([]int64, 0, len(jobs))
+	pos := make(map[uint8]int, len(jobs))
+	for _, j := range jobs {
+		i, seen := pos[j.ClassJobID]
+		if !seen {
+			i = len(ids)
+			pos[j.ClassJobID] = i
+			ids = append(ids, int32(j.ClassJobID))
+			names = append(names, "")
+			levels = append(levels, 0)
+			exps = append(exps, 0)
+		}
+		names[i] = j.Name
+		levels[i] = int32(j.Level)
+		exps[i] = int64(j.ExpLevel)
+	}
+	return ids, names, levels, exps
 }
 
 func maxJobLevel(jobs []contract.ClassJobRecord) uint8 {
