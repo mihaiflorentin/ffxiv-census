@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
@@ -912,5 +914,45 @@ func TestDoRequest_WaitsForPausedProviderBeforeRequest(t *testing.T) {
 	until, _ := rl.PausedUntil(contract.ProviderLodestone)
 	if requestedAt.Before(until.Add(-50 * time.Millisecond)) {
 		t.Fatalf("request must wait out the provider pause: requested at %v, pause until %v", requestedAt, until)
+	}
+}
+
+// TestCustomClient_CloseIdleConnections proves the client closes the idle
+// connection its transport keeps alive, which is what releases a replaced
+// proxy's tunnel.
+func TestCustomClient_CloseIdleConnections(t *testing.T) {
+	closed := make(chan struct{}, 1)
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, "ok")
+	}))
+	srv.Config.ConnState = func(_ net.Conn, state http.ConnState) {
+		if state == http.StateClosed {
+			select {
+			case closed <- struct{}{}:
+			default:
+			}
+		}
+	}
+	srv.Start()
+	defer srv.Close()
+
+	c := &CustomClient{httpClient: &http.Client{Transport: httpclient.NewDirectTransport()}, limiter: rate.NewLimiter(rate.Inf, 1), logger: loggerOrDiscard(nil)}
+	resp, err := c.httpClient.Get(srv.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = io.Copy(io.Discard, resp.Body)
+	_ = resp.Body.Close()
+
+	select {
+	case <-closed:
+		t.Fatal("connection closed before CloseIdleConnections; keep-alive not exercised")
+	case <-time.After(50 * time.Millisecond):
+	}
+	c.CloseIdleConnections()
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("idle connection still open after CloseIdleConnections")
 	}
 }
