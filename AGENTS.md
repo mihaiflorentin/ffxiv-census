@@ -67,15 +67,25 @@ Detailed architecture and operational guides are maintained under `docs/`:
 - HTTP REST APIs &amp; Metrics: `docs/http-api.md`, `docs/metrics.md`, and `docs/logging-and-middleware.md`
 - Web Interface: `docs/ui.md`
 
-Specs and implementation plans live in `docs/superpowers/specs/` and `docs/superpowers/plans/`. When adding features or changing behavior, always keep documentation in sync with code.
+Existing historical specs and plans remain under `docs/superpowers/`; new ones go in GitHub issues. When adding features or changing behavior, always keep documentation in sync with code.
 
 Server-rendered Go templates + HTMX in `cmd/http/ui/` (embedded via `//go:embed`). No separate frontend build pipeline. Vendored Chart.js for charts, no CDN dependencies.
 
 ## Workflow
 
 - **Always prompt before implementation** — user will ask "proceed?" before dispatching implementation subagents
-- **Specs/plans live in `docs/superpowers/`** — always create the plan file in `docs/superpowers/plans/` (design spec → implementation plan → code)
+- **Specs and tickets are GitHub issues** — see `docs/agents/issue-tracker.md` (spec issue → sub-issue tickets → code)
 - **Commit and push** — always commit all changes (code, tests, plans, specs) and push to remote on completion
 - **Commit skills artifacts** (`.agents/`, `.claude/`, `skills-lock.json`) — they're project-local skill installs
 - **Main model responsibilities** — code edits, mechanical formatting, architectural decisions, planning, implementation, and test suites are handled directly by the main model.
 
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues (`mihaiflorentin/ffxiv-census`, via `gh`). See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context; the glossary is `GLOSSARY.md` at the repo root, ADRs in `docs/adr/`. See `docs/agents/domain.md`.

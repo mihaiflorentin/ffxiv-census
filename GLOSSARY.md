@@ -20,6 +20,14 @@ _Avoid_: discovery (reserved for proxy discovery), auto-discovery, sweep
 The persistent position of the next unprobed character ID for automatic ID sweeps. It only ever moves forward, and only after a range has been fully handed out.
 _Avoid_: frontier, discovery cursor, id_sweep_state
 
+**Gap fill**:
+An ID sweep over the unprobed gaps between stored character IDs, published in capped runs. Each run queues at most a fixed number of ID sweep jobs and resumes from the gap-fill cursor; an explicit minimum ID runs a manual pass that leaves the cursor untouched. Not-found IDs are deliberately not remembered, so resurrected characters are rediscovered on the next cycle.
+_Avoid_: fill-gaps (bare), 404 ledger
+
+**Gap-fill cursor**:
+The persistent last-queued ID for gap fills, separate from the ID sweep cursor. It wraps back to the start once it passes the highest stored character ID.
+_Avoid_: fill_gaps_state, gap cursor
+
 **Achievement census**:
 A character's achievement refresh. It runs against The Lodestone exclusively, updates the character's latest earned achievement and earned milestones, and triggers nothing further.
 _Avoid_: milestone check, achievement refresh
@@ -87,8 +95,16 @@ An event type that chains nothing.
 _Avoid_: terminal event
 
 **Failed queue**:
-The per-event-type holding area for jobs that exhausted their retries, where they stay parked until requeued or deliberately discarded. Retry attempts before exhaustion pass back through it automatically.
+The per-event-type holding area for jobs awaiting retry. Retryable failures wait there with exponential backoff (5 seconds up to one hour) and return to the main queue on their own; they are retried until they succeed or the handler reaches a terminal outcome.
 _Avoid_: dead-letter queue, DLQ, retry exchange (stale phrasing)
+
+**Dead queue**:
+The per-event-type terminal parking area for jobs that cannot be routed or decoded (poison payloads, unknown event types) or that exceed the retry safety-net attempt limit. Nothing is silently dropped.
+_Avoid_: dead-letter queue, DLQ
+
+**Retry worker**:
+The worker that consumes failed queues and republishes each job to the main exchange under its canonical event type, acknowledging only after the broker confirms.
+_Avoid_: failed worker, census-retry (that is the deployment name)
 
 **Push-based consumption**:
 The delivery model in which the broker hands jobs to running workers as they arrive, with no polling or claiming. It replaced the project's earlier polling job table.
@@ -109,24 +125,44 @@ The HTTP client used only to fetch proxy lists, routed through random pool proxi
 _Avoid_: rotating proxy client, discovery HTTP client
 
 **Proxy scan**:
-The recurring re-test of pool proxies against The Lodestone that updates each proxy's status, latency, and liveness. It reads proxies straight from the database, not through the queue.
+The recurring re-test of pool proxies that keeps their general-health evidence current. It reads proxies straight from the database, not through the queue, and is spread across replicas by scan leases.
 _Avoid_: scan worker, health check
 
+**General-health check**:
+The proxy test against a neutral public IP-echo endpoint (not The Lodestone), accepted only on a valid JSON response within the deadline. It establishes whether a proxy works at all; it says nothing about whether The Lodestone accepts it.
+_Avoid_: ping, liveness check
+
+**Fresh proxy**:
+A proxy whose latest general-health check succeeded recently enough (within the freshness window) with no newer failure. Only fresh proxies count as available; stored status is historical and is never the live count.
+_Avoid_: alive proxy, active proxy (for live availability)
+
+**Scan queue**:
+One of three logical queues the proxy scan draws from: verification (re-checking proxies whose evidence is about to expire), recovery (retrying recently working proxies that failed, with growing delays), and background (a continuous sweep of every non-succeeding proxy). Each holds a reserved share of scan concurrency and lends unused capacity to the others.
+_Avoid_: scan pool, cohort, dead pool
+
+**Scan lease**:
+The fenced, expiring claim one scanner holds on a proxy for a single scan attempt, so replicas never check the same proxy at once and stale results are discarded. Distinct from the proxy lock.
+_Avoid_: scan lock
+
+**Endpoint guard**:
+The per-replica baseline check of the general-health endpoint itself. While it is unhealthy, general-health claims pause and deadline failures are not held against proxies.
+_Avoid_: circuit breaker
+
 **Proxy status**:
-A proxy's standing in the pool: active (last test reached The Lodestone), inactive (recently failed but not written off), or dead (written off, re-tested only occasionally).
+A proxy's historical classification in the pool: active, inactive, or dead. It never gates the background scan and never decides live availability; freshness does.
 _Avoid_: health status
 
-**Dead-scan percentage**:
-The fixed share of proxy-scan capacity reserved for re-testing dead proxies, so dead re-validation and live scanning can never starve each other.
-_Avoid_: dead pool (it is not a pool of proxies), dead worker percentage
-
 **Proxy lock**:
-The exclusive, time-limited hold one worker has on a proxy. Expired holds may be taken over by other workers.
-_Avoid_: proxy lease
+The exclusive, time-limited hold one census worker has on a proxy while using it. Expired holds may be taken over by other workers.
+_Avoid_: proxy lease (that is the scan lease), consumer lease
 
 **Test-before-handout**:
-The rule that a proxy is verified with a live check before a worker is ever asked to use it.
+The rule that a proxy must be fresh and pass a live Lodestone check before a worker is ever asked to use it.
 _Avoid_: blind handout
+
+**Destination cooldown**:
+The temporary exclusion of a proxy from Lodestone use after The Lodestone rejects or rate-limits it. It does not mark the proxy generally unhealthy.
+_Avoid_: proxy ban, proxy failure
 
 **Proxy mode**:
 The census-worker mode in which every worker owns a proxy for the duration of a job and all provider requests route through it — there are no direct requests.
@@ -194,3 +230,7 @@ _Avoid_: world data
 **Indexable page**:
 A UI page served as complete HTML at its canonical URL and listed in the sitemap: the dashboard, races, worlds, per-world, expansions, and methodology pages. HTMX partials, the JSON API, and the disabled character pages are not indexable.
 _Avoid_: SEO page, content page, crawlable page
+
+**Data-sync notice**:
+The dashboard banner stating that the census is still gathering characters from The Lodestone and that full coverage is expected by January 2027. Figures shown before then are partial.
+_Avoid_: maintenance banner, warning
