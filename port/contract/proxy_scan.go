@@ -49,7 +49,10 @@ type ProxyCheckError struct {
 	// identity (HTTP 202 interstitial or a 403 block page). Challenges are
 	// destination-side. Diagnostic only: they flow the queue's standard
 	// retry ladder while the worker cools the proxy's destination down.
-	Challenge  bool
+	Challenge bool
+	// Status is the HTTP status that produced a CheckTarget error, or 0 when
+	// the failure had no response. It lets consumers tell a 5xx from a 429.
+	Status     int
 	RetryAfter time.Duration
 	Err        error
 }

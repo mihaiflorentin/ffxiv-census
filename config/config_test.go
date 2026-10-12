@@ -164,6 +164,7 @@ func TestNewConfigRejectsNonPositiveScanDurations(t *testing.T) {
 		"PROXY_SCAN_CONTROL_INTERVAL",
 		"PROXY_CONSUMER_TEST_TIMEOUT",
 		"PROXY_CONSUMER_COOLDOWN",
+		"PROXY_CONSUMER_COOLDOWN_MAX",
 	}
 	for _, key := range keys {
 		for _, val := range []string{"0s", "-1s"} {
@@ -339,6 +340,15 @@ func TestNewConfig_ProxyScanDefaults(t *testing.T) {
 	if cfg.Proxy.Consumer.Cooldown != 60*time.Second {
 		t.Errorf("expected consumer cooldown 60s, got %s", cfg.Proxy.Consumer.Cooldown)
 	}
+	if cfg.Proxy.Consumer.CooldownMax != 15*time.Minute {
+		t.Errorf("expected consumer cooldown_max 15m, got %s", cfg.Proxy.Consumer.CooldownMax)
+	}
+	if cfg.Proxy.Consumer.JobAttempts != 3 {
+		t.Errorf("expected consumer job_attempts 3, got %d", cfg.Proxy.Consumer.JobAttempts)
+	}
+	if cfg.Proxy.Consumer.LockRefreshInterval != 100*time.Second {
+		t.Errorf("expected consumer lock_refresh_interval 100s, got %s", cfg.Proxy.Consumer.LockRefreshInterval)
+	}
 }
 
 func TestNewConfig_ProxyScanEnvOverrides(t *testing.T) {
@@ -359,6 +369,9 @@ func TestNewConfig_ProxyScanEnvOverrides(t *testing.T) {
 	t.Setenv("PROXY_CONSUMER_TEST_URL", "https://destination.example.com/lodestone/")
 	t.Setenv("PROXY_CONSUMER_TEST_TIMEOUT", "15s")
 	t.Setenv("PROXY_CONSUMER_COOLDOWN", "90s")
+	t.Setenv("PROXY_CONSUMER_COOLDOWN_MAX", "30m")
+	t.Setenv("PROXY_CONSUMER_JOB_ATTEMPTS", "5")
+	t.Setenv("PROXY_CONSUMER_LOCK_REFRESH_INTERVAL", "45s")
 
 	cfg, err := NewConfig()
 	if err != nil {
@@ -409,5 +422,52 @@ func TestNewConfig_ProxyScanEnvOverrides(t *testing.T) {
 	}
 	if cfg.Proxy.Consumer.Cooldown != 90*time.Second {
 		t.Errorf("PROXY_CONSUMER_COOLDOWN override not applied: %s", cfg.Proxy.Consumer.Cooldown)
+	}
+	if cfg.Proxy.Consumer.CooldownMax != 30*time.Minute {
+		t.Errorf("PROXY_CONSUMER_COOLDOWN_MAX override not applied: %s", cfg.Proxy.Consumer.CooldownMax)
+	}
+	if cfg.Proxy.Consumer.JobAttempts != 5 {
+		t.Errorf("PROXY_CONSUMER_JOB_ATTEMPTS override not applied: %d", cfg.Proxy.Consumer.JobAttempts)
+	}
+	if cfg.Proxy.Consumer.LockRefreshInterval != 45*time.Second {
+		t.Errorf("PROXY_CONSUMER_LOCK_REFRESH_INTERVAL override not applied: %s", cfg.Proxy.Consumer.LockRefreshInterval)
+	}
+}
+
+func TestNewConfigRejectsConsumerCooldownMaxBelowFloor(t *testing.T) {
+	t.Setenv("PROXY_CONSUMER_COOLDOWN", "5m")
+	t.Setenv("PROXY_CONSUMER_COOLDOWN_MAX", "1m")
+	if _, err := NewConfig(); err == nil {
+		t.Fatal("accepted a destination cooldown cap below the floor")
+	}
+}
+
+func TestNewConfigRejectsNonPositiveJobAttempts(t *testing.T) {
+	for _, val := range []string{"0", "-1"} {
+		t.Setenv("PROXY_CONSUMER_JOB_ATTEMPTS", val)
+		if _, err := NewConfig(); err == nil {
+			t.Fatalf("accepted PROXY_CONSUMER_JOB_ATTEMPTS=%s", val)
+		}
+	}
+}
+
+// The lock must survive between refreshes with margin, so the refresh
+// interval has to stay below half the lock TTL.
+func TestNewConfigRejectsLockRefreshIntervalThatCouldLetTheLockExpire(t *testing.T) {
+	cases := []struct{ name, ttl, interval string }{
+		{"zero", "5m", "0s"},
+		{"negative", "5m", "-1s"},
+		{"half of ttl", "5m", "150s"},
+		{"above half of ttl", "5m", "4m"},
+		{"default interval with short ttl", "3m", "100s"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PROXY_CONSUMER_LOCK_TTL", tc.ttl)
+			t.Setenv("PROXY_CONSUMER_LOCK_REFRESH_INTERVAL", tc.interval)
+			if _, err := NewConfig(); err == nil {
+				t.Fatalf("accepted lock_ttl=%s lock_refresh_interval=%s", tc.ttl, tc.interval)
+			}
+		})
 	}
 }

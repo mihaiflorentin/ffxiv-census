@@ -49,7 +49,7 @@ func NewProxyRepository(driver contract.DatabaseDriver, policy contract.ProxySca
 const proxyColumns = `id, protocol, ip, port, country, anonymity, latency_ms, uptime_percent,
 	status, last_scanned_at, last_alive_at, first_seen_at, source, fail_count, locked_by, locked_at, created_at, updated_at,
 	general_healthy, last_completed_at, last_verified_at, next_attempt_at, scan_not_before, recovery_step,
-	observation_version, scan_token, scan_lease_until, claimed_version, destination_cooldown_until,
+	observation_version, scan_token, scan_lease_until, claimed_version, destination_cooldown_until, destination_failures,
 	retired_at, last_listed_at`
 
 // proxyColumnsClaimed mirrors proxyColumns with the p alias used by the
@@ -57,7 +57,7 @@ const proxyColumns = `id, protocol, ip, port, country, anonymity, latency_ms, up
 const proxyColumnsClaimed = `p.id, p.protocol, p.ip, p.port, p.country, p.anonymity, p.latency_ms, p.uptime_percent,
 	p.status, p.last_scanned_at, p.last_alive_at, p.first_seen_at, p.source, p.fail_count, p.locked_by, p.locked_at, p.created_at, p.updated_at,
 	p.general_healthy, p.last_completed_at, p.last_verified_at, p.next_attempt_at, p.scan_not_before, p.recovery_step,
-	p.observation_version, p.scan_token, p.scan_lease_until, p.claimed_version, p.destination_cooldown_until,
+	p.observation_version, p.scan_token, p.scan_lease_until, p.claimed_version, p.destination_cooldown_until, p.destination_failures,
 	p.retired_at, p.last_listed_at`
 
 // freshPredicate is the single general-health availability predicate shared
@@ -87,7 +87,7 @@ func scanProxy(row rowScanner) (*contract.ProxyRecord, error) {
 		&p.CreatedAt, &p.UpdatedAt,
 		&p.GeneralHealthy, &lastCompletedAt, &lastVerifiedAt, &nextAttemptAt,
 		&scanNotBefore, &p.RecoveryStep, &p.ObservationVersion, &scanToken,
-		&scanLeaseUntil, &claimedVersion, &destinationCooldownUntil,
+		&scanLeaseUntil, &claimedVersion, &destinationCooldownUntil, &p.DestinationFailures,
 		&retiredAt, &lastListedAt,
 	)
 	if err != nil {
@@ -329,7 +329,10 @@ func (r *ProxyRepository) CountByStatus(ctx context.Context) (map[string]int64, 
 // ClaimProxy claims one fresh, unlocked, protocol-supported proxy for a
 // consumer (FOR UPDATE SKIP LOCKED). Availability uses the same general
 // freshness predicate as every other read; a live destination cooldown
-// excludes the row here (and only here). The historical stale fallback is
+// excludes the row here (and only here). A proxy that recently failed the
+// destination (destination_failures > 0, cooldown already over) ranks behind
+// every clean proxy, so the best-looking but failing proxies do not return to
+// the top the moment their cooldown ends. The historical stale fallback is
 // gone: a non-fresh proxy is never handed to a consumer.
 func (r *ProxyRepository) ClaimProxy(ctx context.Context, owner string, lockTTL time.Duration) (*contract.ProxyRecord, error) {
 	db, err := r.driver.Acquire(ctx)
@@ -349,7 +352,7 @@ func (r *ProxyRepository) ClaimProxy(ctx context.Context, owner string, lockTTL 
 			AND protocol IN ('http', 'https', 'socks4', 'socks5')
 			AND (locked_at IS NULL OR locked_at < statement_timestamp() - ($2 * interval '1 second'))
 			AND (destination_cooldown_until IS NULL OR destination_cooldown_until <= statement_timestamp())
-		ORDER BY uptime_percent DESC NULLS LAST, latency_ms ASC NULLS LAST, fail_count ASC
+		ORDER BY destination_failures ASC, uptime_percent DESC NULLS LAST, latency_ms ASC NULLS LAST, fail_count ASC
 		LIMIT 1
 		FOR UPDATE SKIP LOCKED`, r.policy.FreshnessTTL.Seconds(), lockTTL.Seconds())
 

@@ -317,7 +317,8 @@ func (f *FakeProxyRepository) CountByStatus(_ context.Context) (map[string]int64
 
 // ClaimProxy claims the best fresh, unlocked, protocol-supported proxy for a
 // consumer. A live destination cooldown excludes the row; there is no stale
-// fallback. Preference order mirrors the SQL: higher uptime, lower latency,
+// fallback. Preference order mirrors the SQL: fewer consecutive destination
+// failures, then higher uptime, lower latency,
 // lower fail count.
 func (f *FakeProxyRepository) ClaimProxy(_ context.Context, owner string, lockTTL time.Duration) (*contract.ProxyRecord, error) {
 	f.mu.Lock()
@@ -341,6 +342,12 @@ func (f *FakeProxyRepository) ClaimProxy(_ context.Context, owner string, lockTT
 		}
 		if best == nil {
 			best = &p
+			continue
+		}
+		if p.DestinationFailures != best.DestinationFailures {
+			if p.DestinationFailures < best.DestinationFailures {
+				best = &p
+			}
 			continue
 		}
 		pUptime := uptimeOrZero(p)
@@ -745,9 +752,25 @@ func (f *FakeProxyRepository) CooldownDestination(_ context.Context, id int64, o
 		raised = *p.DestinationCooldownUntil
 	}
 	p.DestinationCooldownUntil = &raised
+	p.DestinationFailures++
 	p.LockedBy = nil
 	p.LockedAt = nil
 	p.UpdatedAt = now
+	f.proxies[p.ID] = p
+	return nil
+}
+
+// ResetDestinationFailures zeroes the consecutive destination failure counter
+// of an owned proxy, keeping the lock.
+func (f *FakeProxyRepository) ResetDestinationFailures(_ context.Context, id int64, owner string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p, ok := f.proxies[id]
+	if !ok || p.LockedBy == nil || *p.LockedBy != owner || p.DestinationFailures == 0 {
+		return nil
+	}
+	p.DestinationFailures = 0
+	p.UpdatedAt = f.now()
 	f.proxies[p.ID] = p
 	return nil
 }

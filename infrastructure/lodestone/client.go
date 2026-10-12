@@ -312,6 +312,12 @@ func (c *CustomClient) doRequest(ctx context.Context, url string) ([]byte, int, 
 					slog.String("url", url),
 					slog.Int("attempt", attempt+1),
 					slog.String("error", err.Error()))
+				// Typed CheckDeadline so the consumer can rotate and cool the
+				// proxy without recording general failure evidence. A deadline
+				// the caller's own context imposed is not the proxy's fault.
+				if ctx.Err() == nil {
+					lastErr = &contract.ProxyCheckError{Kind: contract.CheckDeadline, Reason: "request timeout", Err: lastErr}
+				}
 				return nil, 0, fmt.Errorf("request %s: %w", url, lastErr)
 			}
 			backoff := c.backoffBase * time.Duration(1<<uint(attempt))
@@ -363,6 +369,7 @@ func (c *CustomClient) doRequest(ctx context.Context, url string) ([]byte, int, 
 			return nil, resp.StatusCode, fmt.Errorf("request %s: %w", url, &contract.ProxyCheckError{
 				Kind:       contract.CheckTarget,
 				Reason:     "status 429",
+				Status:     resp.StatusCode,
 				RetryAfter: retryAfter,
 				Err:        fmt.Errorf("HTTP %d from %s", resp.StatusCode, url),
 			})
@@ -375,6 +382,7 @@ func (c *CustomClient) doRequest(ctx context.Context, url string) ([]byte, int, 
 			lastErr = &contract.ProxyCheckError{
 				Kind:       contract.CheckTarget,
 				Reason:     "status 202",
+				Status:     resp.StatusCode,
 				Challenge:  true,
 				RetryAfter: httpclient.ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now()),
 				Err:        fmt.Errorf("HTTP %d from %s", resp.StatusCode, url),
@@ -400,6 +408,7 @@ func (c *CustomClient) doRequest(ctx context.Context, url string) ([]byte, int, 
 			lastErr = &contract.ProxyCheckError{
 				Kind:       contract.CheckTarget,
 				Reason:     "status 403 challenge",
+				Status:     resp.StatusCode,
 				Challenge:  true,
 				RetryAfter: httpclient.ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now()),
 				Err:        fmt.Errorf("HTTP %d from %s", resp.StatusCode, url),
@@ -412,9 +421,18 @@ func (c *CustomClient) doRequest(ctx context.Context, url string) ([]byte, int, 
 
 		if resp.StatusCode >= http.StatusInternalServerError {
 			c.observe(contract.LodestoneOutcomeFailure)
-		} else {
-			c.observe(contract.LodestoneOutcomeSuccess)
+			// A server error says nothing about the character: surface it as
+			// a typed destination rejection so the consumer rotates and cools
+			// the proxy instead of treating it as a business outcome.
+			return nil, resp.StatusCode, fmt.Errorf("request %s: %w", url, &contract.ProxyCheckError{
+				Kind:       contract.CheckTarget,
+				Reason:     fmt.Sprintf("status %d", resp.StatusCode),
+				Status:     resp.StatusCode,
+				RetryAfter: httpclient.ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now()),
+				Err:        fmt.Errorf("HTTP %d from %s", resp.StatusCode, url),
+			})
 		}
+		c.observe(contract.LodestoneOutcomeSuccess)
 		return body, resp.StatusCode, nil
 	}
 	if lastErr == nil {

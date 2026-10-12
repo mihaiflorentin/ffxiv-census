@@ -709,12 +709,19 @@ func TestConsumerJob_GeneralFailurePersistsAndReplacesProxy(t *testing.T) {
 	}
 }
 
-// TestConsumerJob_RetryGeneralFailureRecordsBothProxies proves the retry
-// path: a typed CheckProxy failure on the replacement proxy is persisted too
-// and the claim is released before the delivery returns to the queue.
-func TestConsumerJob_RetryGeneralFailureRecordsBothProxies(t *testing.T) {
+// TestConsumerJob_RetryGeneralFailureRecordsEveryProxyTried proves the retry
+// path: a typed CheckProxy failure on every replacement proxy is persisted
+// too (three proxies are tried per job) and each claim is released before the
+// delivery returns to the queue.
+func TestConsumerJob_RetryGeneralFailureRecordsEveryProxyTried(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(workerPolicy)
 	seedTwoFreshProxies(t, repo)
+	repo.InsertIfAbsent(context.Background(), contract.ProxyRecord{
+		Protocol: "http", IP: "3.3.3.3", Port: 8080, Source: "test",
+	})
+	if !repo.SeedSuccess(3, 100) {
+		t.Fatal("failed to seed proxy evidence")
+	}
 	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, nil, time.Minute, workerPolicy)
 
 	calls, err := runOneJob(t, hub, func(call int) error {
@@ -727,10 +734,10 @@ func TestConsumerJob_RetryGeneralFailureRecordsBothProxies(t *testing.T) {
 	if !errors.As(err, &checkErr) || checkErr.Kind != contract.CheckProxy {
 		t.Fatalf("expected typed proxy failure returned, got %v", err)
 	}
-	if got := atomic.LoadInt32(calls); got != 2 {
-		t.Fatalf("expected exactly two handler calls, got %d", got)
+	if got := atomic.LoadInt32(calls); got != 3 {
+		t.Fatalf("expected exactly three handler calls, got %d", got)
 	}
-	for id := int64(1); id <= 2; id++ {
+	for id := int64(1); id <= 3; id++ {
 		rec, err := repo.Get(context.Background(), id)
 		if err != nil {
 			t.Fatalf("repo.Get(%d): %v", id, err)

@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"errors"
+	"slices"
 	"testing"
 	"time"
 
@@ -185,7 +187,7 @@ func TestMockCharacterRepository_MinLevelFilter(t *testing.T) {
 	}
 }
 
-func TestMockCharacterRepository_ListStale(t *testing.T) {
+func TestMockCharacterRepository_ListStaleIDs(t *testing.T) {
 	repo := NewCharacterFake()
 	ctx := context.Background()
 
@@ -204,44 +206,85 @@ func TestMockCharacterRepository_ListStale(t *testing.T) {
 	_ = repo.Upsert(ctx, contract.CharacterRecord{
 		ID: 3, Name: "RecentCensus", World: "Balmung", FirstSeenAt: old, LastCensusAt: &recent,
 	}, nil)
+	// id=4: oldest census but deleted: never selected.
+	_ = repo.Upsert(ctx, contract.CharacterRecord{
+		ID: 4, Name: "Gone", World: "Balmung", FirstSeenAt: old, LastCensusAt: &old,
+	}, nil)
+	_ = repo.MarkDeleted(ctx, 4, recent)
 
 	// Zero cutoff, limit 2: NULL first, then oldest.
-	got, err := repo.ListStale(ctx, time.Time{}, 2)
+	got, err := repo.ListStaleIDs(ctx, time.Time{}, 2)
 	if err != nil {
-		t.Fatalf("ListStale zero cutoff: %v", err)
+		t.Fatalf("ListStaleIDs zero cutoff: %v", err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("got %d records, want 2", len(got))
-	}
-	if got[0].ID != 1 {
-		t.Errorf("got[0].ID = %d, want 1 (NULL first)", got[0].ID)
-	}
-	if got[1].ID != 2 {
-		t.Errorf("got[1].ID = %d, want 2 (oldest timestamp)", got[1].ID)
+	if !slices.Equal(got, []uint32{1, 2}) {
+		t.Errorf("zero cutoff limit 2 = %v, want [1 2]", got)
 	}
 
 	// Positive cutoff at recent: excludes id=3 (recent.Before(recent) is false).
-	cutoff := recent
-	got, err = repo.ListStale(ctx, cutoff, 10)
+	got, err = repo.ListStaleIDs(ctx, recent, 10)
 	if err != nil {
-		t.Fatalf("ListStale positive cutoff: %v", err)
+		t.Fatalf("ListStaleIDs positive cutoff: %v", err)
 	}
-	if len(got) != 2 {
-		t.Fatalf("got %d records, want 2", len(got))
-	}
-	if got[0].ID != 1 || got[1].ID != 2 {
-		t.Errorf("got IDs [%d, %d], want [1, 2]", got[0].ID, got[1].ID)
+	if !slices.Equal(got, []uint32{1, 2}) {
+		t.Errorf("positive cutoff = %v, want [1 2]", got)
 	}
 
-	// Zero cutoff, limit 10: all three eligible.
-	got, err = repo.ListStale(ctx, time.Time{}, 10)
+	// Zero cutoff, limit 10: every live character.
+	got, err = repo.ListStaleIDs(ctx, time.Time{}, 10)
 	if err != nil {
-		t.Fatalf("ListStale zero cutoff all: %v", err)
+		t.Fatalf("ListStaleIDs zero cutoff all: %v", err)
 	}
-	if len(got) != 3 {
-		t.Fatalf("got %d records, want 3", len(got))
+	if !slices.Equal(got, []uint32{1, 2, 3}) {
+		t.Errorf("zero cutoff all = %v, want [1 2 3]", got)
 	}
-	if got[2].ID != 3 {
-		t.Errorf("got[2].ID = %d, want 3", got[2].ID)
+
+	repo.ListStaleErr = errors.New("boom")
+	if _, err := repo.ListStaleIDs(ctx, time.Time{}, 10); err == nil {
+		t.Error("ListStaleIDs ignored the injected error")
+	}
+}
+
+func TestMockCharacterRepository_ListDeletedIDs(t *testing.T) {
+	repo := NewCharacterFake()
+	ctx := context.Background()
+
+	seen := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+	cutoff := time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC)
+	deleteAt := map[uint32]time.Time{
+		10: cutoff.Add(-48 * time.Hour),
+		11: cutoff.Add(-24 * time.Hour),
+		12: cutoff.Add(-72 * time.Hour),
+		13: cutoff,                     // exactly at the cutoff: not yet due
+		14: cutoff.Add(24 * time.Hour), // after the cutoff: not yet due
+	}
+	for id := uint32(10); id <= 15; id++ {
+		_ = repo.Upsert(ctx, contract.CharacterRecord{ID: id, Name: "C", World: "Balmung", FirstSeenAt: seen}, nil)
+		if at, ok := deleteAt[id]; ok {
+			_ = repo.MarkDeleted(ctx, id, at)
+		}
+	}
+
+	got, err := repo.ListDeletedIDs(ctx, cutoff, 10)
+	if err != nil {
+		t.Fatalf("ListDeletedIDs: %v", err)
+	}
+	if !slices.Equal(got, []uint32{12, 10, 11}) {
+		t.Errorf("due deleted = %v, want [12 10 11]", got)
+	}
+
+	got, _ = repo.ListDeletedIDs(ctx, cutoff, 2)
+	if !slices.Equal(got, []uint32{12, 10}) {
+		t.Errorf("bounded batch = %v, want [12 10]", got)
+	}
+
+	got, _ = repo.ListDeletedIDs(ctx, cutoff, 0)
+	if len(got) != 0 {
+		t.Errorf("zero limit = %v, want none", got)
+	}
+
+	repo.ListDeletedErr = errors.New("boom")
+	if _, err := repo.ListDeletedIDs(ctx, cutoff, 10); err == nil {
+		t.Error("ListDeletedIDs ignored the injected error")
 	}
 }
