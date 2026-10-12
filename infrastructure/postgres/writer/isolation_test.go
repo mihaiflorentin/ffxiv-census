@@ -9,6 +9,7 @@ import (
 
 	"github.com/mihaiflorentin88/ffxiv-census/infrastructure/postgres/writer"
 	mockrepo "github.com/mihaiflorentin88/ffxiv-census/mock/repository"
+	mockwriter "github.com/mihaiflorentin88/ffxiv-census/mock/writer"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
@@ -21,7 +22,7 @@ func stored(t *testing.T, repo *mockrepo.CharacterRepository, id uint32) bool {
 func TestBatchWriter_InvalidResultDoesNotStopItsNeighbours(t *testing.T) {
 	repo := mockrepo.NewCharacterFake()
 	repo.RejectID(2)
-	obs := &recordingObserver{}
+	obs := mockwriter.NewObserverFake()
 	w := writer.New(repo, writer.Config{BatchSize: 3, FlushInterval: time.Hour}, obs)
 	defer func() { _ = w.Close(context.Background()) }()
 
@@ -142,7 +143,7 @@ func TestBatchWriter_TransientErrorDuringIsolationStopsFurtherAttempts(t *testin
 func TestBatchWriter_ObservesEveryAttemptDuringIsolation(t *testing.T) {
 	repo := mockrepo.NewCharacterFake()
 	repo.RejectID(2)
-	obs := &recordingObserver{}
+	obs := mockwriter.NewObserverFake()
 	w := writer.New(repo, writer.Config{BatchSize: 2, FlushInterval: time.Hour}, obs)
 	defer func() { _ = w.Close(context.Background()) }()
 
@@ -151,8 +152,8 @@ func TestBatchWriter_ObservesEveryAttemptDuringIsolation(t *testing.T) {
 	_ = waitErr(t, a)
 	_ = waitErr(t, b)
 
-	got := obs.all()
-	if len(got) != 3 || got[0].size != 2 || got[0].err == nil {
+	got := obs.Flushes()
+	if len(got) != 3 || got[0].Size != 2 || got[0].Err == nil {
 		t.Fatalf("observed = %+v, want failed 2, then two single attempts", got)
 	}
 }

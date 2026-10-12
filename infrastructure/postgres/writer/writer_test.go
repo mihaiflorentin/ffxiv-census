@@ -3,12 +3,12 @@ package writer_test
 import (
 	"context"
 	"errors"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/mihaiflorentin88/ffxiv-census/infrastructure/postgres/writer"
 	mockrepo "github.com/mihaiflorentin88/ffxiv-census/mock/repository"
+	mockwriter "github.com/mihaiflorentin88/ffxiv-census/mock/writer"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
@@ -36,28 +36,6 @@ func waitErr(t *testing.T, ch <-chan error) error {
 		t.Fatal("Write did not return")
 		return nil
 	}
-}
-
-type flushRecord struct {
-	size int
-	err  error
-}
-
-type recordingObserver struct {
-	mu      sync.Mutex
-	flushes []flushRecord
-}
-
-func (o *recordingObserver) ObserveFlush(size int, _ time.Duration, err error) {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	o.flushes = append(o.flushes, flushRecord{size, err})
-}
-
-func (o *recordingObserver) all() []flushRecord {
-	o.mu.Lock()
-	defer o.mu.Unlock()
-	return append([]flushRecord(nil), o.flushes...)
 }
 
 func TestBatchWriter_FlushesWhenBatchSizeReachedInOneBatch(t *testing.T) {
@@ -114,7 +92,7 @@ func TestBatchWriter_FailedCommitIsReturnedToEveryWaiter(t *testing.T) {
 	repo := mockrepo.NewCharacterFake()
 	boom := errors.New("commit failed")
 	repo.UpsertBatchErr = boom
-	obs := &recordingObserver{}
+	obs := mockwriter.NewObserverFake()
 	w := writer.New(repo, writer.Config{BatchSize: 2, FlushInterval: time.Hour}, obs)
 	defer func() { _ = w.Close(context.Background()) }()
 
@@ -125,20 +103,20 @@ func TestBatchWriter_FailedCommitIsReturnedToEveryWaiter(t *testing.T) {
 			t.Fatalf("Write error = %v, want %v", err, boom)
 		}
 	}
-	if got := obs.all(); len(got) != 1 || got[0].size != 2 || !errors.Is(got[0].err, boom) {
+	if got := obs.Flushes(); len(got) != 1 || got[0].Size != 2 || !errors.Is(got[0].Err, boom) {
 		t.Fatalf("observed flushes = %+v, want one failed flush of size 2", got)
 	}
 }
 
 func TestBatchWriter_ObservesSuccessfulFlush(t *testing.T) {
-	obs := &recordingObserver{}
+	obs := mockwriter.NewObserverFake()
 	w := writer.New(mockrepo.NewCharacterFake(), writer.Config{BatchSize: 2, FlushInterval: time.Hour}, obs)
 	defer func() { _ = w.Close(context.Background()) }()
 
 	if err := waitErr(t, writeAsync(w, result(1, 2))); err != nil {
 		t.Fatalf("Write: %v", err)
 	}
-	if got := obs.all(); len(got) != 1 || got[0].size != 2 || got[0].err != nil {
+	if got := obs.Flushes(); len(got) != 1 || got[0].Size != 2 || got[0].Err != nil {
 		t.Fatalf("observed flushes = %+v, want one successful flush of size 2", got)
 	}
 }
