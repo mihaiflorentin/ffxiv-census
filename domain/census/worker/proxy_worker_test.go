@@ -579,7 +579,7 @@ func typedJobErr(kind contract.ProxyCheckKind, retryAfter time.Duration) error {
 	})
 }
 
-func TestTargetErrorDoesNotBecomeGeneralFailure(t *testing.T) {
+func TestTargetErrorIsATypedCause(t *testing.T) {
 	err := fmt.Errorf("request: %w", &contract.ProxyCheckError{
 		Kind: contract.CheckTarget, Reason: "http_503",
 		Err: errors.New("Service Unavailable"),
@@ -588,30 +588,8 @@ func TestTargetErrorDoesNotBecomeGeneralFailure(t *testing.T) {
 	if !errors.As(err, &e) {
 		t.Fatal("lost typed cause")
 	}
-	if isGeneralProxyFailure(err) {
+	if classifyProxyFailure(err) == proxyFailureDead {
 		t.Fatal("target 503 killed general health")
-	}
-}
-
-func TestIsGeneralProxyFailure_Classification(t *testing.T) {
-	cases := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"nil", nil, false},
-		{"plain error", errors.New("context deadline exceeded"), false},
-		{"proxy kind", &contract.ProxyCheckError{Kind: contract.CheckProxy}, true},
-		{"wrapped proxy kind", fmt.Errorf("request: %w", &contract.ProxyCheckError{Kind: contract.CheckProxy}), true},
-		{"target kind", &contract.ProxyCheckError{Kind: contract.CheckTarget}, false},
-		{"deadline kind", &contract.ProxyCheckError{Kind: contract.CheckDeadline}, false},
-		{"cancelled kind", &contract.ProxyCheckError{Kind: contract.CheckCancelled}, false},
-		{"local kind", &contract.ProxyCheckError{Kind: contract.CheckLocal}, false},
-	}
-	for _, tc := range cases {
-		if got := isGeneralProxyFailure(tc.err); got != tc.want {
-			t.Errorf("%s: isGeneralProxyFailure = %v, want %v", tc.name, got, tc.want)
-		}
 	}
 }
 

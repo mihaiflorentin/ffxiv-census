@@ -164,7 +164,7 @@ func (w *Worker) RunEvents(ctx context.Context, eventTypes []string, concurrency
 					slog.Any("error", err),
 				}, jobAttrs(job.Payload)...)...,
 			)
-			if strings.Contains(err.Error(), "429") || strings.Contains(err.Error(), "rate limit") {
+			if isRateLimited(err) {
 				select {
 				case <-processCtx.Done():
 					return err
@@ -220,15 +220,14 @@ func (w *Worker) waitForProviders(ctx context.Context, eventType string) error {
 	return nil
 }
 
-// isGeneralProxyFailure reports whether the error is a typed conclusive
-// proxy failure (*contract.ProxyCheckError with Kind CheckProxy), possibly
-// wrapped. Only proven proxy dial/negotiation failures kill general health;
-// deadline, TLS and read errors are ambiguous on this unguarded destination
-// path and stay ordinary job errors. Decisions use errors.As on the typed
-// fields, never error text.
-func isGeneralProxyFailure(err error) bool {
+// isRateLimited reports whether the destination answered 429: a typed
+// *contract.ProxyCheckError of kind CheckTarget carrying Status 429. Error
+// text is never parsed.
+func isRateLimited(err error) bool {
 	var checkErr *contract.ProxyCheckError
-	return errors.As(err, &checkErr) && checkErr.Kind == contract.CheckProxy
+	return errors.As(err, &checkErr) &&
+		checkErr.Kind == contract.CheckTarget &&
+		checkErr.Status == http.StatusTooManyRequests
 }
 
 // proxyFailureAction is what the consumer does about a failed job attempt.
@@ -357,22 +356,6 @@ func (t *lockRefreshThrottle) refreshedNow(proxyID int64) {
 
 // invalidate makes the next job refresh regardless of the interval.
 func (t *lockRefreshThrottle) invalidate() { t.proxyID = 0 }
-
-// isProxyCausedFailure reports whether the error may be the proxy's fault: a
-// dial failure, a destination rejection or a timeout. After one the held
-// proxy is re-validated at once instead of waiting for the refresh interval.
-func isProxyCausedFailure(err error) bool {
-	var checkErr *contract.ProxyCheckError
-	if !errors.As(err, &checkErr) {
-		return false
-	}
-	switch checkErr.Kind {
-	case contract.CheckProxy, contract.CheckTarget, contract.CheckDeadline:
-		return true
-	default:
-		return false
-	}
-}
 
 // missingHandlerError builds the sentinel-classified error for a delivery
 // whose event type has no registered handler. Wrapping contract.ErrNoHandler
@@ -705,7 +688,7 @@ func (w *Worker) proxyWorkerLoop(
 
 			// A proxy-caused failure may have cost the proxy its lock or its
 			// freshness: re-validate it before the next job.
-			if isProxyCausedFailure(jobErr) {
+			if contract.IsProxyAttributable(jobErr) {
 				lockRefresh.invalidate()
 			}
 
