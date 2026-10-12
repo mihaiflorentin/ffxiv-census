@@ -627,6 +627,26 @@ func (w *Worker) proxyWorkerLoop(
 	lockRefresh := &lockRefreshThrottle{interval: proxyHub.LockRefreshInterval(), now: w.now}
 	lockRefresh.refreshedNow(proxy.ID())
 
+	// rotateProxy replaces the held proxy (and its client, limiter and
+	// handlers) with a freshly acquired one. errFormat wraps the acquisition
+	// error with the reason for the rotation.
+	rotateProxy := func(ctx context.Context, errFormat string) error {
+		newProxy, newLodestone, newLimiter, newReg, err := w.replaceProxy(
+			ctx, proxy, lodestoneClient, owner, proxyHub,
+			newLodestoneClient, newRateLimiter, newHandlers,
+		)
+		if err != nil {
+			return fmt.Errorf(errFormat, err)
+		}
+		proxy = newProxy
+		lodestoneClient = newLodestone
+		proxyLimiter = newLimiter
+		handlers = newReg
+		lockRefresh.refreshedNow(proxy.ID())
+		w.logger.InfoContext(ctx, "worker.proxy_reacquired", slog.Int("worker_id", workerID), slog.String("proxy", proxy.Address()), slog.String("owner", owner))
+		return nil
+	}
+
 	processJob := func(ctx context.Context, job contract.QueueJob) error {
 		// Check proxy ownership and extend the lock, at most once per refresh
 		// interval for the held proxy. Use a short-lived context so shutdown
@@ -651,19 +671,9 @@ func (w *Worker) proxyWorkerLoop(
 		}
 		if !canUse {
 			w.logger.InfoContext(ctx, "worker.proxy_lost", slog.Int("worker_id", workerID), slog.String("proxy", proxy.Address()), slog.String("owner", owner))
-			newProxy, newLodestone, newLimiter, newReg, rerr := w.replaceProxy(
-				ctx, proxy, lodestoneClient, owner, proxyHub,
-				newLodestoneClient, newRateLimiter, newHandlers,
-			)
-			if rerr != nil {
-				return fmt.Errorf("proxy re-acquire: %w", rerr)
+			if rerr := rotateProxy(ctx, "proxy re-acquire: %w"); rerr != nil {
+				return rerr
 			}
-			proxy = newProxy
-			lodestoneClient = newLodestone
-			proxyLimiter = newLimiter
-			handlers = newReg
-			lockRefresh.refreshedNow(proxy.ID())
-			w.logger.InfoContext(ctx, "worker.proxy_reacquired", slog.Int("worker_id", workerID), slog.String("proxy", proxy.Address()), slog.String("owner", owner))
 		}
 
 		start := time.Now()
@@ -715,19 +725,9 @@ func (w *Worker) proxyWorkerLoop(
 				return jobErr
 			}
 
-			newProxy, newLodestone, newLimiter, newReg, rerr := w.replaceProxy(
-				ctx, proxy, lodestoneClient, owner, proxyHub,
-				newLodestoneClient, newRateLimiter, newHandlers,
-			)
-			if rerr != nil {
-				return fmt.Errorf("proxy re-acquire after failure: %w", rerr)
+			if rerr := rotateProxy(ctx, "proxy re-acquire after failure: %w"); rerr != nil {
+				return rerr
 			}
-			proxy = newProxy
-			lodestoneClient = newLodestone
-			proxyLimiter = newLimiter
-			handlers = newReg
-			lockRefresh.refreshedNow(proxy.ID())
-			w.logger.InfoContext(ctx, "worker.proxy_reacquired", slog.Int("worker_id", workerID), slog.String("proxy", proxy.Address()), slog.String("owner", owner))
 		}
 
 		// The job worked through this proxy: a failure streak is over. The
