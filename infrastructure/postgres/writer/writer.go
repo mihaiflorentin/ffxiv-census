@@ -5,6 +5,7 @@ package writer
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -158,24 +159,71 @@ func (w *BatchWriter) run() {
 	}
 }
 
-// flush stores every pending result in one transaction and gives every waiter
-// the same outcome.
+// flush stores the pending results and answers every waiter.
+//
+// Failure rule: the whole batch is first tried in ONE transaction. If that
+// fails with a data-level error (errors.Is(err, contract.ErrInvalidData): a
+// constraint violation or a value the database rejects), one result is to
+// blame and the transaction rolled back everything, so the batch is bisected:
+// each half is retried in its own transaction, recursively, until the
+// offending result stands alone and gets the error. Valid neighbours commit
+// and only the offender's job takes the queue's retry path. Cost is about
+// 2*log2(N) extra transactions per bad result.
+//
+// Any other error (connection loss, timeout, shutdown) says nothing about the
+// individual results, so it is NOT isolated: every result not yet committed
+// gets that error from the one attempt that hit it and nothing more is sent
+// to a struggling database. Their jobs are not acked and retry.
 func (w *BatchWriter) flush(batch []request, size int) {
+	_ = w.commit(batch, size)
+}
+
+// commit tries batch in one transaction and answers its waiters, bisecting on
+// data-level errors. It returns a non-nil error if a transient failure was
+// seen, so callers skip their remaining sibling attempts.
+func (w *BatchWriter) commit(batch []request, size int) error {
 	writes := make([]contract.CharacterWrite, 0, size)
 	for _, r := range batch {
 		writes = append(writes, r.result.Characters...)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), w.cfg.FlushTimeout)
-	defer cancel()
 	start := time.Now()
 	err := w.store.UpsertBatch(ctx, writes)
+	cancel()
 	if w.observer != nil {
 		w.observer.ObserveFlush(size, time.Since(start), err)
 	}
+
+	if err == nil || len(batch) == 1 || !errors.Is(err, contract.ErrInvalidData) {
+		answer(batch, err)
+		if err != nil && !errors.Is(err, contract.ErrInvalidData) {
+			return err
+		}
+		return nil
+	}
+
+	mid := len(batch) / 2
+	left, right := batch[:mid], batch[mid:]
+	if terr := w.commit(left, sizeOf(left)); terr != nil {
+		answer(right, terr)
+		return terr
+	}
+	return w.commit(right, sizeOf(right))
+}
+
+func answer(batch []request, err error) {
 	for _, r := range batch {
 		r.done <- err
 	}
+}
+
+func sizeOf(batch []request) int {
+	n := 0
+	for _, r := range batch {
+		n += r.result.Size()
+	}
+	return n
 }
 
 var _ contract.ResultWriter = (*BatchWriter)(nil)

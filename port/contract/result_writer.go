@@ -10,6 +10,14 @@ import (
 // closed: the result was not accepted and nothing was stored.
 var ErrWriterClosed = errors.New("result writer closed")
 
+// ErrInvalidData marks a store failure caused by the DATA of a write (a
+// constraint violation, a value the database rejects) rather than by the
+// infrastructure (lost connection, timeout, shutdown). Retrying the same data
+// can never succeed, but the other writes of a batch are unaffected, so a
+// writer may isolate the offending result instead of failing the whole batch.
+// CharacterRepository.UpsertBatch returns it joined with the cause.
+var ErrInvalidData = errors.New("invalid data")
+
 // CensusResult is a handler's finished work, ready to be stored. Handlers
 // fill only the parts their event produces. New result kinds (milestones,
 // latest achievement) are added as fields here so the port stays stable.

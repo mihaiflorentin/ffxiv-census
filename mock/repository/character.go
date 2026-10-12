@@ -16,13 +16,17 @@ import (
 // deleted_at clearing, jobs replacement, stale ordering) so handler tests don't
 // drift from production behavior.
 type CharacterRepository struct {
-	mu                       sync.Mutex
-	characters               map[uint32]contract.CharacterRecord
-	jobs                     map[uint32][]contract.ClassJobRecord
-	gear                     map[uint32][]contract.CharacterGearRecord
-	UpsertErr                error
-	UpsertBatchErr           error
-	UpsertBatchCalls         int
+	mu               sync.Mutex
+	characters       map[uint32]contract.CharacterRecord
+	jobs             map[uint32][]contract.ClassJobRecord
+	gear             map[uint32][]contract.CharacterGearRecord
+	UpsertErr        error
+	UpsertBatchErr   error
+	UpsertBatchCalls int
+	rejectIDs        map[uint32]bool
+	// OnUpsertBatch, when set, is called with the 1-based call number at the
+	// start of every UpsertBatch; a non-nil result fails that call.
+	OnUpsertBatch            func(call int) error
 	UpsertGearErr            error
 	GetGearErr               error
 	FindIDGapsAfterErr       error
@@ -76,12 +80,32 @@ func (f *CharacterRepository) Upsert(ctx context.Context, rec contract.Character
 	return nil
 }
 
+// RejectID makes any UpsertBatch containing a write for id fail with
+// contract.ErrInvalidData before anything is stored, like a database that
+// rejects that row and rolls the transaction back.
+func (f *CharacterRepository) RejectID(id uint32) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.rejectIDs == nil {
+		f.rejectIDs = map[uint32]bool{}
+	}
+	f.rejectIDs[id] = true
+}
+
 // UpsertBatch applies every write; UpsertBatchErr fails the whole batch before
 // anything is stored, like a rolled-back transaction.
 func (f *CharacterRepository) UpsertBatch(ctx context.Context, writes []contract.CharacterWrite) error {
 	f.mu.Lock()
 	f.UpsertBatchCalls++
 	err := f.UpsertBatchErr
+	if err == nil && f.OnUpsertBatch != nil {
+		err = f.OnUpsertBatch(f.UpsertBatchCalls)
+	}
+	for _, w := range writes {
+		if err == nil && f.rejectIDs[w.Record.ID] {
+			err = fmt.Errorf("character %d rejected: %w", w.Record.ID, contract.ErrInvalidData)
+		}
+	}
 	f.mu.Unlock()
 	if err != nil {
 		return err
