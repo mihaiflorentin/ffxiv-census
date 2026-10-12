@@ -238,6 +238,56 @@ func TestNewConfigRejectsNonPositiveThresholds(t *testing.T) {
 	})
 }
 
+func TestNewConfig_ProxyRetireDefaults(t *testing.T) {
+	cfg, err := NewConfig()
+	if err != nil {
+		t.Fatalf("unexpected error loading defaults: %v", err)
+	}
+	retire := cfg.Proxy.Retire
+	if retire.AfterFailures != 10 {
+		t.Errorf("expected retire.after_failures 10, got %d", retire.AfterFailures)
+	}
+	if retire.AfterDays != 14 {
+		t.Errorf("expected retire.after_days 14, got %d", retire.AfterDays)
+	}
+	if retire.SweepInterval != time.Hour {
+		t.Errorf("expected retire.sweep_interval 1h, got %s", retire.SweepInterval)
+	}
+	if retire.SweepBatch != 5000 {
+		t.Errorf("expected retire.sweep_batch 5000, got %d", retire.SweepBatch)
+	}
+}
+
+func TestNewConfig_ProxyRetireOverrides(t *testing.T) {
+	t.Setenv("PROXY_RETIRE_AFTER_FAILURES", "3")
+	t.Setenv("PROXY_RETIRE_AFTER_DAYS", "30")
+	cfg, err := NewConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Proxy.Retire.AfterFailures != 3 || cfg.Proxy.Retire.AfterDays != 30 {
+		t.Errorf("env overrides not applied: %+v", cfg.Proxy.Retire)
+	}
+}
+
+func TestNewConfigRejectsInvalidRetireSettings(t *testing.T) {
+	for _, key := range []string{
+		"PROXY_RETIRE_AFTER_FAILURES",
+		"PROXY_RETIRE_AFTER_DAYS",
+		"PROXY_RETIRE_SWEEP_INTERVAL",
+		"PROXY_RETIRE_SWEEP_BATCH",
+	} {
+		for _, val := range []string{"0", "-1"} {
+			t.Run(key+"="+val, func(t *testing.T) {
+				t.Setenv(key, val)
+				if _, err := NewConfig(); err == nil {
+					t.Fatalf("accepted %s=%q", key, val)
+				}
+			})
+		}
+	}
+}
+
 func TestNewConfig_ProxyScanDefaults(t *testing.T) {
 	cfg, err := NewConfig()
 	if err != nil {

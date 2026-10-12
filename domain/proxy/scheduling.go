@@ -67,6 +67,7 @@ func MakeScanUpdate(p contract.ProxyScanPolicy, rec contract.ProxyRecord,
 		FreshnessTTL:  p.FreshnessTTL,
 		DeadAfter:     p.DeadAfter,
 		FailThreshold: p.FailThreshold,
+		Retirement:    p.Retirement,
 	}
 
 	switch outcome := ClassifyCheck(err, start, finish); outcome {
