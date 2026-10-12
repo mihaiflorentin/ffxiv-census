@@ -9,7 +9,7 @@ The proxy feature is a separate bounded context (`domain/proxy/`) with its own C
 | Layer | Path | Purpose |
 |-------|------|---------|
 | Port contracts | `port/contract/proxy.go` | `ProxyProvider`, `ProxyRepository`, `ProxyRecord` (scheduling columns) |
-| Port contracts | `port/contract/proxy_scan.go` | `ProxyScanStore`, `ProxyScanPolicy`, `ScanLease`, `ScanUpdate`, `ProxyChecker` typed errors, `ProxyEndpointGuard` |
+| Port contracts | `port/contract/proxy_scan.go` | `ProxyScanStore`, `ProxyRetirementStore`, `RetirementRule`, `ProxyScanPolicy`, `ScanLease`, `ScanUpdate`, `ProxyChecker` typed errors, `ProxyEndpointGuard` |
 | Domain service | `domain/proxy/service.go` | New-proxy ingestion |
 | Domain objects | `domain/proxy/proxy.go` | `Proxy` — consumer lifecycle over `RefreshConsumerLock`, fenced `MarkFailed`, `CooldownDestination`, `ResetDestinationFailures` |
 | Domain cooldown | `domain/proxy/cooldown.go` | `DestinationBackoff` — floor doubled per consecutive failure, capped, never below `Retry-After` |
@@ -17,6 +17,7 @@ The proxy feature is a separate bounded context (`domain/proxy/`) with its own C
 | Domain hub | `domain/proxy/hub.go` | `ProxyHub` — tested, fenced, owner-locked handout (`NewProxy`), random discovery selection |
 | Domain scanner | `domain/proxy/worker/scan.go` | Single-dispatcher lease-based scan worker |
 | Domain admission | `domain/proxy/worker/admission.go` | Persistent round-robin admission state |
+| Domain retirement | `domain/proxy/worker/retire.go` | `RetirementSweep` — paced, batched retirement of rows already over the thresholds |
 | Domain consumer | `domain/proxy/worker/worker.go` | `new-proxy` event consumer |
 | Infrastructure | `infrastructure/proxy/health.go` | General checker: complete-response GET through the proxy to the health target (default The Lodestone) |
 | Infrastructure | `infrastructure/proxy/checker.go` | Destination checker: complete-response GET to The Lodestone with `Retry-After` parsing |
@@ -37,9 +38,12 @@ The proxy feature is a separate bounded context (`domain/proxy/`) with its own C
 
 # Consume new-proxy events (long-running)
 ./bin/ffxiv-census proxy consume -c 30
+
+# Retire proxies that never worked and kept failing: one full sweep, then exit
+./bin/ffxiv-census proxy retire
 ```
 
-`proxy scan` takes no scheduling flags other than `-c`; invalid nonpositive explicit values fail startup. In Kubernetes `proxy-scan` runs as a Deployment with 5 replicas × `-c 150`; `proxy-discover` runs as a CronJob every two minutes.
+`proxy scan` takes no scheduling flags other than `-c`; invalid nonpositive explicit values fail startup. It also runs the retirement sweep (see [Retirement and revival](#retirement-and-revival)). In Kubernetes `proxy-scan` runs as a Deployment with 5 replicas × `-c 150`; `proxy-discover` runs as a CronJob every two minutes.
 
 ## Scan pipeline
 
@@ -51,7 +55,7 @@ The scan worker leases due rows from three queues and runs each check inside a b
 |-------|---------------|-------|------------------|
 | verification | `general_healthy` | `next_attempt_at` (oldest first) | yes |
 | recovery | not healthy, completed at least once | `next_attempt_at` (oldest first) | yes |
-| background | not healthy | `last_completed_at` (oldest/NULL first) | no — ignores the recovery deadline, honors the common cooldown |
+| background | not healthy and not retired | `last_completed_at` (oldest/NULL first) | no — ignores the recovery deadline, honors the common cooldown |
 
 Long-run capacity shares default to 10/45/45 (`weight_verification`, `weight_recovery`, `weight_background`; must sum to 100). Reservations are filled verification-first; remaining free capacity is lent by round-robin borrowing. Below three slots a persistent small-worker round robin owns every admission. An empty queue never blocks the others: completions trigger immediate re-admission and a 1 s poll timer guarantees progress while nothing completes.
 
@@ -78,10 +82,24 @@ The dispatcher re-reads the guard immediately before persistence: a guard genera
 ### Transitions
 
 - **success** — `general_healthy = true`, latency recorded, next verification scheduled at `verification_interval` (default 60 s), recovery sequence reset.
-- **failure** — `general_healthy = false`, recovery step advances (delay doubles from `recovery_base` 1 m to `recovery_cap` 15 m, bounded by `recovery_horizon` 1 h), the common repeat position moves by `min_repeat_interval` only so recovery backoff never widens the background cooldown. The historical `status` column still dead-ends at `fail_count_threshold` (5) or `dead_threshold_days` (48 h since last success, first-seen fallback); it is bookkeeping, not availability.
+- **failure** — `general_healthy = false`, recovery step advances (delay doubles from `recovery_base` 1 m to `recovery_cap` 15 m, bounded by `recovery_horizon` 1 h), the common repeat position moves by `min_repeat_interval` only so recovery backoff never widens the background cooldown. The historical `status` column still dead-ends at `fail_count_threshold` (5) or `dead_threshold_days` (48 h since last success, first-seen fallback); it is bookkeeping, not availability. The failing attempt that satisfies the retirement rule also sets `retired_at` in the same write, and a success clears it (see below).
 - **inconclusive** — no history change; retried after the floor.
 
 Shutdown releases leases it still owns on bounded fresh contexts after a ≤5 s drain of in-flight results; anything unreleased expires and is reclaimed lazily.
+
+### Retirement and revival
+
+Production holds about 1.85M proxies with status `dead` and a 0.03 % yield, and with only a 1 s repeat floor the background queue cycled all of them forever (about 3.7M row updates per pass). A **retired proxy** leaves that sweep:
+
+- **Rule.** A proxy is retired when it never worked (`last_alive_at IS NULL`), has failed at least `after_failures` times (default 10) and was first seen at least `after_days` days ago (default 14). A proxy that worked even once is never retired, however long it has been failing. Both thresholds are configuration (`[proxy.retire]`).
+- **Rows stay.** Retirement sets `retired_at`; the row is not deleted. The unique key `(protocol, ip, port)` therefore keeps blocking re-insertion: `InsertIfAbsent` returns `(0, false)` and `Exists` returns true for a retired tuple.
+- **Where it is applied.** (1) In the normal completion path: a conclusive failure that satisfies the rule sets `retired_at` in the same `UPDATE` as the failure transition, so it costs no extra write (an existing `retired_at` is kept). (2) By the `RetirementSweep`, for rows that were already over the thresholds when the feature shipped and rows that only crossed the age threshold with time. A success clears `retired_at`, so a row retired while a scan was in flight and then proven working is live again.
+- **Revival.** `ProxyRepository.MarkListed(endpoints)` records that a provider listed the endpoints again: it stamps `last_listed_at` and clears `retired_at`. Unknown endpoints are ignored (inserting is `InsertIfAbsent`'s job), duplicates in one call count once, and a row stamped within the last hour is skipped, so a busy list costs at most one write per row per hour (the rate limit also applies to the revival itself). Rows locked by a concurrent scan are skipped rather than waited on. The call takes any number of endpoints and works in chunks of 5000 per statement. A revived row keeps its failure count, so if it is still dead the next failed scan retires it again: one probe per re-listing, at most once per hour. Discovery calls `MarkListed` as part of the discovery rework (ticket #42); until then retired rows can only be revived by calling the operation directly.
+- **Counting.** `CountByStatus` reports retired rows in their own `retired` bucket instead of their stored status.
+
+**First pass over existing rows.** The migration (`00021`) only adds the nullable columns and the index; it does not retire anything, because one `UPDATE` over ~1.85M rows would hold a long write transaction (and a burst of WAL) on every replica that boots and runs migrations. The `proxy scan` command instead starts a `RetirementSweep` alongside the scanner. It walks the table in ID order in windows of `sweep_batch` rows (default 5000), retires the matching rows of each window with one short statement, rests 100 ms between windows, and repeats a full pass every `sweep_interval` (default 1 h). The first pass over 1.85M rows is about 370 statements. The sweep is resumable and idempotent (`retired_at IS NULL` in the predicate), safe to run from all five replicas at once, and stops promptly on shutdown. `proxy retire` runs one full pass by hand.
+
+**Not done: scanning recently listed proxies first.** The background queue still orders by `last_completed_at`, so a proxy a provider just listed waits its turn among the live candidates. Ranking by `last_listed_at` first needs a second partial index or a changed sort key on `idx_proxies_background_live`, and a decision on how discovery stamps first-time listings; `last_listed_at` is recorded now so that ranking can be added later without a backfill.
 
 ### Endpoint guard
 
@@ -97,8 +115,11 @@ All `proxies` indexes beyond the primary key and the `(protocol, ip, port)` uniq
 | `idx_proxies_recovery_due` | `(next_attempt_at, id)` | `NOT general_healthy AND last_verified_at IS NOT NULL` | recovery queue (older shape) |
 | `idx_proxies_recovery_claim` | `(next_attempt_at NULLS FIRST, id) INCLUDE (last_verified_at, scan_lease_until, scan_not_before)` | `NOT general_healthy AND last_verified_at IS NOT NULL` | recovery queue, deadline order |
 | `idx_proxies_recovery_recent` | `(last_verified_at)` | `NOT general_healthy AND last_verified_at IS NOT NULL` | recovery queue, range of rows verified within the horizon |
-| `idx_proxies_background_completed` | `(last_completed_at NULLS FIRST, id)` | `NOT general_healthy` | background queue |
+| `idx_proxies_background_completed` | `(last_completed_at NULLS FIRST, id)` | `NOT general_healthy` | background queue before retirement; kept so replicas still on the old claim keep an index, then a follow-up migration can drop it |
+| `idx_proxies_background_live` | `(last_completed_at NULLS FIRST, id)` | `NOT general_healthy AND retired_at IS NULL` | background queue: only the live candidates, so the index shrinks from ~1.85M rows to the rows that can still recover |
 | `idx_proxies_fresh_verified` | `(last_verified_at)` | `general_healthy` | freshness reads (`ListActive`, `ClaimProxy`, `RandomActive`, `CountByStatus`) |
+
+Migration `00021` adds `retired_at` and `last_listed_at` and creates `idx_proxies_background_live` (`CONCURRENTLY`, `IF NOT EXISTS`). The background claim predicate (`NOT general_healthy AND retired_at IS NULL`) must stay identical to that index predicate, and `TestClaimScansBackground_UsesLiveCandidateIndex` pins the plan, generic plans included.
 
 Migration `00020` records the two recovery indexes created by hand on production on 2026-10-12 (`IF NOT EXISTS`, so production is unaffected) and drops `idx_proxies_available` and `idx_proxies_scan_priority`. No query filters on `status`, `locked_at` or `last_scanned_at` with an index in mind, and `locked_at`/`status` change on every consumer claim, refresh and release, so keeping them indexed forced non-HOT updates.
 
@@ -114,7 +135,7 @@ general_healthy AND last_verified_at > <database time> - freshness_ttl
 
 `freshness_ttl` defaults to 120 s and must exceed `verification_interval + test_timeout` (validated at startup). The predicate gates `ListActive`, `CountByStatus`, `ClaimProxy`, `RefreshConsumerLock`, and `RandomActive`:
 
-- `active` = the fresh predicate holds; a historically active but non-fresh row counts as `stale`; historical `inactive`/`dead` categories are preserved.
+- `active` = the fresh predicate holds; a retired row counts as `retired`; a historically active but non-fresh row counts as `stale`; historical `inactive`/`dead` categories are preserved for the remaining rows.
 - `ClaimProxy` and `RefreshConsumerLock` additionally require an expired/absent destination cooldown and an unlocked (or TTL-expired) row.
 - `RandomActive` applies the fresh predicate and ID exclusions but no destination-cooldown filter — cooldowns gate consumers, not provider discovery.
 - There is no stale fallback: a non-fresh proxy is never handed to a consumer.
@@ -188,6 +209,12 @@ min_repeat_interval   = "1s"    # common minimum-repeat cooldown (scan_not_befor
 inconclusive_retry    = "60s"   # floor for retrying inconclusive attempts
 control_interval      = "30s"   # guard control cadence
 
+[proxy.retire]
+after_failures = 10      # never-worked proxy is retired after this many conclusive failures...
+after_days     = 14      # ...and once first seen at least this many days ago
+sweep_interval = "1h"    # how often the sweep re-checks the whole table
+sweep_batch    = 5000    # rows examined per statement
+
 [proxy.consumer]
 lock_ttl             = "5m"                                    # consumer lock TTL
 lodestone_rate_limit = 1.0                                     # req/s override in proxy mode
@@ -202,7 +229,7 @@ lock_refresh_interval = "100s"                                 # max one lock re
 
 `request_timeout` (30s) bounds how long one consumer HTTP attempt may hang on a stalled proxy. It stays deliberately more generous than the scanner's `test_timeout` (10s): a slow-but-alive proxy that answers a character page in 10–25s still completes, and failures fall through to queue retries rather than wasting an otherwise working identity.
 
-Every field overrides through an environment variable named by upper-casing the key path with `.` → `_` (viper `AutomaticEnv`): `PROXY_TEST_URL`, `PROXY_SCAN_LEASE_DURATION`, `PROXY_SCAN_WEIGHT_BACKGROUND`, `PROXY_CONSUMER_LOCK_TTL`, and so on. Startup validation fails closed on impossible combinations (freshness vs verification+timeout, lease vs timeout, weights sum, nonpositive durations, `lock_refresh_interval` not below half of `lock_ttl`).
+Every field overrides through an environment variable named by upper-casing the key path with `.` → `_` (viper `AutomaticEnv`): `PROXY_TEST_URL`, `PROXY_SCAN_LEASE_DURATION`, `PROXY_SCAN_WEIGHT_BACKGROUND`, `PROXY_RETIRE_AFTER_FAILURES`, `PROXY_RETIRE_AFTER_DAYS`, `PROXY_CONSUMER_LOCK_TTL`, and so on. Startup validation fails closed on impossible combinations (freshness vs verification+timeout, lease vs timeout, weights sum, nonpositive durations, `lock_refresh_interval` not below half of `lock_ttl`).
 
 ## Kubernetes deployment
 
@@ -232,9 +259,9 @@ The scanner logs one structured event per persisted attempt on the existing `slo
  "previously_healthy":true,"verify_late":1000000000}
 ```
 
-`queue` ∈ verification/recovery/background; `outcome` ∈ success/failure/inconclusive; `reason` is the bounded typed label; `verify_late` (when present) is how far past `next_attempt_at` the check landed. Further events: `proxy_scan.claim` (debug; queue, requested/claimed, duration), `proxy_scan.claim_error`, `proxy_scan.complete_error`, `proxy_scan.release_error`, `proxy_scan.shutdown_incomplete`, `proxy_scan.panic_recovered`, and the guard transitions `endpoint control failed; pausing scan claims` / `endpoint control succeeded; scan claims resume` (with generation). The consumer side logs `worker.proxy_acquired`, `worker.proxy_bad`, `worker.proxy_reacquired`, `worker.proxy_waiting`, and `worker.job_retry`.
+`queue` ∈ verification/recovery/background; `outcome` ∈ success/failure/inconclusive; `reason` is the bounded typed label; `verify_late` (when present) is how far past `next_attempt_at` the check landed. Further events: `proxy_scan.claim` (debug; queue, requested/claimed, duration), `proxy_scan.claim_error`, `proxy_scan.complete_error`, `proxy_scan.release_error`, `proxy_scan.shutdown_incomplete`, `proxy_scan.panic_recovered`, the retirement sweep's `proxy_retire.sweep` (retired count and duration per full pass), `proxy_retire.sweep_error` and `proxy_retire.disabled`, and the guard transitions `endpoint control failed; pausing scan claims` / `endpoint control succeeded; scan claims resume` (with generation). The consumer side logs `worker.proxy_acquired`, `worker.proxy_bad`, `worker.proxy_reacquired`, `worker.proxy_waiting`, and `worker.job_retry`.
 
-Experiment/operations SQL over the same database (no separate telemetry subsystem): health totals via `CountByStatus`; oldest completed background age = `min(last_completed_at)` over not-healthy completed rows; unknown-history count = rows with `last_completed_at IS NULL`; overdue verification count = healthy rows with `next_attempt_at < now() - grace`. Distinguish locally logged attempts from accepted persisted observations by filtering `accepted=true`.
+Experiment/operations SQL over the same database (no separate telemetry subsystem): health totals via `CountByStatus`; oldest completed background age = `min(last_completed_at)` over not-healthy completed rows; unknown-history count = rows with `last_completed_at IS NULL`; retired count = rows with `retired_at IS NOT NULL` (the `retired` bucket of `CountByStatus`); overdue verification count = healthy rows with `next_attempt_at < now() - grace`. Distinguish locally logged attempts from accepted persisted observations by filtering `accepted=true`.
 
 ## Measured local exercise (2026-09-09)
 
@@ -265,4 +292,4 @@ There is no rolling mixed-binary cutover, no automatic destructive rollback (rol
 
 ## Discovery
 
-`proxy discover` streams provider responses directly to RabbitMQ (bounded memory), deduplicates each tuple with a read-only `Exists` check before publication, and treats `--limit` as a global publication cap. Providers run sequentially in configured order; a provider lookup error fails that provider closed without publishing. The rotating discovery HTTP client uses `RandomActive` (fresh pool, ID exclusions) and swaps on 403/429/5xx or transport failure without marking proxies — provider blocks say nothing about general health.
+`proxy discover` streams provider responses directly to RabbitMQ (bounded memory), deduplicates each tuple with a read-only `Exists` check before publication (retired proxies still exist, so they are never re-registered), and treats `--limit` as a global publication cap. Providers run sequentially in configured order; a provider lookup error fails that provider closed without publishing. The rotating discovery HTTP client uses `RandomActive` (fresh pool, ID exclusions) and swaps on 403/429/5xx or transport failure without marking proxies — provider blocks say nothing about general health.

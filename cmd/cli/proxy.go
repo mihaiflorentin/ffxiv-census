@@ -180,6 +180,23 @@ func runScanWorker(ctx context.Context, concurrency int) error {
 		return fmt.Errorf("proxy repository does not support the scan store contract")
 	}
 
+	// The retirement sweep retires rows that were already over the thresholds
+	// (the first pass after the feature ships covers ~1.85M rows in paced
+	// batches) and rows that only crossed the age threshold with time. It
+	// shares this command's lifecycle and never stops the scan on failure.
+	interval, batch := container.Load.ProxyRetirementSweepSettings()
+	sweep, err := newRetirementSweep(repo, container.Load.ProxyRetirementRule(), interval, batch, logger)
+	if err != nil {
+		return err
+	}
+	sweepCtx, stopSweep := context.WithCancel(ctx)
+	defer stopSweep()
+	sweepDone := make(chan struct{})
+	go func() {
+		defer close(sweepDone)
+		_ = sweep.Run(sweepCtx)
+	}()
+
 	// The endpoint guard is owned by this command's cancellable lifecycle:
 	// it observes this replica's own egress with a bounded direct control
 	// request and pauses claims while the endpoint is unhealthy.
@@ -200,13 +217,27 @@ func runScanWorker(ctx context.Context, concurrency int) error {
 		scanWorker.SetNotifier(hub.NotifyAvailable)
 	}
 
-	err := scanWorker.RunScan(ctx, concurrency)
+	err = scanWorker.RunScan(ctx, concurrency)
+	stopSweep()
+	<-sweepDone
 	// RunScan returns only on cancellation, so the guard has observed the
 	// same cancellation and its Run loop is winding down.
 	if guardErr := <-guardDone; guardErr != nil {
 		logger.ErrorContext(ctx, "proxy_scan.guard_exit", slog.Any("error", guardErr))
 	}
 	return err
+}
+
+// newRetirementSweep builds the retirement sweep over the repository's
+// retirement store.
+func newRetirementSweep(repo contract.ProxyRepository, rule contract.RetirementRule,
+	interval time.Duration, batch int, logger contract.Logger,
+) (*worker.RetirementSweep, error) {
+	store, ok := repo.(contract.ProxyRetirementStore)
+	if !ok {
+		return nil, fmt.Errorf("proxy repository does not support the retirement store contract")
+	}
+	return worker.NewRetirementSweep(store, rule, interval, batch, logger), nil
 }
 
 var proxyScanCmd = &cobra.Command{
@@ -224,6 +255,37 @@ replica's own egress is unhealthy.`,
 		defer stop()
 
 		return runScanWorker(ctx, concurrency)
+	},
+}
+
+var proxyRetireCmd = &cobra.Command{
+	Use:   "retire",
+	Short: "Retire proxies that never worked and kept failing (one full sweep, then exit)",
+	Long: `Run one full retirement pass over the proxy table and exit. A proxy that
+never worked, has failed at least [proxy.retire] after_failures times and was
+first seen at least after_days ago is retired: the background scan skips it
+and the row stays so discovery cannot re-insert it. The pass works in
+sweep_batch-sized steps with a short rest between them, so it is safe to run
+against a live database. The proxy scan command runs the same sweep on its
+own at start and every sweep_interval; this command is for running it by hand.`,
+	Args: cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		defer stop()
+
+		logger := container.Load.Logger()
+		repo := container.Load.ProxyRepository()
+		if repo == nil {
+			return fmt.Errorf("proxy repository not initialised")
+		}
+		interval, batch := container.Load.ProxyRetirementSweepSettings()
+		sweep, err := newRetirementSweep(repo, container.Load.ProxyRetirementRule(), interval, batch, logger)
+		if err != nil {
+			return err
+		}
+		retired, err := sweep.SweepOnce(ctx)
+		logger.InfoContext(ctx, "proxy.retire.complete", "retired", retired)
+		return err
 	},
 }
 
@@ -259,6 +321,7 @@ func init() {
 
 	proxyCmd.AddCommand(proxyDiscoverCmd)
 	proxyCmd.AddCommand(proxyScanCmd)
+	proxyCmd.AddCommand(proxyRetireCmd)
 	proxyCmd.AddCommand(proxyConsumeCmd)
 
 	proxyDiscoverCmd.Flags().IntP("limit", "l", 0, "max proxies to publish after deduplication (0 = no limit)")

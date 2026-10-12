@@ -76,6 +76,18 @@ min_repeat_interval   = "1s"
 inconclusive_retry    = "60s"
 control_interval      = "30s"
 
+# A proxy that never worked, has failed at least after_failures times and was
+# first seen at least after_days ago is retired: the background scan skips it,
+# the row stays (the unique key blocks re-insertion) and a provider listing it
+# again revives it. The sweep retires rows that were already over the
+# thresholds, in batches of sweep_batch, once at scan start and then every
+# sweep_interval.
+[proxy.retire]
+after_failures = 10
+after_days     = 14
+sweep_interval = "1h"
+sweep_batch    = 5000
+
 [proxy.providers]
 proxyscrape     = true
 proxyscrape_url = "https://api.proxyscrape.com/v4/free-proxy-list/get"

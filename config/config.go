@@ -185,6 +185,7 @@ type ProxyConfig struct {
 	DeadThresholdDays  int                 `mapstructure:"dead_threshold_days"`
 	FailCountThreshold int                 `mapstructure:"fail_count_threshold"`
 	Scan               ProxyScanConfig     `mapstructure:"scan"`
+	Retire             ProxyRetireConfig   `mapstructure:"retire"`
 	Providers          ProxyProviderConfig `mapstructure:"providers"`
 	Consumer           ProxyConsumerConfig `mapstructure:"consumer"`
 }
@@ -205,6 +206,17 @@ type ProxyScanConfig struct {
 	MinRepeatInterval    time.Duration `mapstructure:"min_repeat_interval"`
 	InconclusiveRetry    time.Duration `mapstructure:"inconclusive_retry"`
 	ControlInterval      time.Duration `mapstructure:"control_interval"`
+}
+
+// ProxyRetireConfig holds the retirement thresholds and the cadence of the
+// sweep that retires existing rows. A proxy that never worked, has failed at
+// least AfterFailures times and was first seen at least AfterDays ago is
+// retired: the background scan skips it until a provider lists it again.
+type ProxyRetireConfig struct {
+	AfterFailures int           `mapstructure:"after_failures"`
+	AfterDays     int           `mapstructure:"after_days"`
+	SweepInterval time.Duration `mapstructure:"sweep_interval"`
+	SweepBatch    int           `mapstructure:"sweep_batch"`
 }
 
 type ProxyConsumerConfig struct {
@@ -377,6 +389,20 @@ func validateProxySettings(cfg *Config) error {
 	if scan.MinRepeatInterval > scan.InconclusiveRetry {
 		return fmt.Errorf("config: proxy.scan.min_repeat_interval (%s) must not exceed inconclusive_retry (%s)",
 			scan.MinRepeatInterval, scan.InconclusiveRetry)
+	}
+
+	retire := &proxy.Retire
+	if retire.AfterFailures <= 0 {
+		return fmt.Errorf("config: proxy.retire.after_failures must be positive, got %d", retire.AfterFailures)
+	}
+	if retire.AfterDays <= 0 {
+		return fmt.Errorf("config: proxy.retire.after_days must be positive, got %d", retire.AfterDays)
+	}
+	if err := validatePositiveDuration("proxy.retire.sweep_interval", retire.SweepInterval); err != nil {
+		return err
+	}
+	if retire.SweepBatch <= 0 {
+		return fmt.Errorf("config: proxy.retire.sweep_batch must be positive, got %d", retire.SweepBatch)
 	}
 
 	if err := validateHTTPSURL("proxy.consumer.test_url", proxy.Consumer.TestURL); err != nil {

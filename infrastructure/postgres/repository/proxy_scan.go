@@ -18,8 +18,9 @@ import (
 // reads and the ProxyScanStore lease pipeline. The concrete constructor
 // return lets callers reach either port from one adapter.
 var (
-	_ contract.ProxyScanStore  = (*ProxyRepository)(nil)
-	_ contract.ProxyRepository = (*ProxyRepository)(nil)
+	_ contract.ProxyScanStore       = (*ProxyRepository)(nil)
+	_ contract.ProxyRepository      = (*ProxyRepository)(nil)
+	_ contract.ProxyRetirementStore = (*ProxyRepository)(nil)
 )
 
 // newScanToken returns a fresh 128-bit hex nonce. A batch token paired with
@@ -61,7 +62,9 @@ func claimQueueWhere(queue contract.ScanQueue, recoveryHorizon time.Duration) (s
 				strconv.FormatFloat(recoveryHorizon.Seconds(), 'f', -1, 64)),
 			`p2.next_attempt_at ASC NULLS FIRST, p2.id ASC`, true
 	case contract.ScanBackground:
-		return `NOT p2.general_healthy`,
+		// Retired proxies stay in the table but leave the sweep; this
+		// predicate must match idx_proxies_background_live exactly.
+		return `NOT p2.general_healthy AND p2.retired_at IS NULL`,
 			`p2.last_completed_at ASC NULLS FIRST, p2.id ASC`, true
 	default:
 		return "", "", false
@@ -232,6 +235,7 @@ func (r *ProxyRepository) CompleteScan(ctx context.Context, lease contract.ScanL
 			recovery_step = 0,
 			next_attempt_at = $3,
 			scan_not_before = $4,
+			retired_at = NULL,
 			observation_version = observation_version + 1,
 			scan_token = NULL,
 			scan_lease_until = NULL,
@@ -255,15 +259,22 @@ func (r *ProxyRepository) CompleteScan(ctx context.Context, lease contract.ScanL
 			recovery_step = $7,
 			next_attempt_at = $3,
 			scan_not_before = $4,
+			retired_at = COALESCE(retired_at, $10),
 			observation_version = observation_version + 1,
 			scan_token = NULL,
 			scan_lease_until = NULL,
 			claimed_version = NULL,
 			updated_at = $2
 			WHERE %s`, fencedWhere(1, 8, 9, 2))
+		// The failure that satisfies the retirement rule retires the proxy
+		// in the same write; an existing retirement time is kept.
+		var retiredAt any
+		if shouldRetire(current, newFailCount, dbNow, update.Retirement) {
+			retiredAt = dbNow
+		}
 		args = []any{
 			lease.Record.ID, dbNow, dbNow.Add(update.NextDelay), dbNow.Add(update.RepeatDelay),
-			status, newFailCount, update.RecoveryStep, lease.Token, lease.Version,
+			status, newFailCount, update.RecoveryStep, lease.Token, lease.Version, retiredAt,
 		}
 	case contract.ScanInconclusive:
 		// No evidence either way: preserve health, status, failure history,
@@ -451,6 +462,58 @@ func (r *ProxyRepository) CooldownDestination(ctx context.Context, id int64, own
 		return fmt.Errorf("destination cooldown: %w", err)
 	}
 	return nil
+}
+
+// shouldRetire applies the retirement rule to a row after a conclusive
+// failure: it never worked, has failed at least MinFailures times and was
+// first seen at least MinAge ago. The SQL sweep (RetireStale) states the same
+// predicate; keep them in step.
+func shouldRetire(current *contract.ProxyRecord, newFailCount int, dbNow time.Time, rule contract.RetirementRule) bool {
+	return rule.Enabled() &&
+		current.LastAliveAt == nil &&
+		newFailCount >= rule.MinFailures &&
+		dbNow.Sub(current.FirstSeenAt) >= rule.MinAge
+}
+
+// RetireStale retires matching proxies in one bounded step. The step walks a
+// window of at most batch rows in ID order starting after afterID (the window
+// bounds the work whatever share of it matches) and retires the matching rows
+// of that window in one short statement. Rows stay in the table, so the unique
+// key keeps discovery from re-inserting them. The predicate mirrors
+// shouldRetire; retired_at IS NULL makes repeats and concurrent sweeps no-ops.
+func (r *ProxyRepository) RetireStale(ctx context.Context, rule contract.RetirementRule, afterID int64, batch int) (contract.RetireBatch, error) {
+	if batch <= 0 {
+		return contract.RetireBatch{}, fmt.Errorf("proxy retire: batch must be positive, got %d", batch)
+	}
+	if !rule.Enabled() {
+		return contract.RetireBatch{NextID: afterID, Done: true}, nil
+	}
+	db, err := r.driver.Acquire(ctx)
+	if err != nil {
+		return contract.RetireBatch{}, err
+	}
+	var next, retired, examined int64
+	err = db.QueryRowContext(ctx, `WITH win AS (
+			SELECT id FROM proxies WHERE id > $1 ORDER BY id LIMIT $2
+		), upd AS (
+			UPDATE proxies p
+			SET retired_at = statement_timestamp(), updated_at = statement_timestamp()
+			FROM win
+			WHERE p.id = win.id
+			  AND p.retired_at IS NULL
+			  AND p.last_alive_at IS NULL
+			  AND p.fail_count >= $3
+			  AND p.first_seen_at <= statement_timestamp() - ($4 * interval '1 second')
+			RETURNING p.id
+		)
+		SELECT COALESCE((SELECT max(id) FROM win), $1::bigint),
+			(SELECT count(*) FROM upd),
+			(SELECT count(*) FROM win)`,
+		afterID, batch, rule.MinFailures, rule.MinAge.Seconds()).Scan(&next, &retired, &examined)
+	if err != nil {
+		return contract.RetireBatch{}, fmt.Errorf("proxy retire: %w", err)
+	}
+	return contract.RetireBatch{NextID: next, Retired: retired, Done: examined == 0}, nil
 }
 
 // ResetDestinationFailures zeroes the consecutive destination failure counter

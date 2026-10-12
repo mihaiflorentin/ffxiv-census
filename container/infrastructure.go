@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mihaiflorentin88/ffxiv-census/config"
 	proxydomain "github.com/mihaiflorentin88/ffxiv-census/domain/proxy"
 	"github.com/mihaiflorentin88/ffxiv-census/infrastructure/geonode"
 	"github.com/mihaiflorentin88/ffxiv-census/infrastructure/httpclient"
@@ -413,7 +414,32 @@ func (s *ServiceContainer) proxyScanPolicyUnlocked() contract.ProxyScanPolicy {
 		InconclusiveRetry: cfg.Scan.InconclusiveRetry,
 		DeadAfter:         time.Duration(cfg.DeadThresholdDays) * 24 * time.Hour,
 		FailThreshold:     cfg.FailCountThreshold,
+		Retirement:        retirementRule(cfg.Retire),
 	}
+}
+
+func retirementRule(cfg config.ProxyRetireConfig) contract.RetirementRule {
+	return contract.RetirementRule{
+		MinFailures: cfg.AfterFailures,
+		MinAge:      time.Duration(cfg.AfterDays) * 24 * time.Hour,
+	}
+}
+
+// ProxyRetirementRule returns the retirement thresholds shared by the scan
+// completion path and the retirement sweep.
+func (s *ServiceContainer) ProxyRetirementRule() contract.RetirementRule {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return retirementRule(s.configUnlocked().Proxy.Retire)
+}
+
+// ProxyRetirementSweepSettings returns how often the retirement sweep runs
+// and how many rows one batch examines.
+func (s *ServiceContainer) ProxyRetirementSweepSettings() (interval time.Duration, batch int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cfg := s.configUnlocked().Proxy.Retire
+	return cfg.SweepInterval, cfg.SweepBatch
 }
 
 // ProxyScanWeights returns the long-run capacity shares for the

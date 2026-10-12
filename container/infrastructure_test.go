@@ -2,9 +2,23 @@ package container
 
 import (
 	"testing"
+	"time"
 
 	"github.com/mihaiflorentin88/ffxiv-census/config"
 )
+
+func TestProxyScanPolicy_CarriesRetirementRuleFromConfig(t *testing.T) {
+	svc := NewServiceContainer()
+	retire := svc.Config().Proxy.Retire
+
+	got := svc.ProxyScanPolicy().Retirement
+	if got.MinFailures != retire.AfterFailures || got.MinAge != time.Duration(retire.AfterDays)*24*time.Hour {
+		t.Fatalf("policy retirement = %+v, want %d failures and %d days", got, retire.AfterFailures, retire.AfterDays)
+	}
+	if got != svc.ProxyRetirementRule() {
+		t.Fatalf("ProxyRetirementRule = %+v, differs from the policy rule %+v", svc.ProxyRetirementRule(), got)
+	}
+}
 
 func TestProxyProviders_Enabled(t *testing.T) {
 	svc := NewServiceContainer()

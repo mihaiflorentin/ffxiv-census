@@ -48,10 +48,33 @@ type ProxyRecord struct {
 	ScanLeaseUntil           *time.Time
 	ClaimedVersion           *int64
 	DestinationCooldownUntil *time.Time
+
 	// DestinationFailures counts consecutive destination failures (challenge,
 	// timeout, 5xx, 429) since the last success. It drives the growing
 	// destination cooldown and ranks recently failing proxies behind clean ones.
 	DestinationFailures int
+
+	// RetiredAt marks a proxy that never worked and kept failing (see
+	// RetirementRule). The background scan skips retired rows, which stay in
+	// the table so the unique key keeps discovery from re-inserting them.
+	// LastListedAt is when a provider last listed the endpoint.
+	RetiredAt    *time.Time
+	LastListedAt *time.Time
+}
+
+// ProxyEndpoint is the unique key of a proxy row: (protocol, ip, port).
+type ProxyEndpoint struct {
+	Protocol string
+	IP       string
+	Port     int
+}
+
+// ListedResult reports what MarkListed wrote. Marked counts the rows stamped
+// (known endpoints not stamped within the last hour) and Revived counts those
+// that were retired and are live again.
+type ListedResult struct {
+	Marked  int64
+	Revived int64
 }
 
 // ProxyChecker tests whether a proxy endpoint is reachable and measures latency.
@@ -84,6 +107,13 @@ type ProxyRepository interface {
 	// actually inserted, and any error. On conflict, returns (0, false, nil)
 	// without modifying the existing row.
 	InsertIfAbsent(ctx context.Context, rec ProxyRecord) (id int64, inserted bool, err error)
+	// MarkListed records that a provider listed the given endpoints again:
+	// it stamps last_listed_at and revives retired proxies. Endpoints that are
+	// not in the table are ignored (inserting is InsertIfAbsent's job), and a
+	// row stamped within the last hour is left alone, so a busy provider list
+	// costs at most one write per row per hour. Rows locked by a concurrent
+	// scan are skipped, never waited on. The call is bulk-capable.
+	MarkListed(ctx context.Context, endpoints []ProxyEndpoint) (ListedResult, error)
 	// Get returns a proxy by ID, or nil (no error) if not found.
 	Get(ctx context.Context, id int64) (*ProxyRecord, error)
 	// ListActive returns up to limit active proxies ordered by latency (lowest first).
