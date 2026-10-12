@@ -253,23 +253,6 @@ workers:
           value: "2"
 
     # --- Proxy discovery/scanning ---
-    - name: proxy-new
-      replicaCount: 1
-      command:
-        - /app/ffxiv-census
-        - proxy
-        - consume
-        - -c
-        - "30"
-      env:
-        - name: QUEUE_MAX_ATTEMPTS
-          value: "50"
-        - name: RABBITMQ_URL
-          value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASSWORD)@rabbitmq.default.svc.cluster.local:5672/ffxiv-census"
-        - name: POSTGRES_MAX_OPEN_CONNS
-          value: "3"
-        - name: POSTGRES_MAX_IDLE_CONNS
-          value: "2"
     - name: proxy-scan
       replicaCount: 5
       command:
