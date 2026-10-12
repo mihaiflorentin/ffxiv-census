@@ -145,7 +145,7 @@ A proxy whose latest general-health check succeeded recently enough (within the 
 _Avoid_: alive proxy, active proxy (for live availability)
 
 **Scan queue**:
-One of three logical queues the proxy scan draws from: verification (re-checking proxies whose evidence is about to expire), recovery (retrying recently working proxies that failed, with growing delays), and background (a continuous sweep of every non-succeeding proxy). Each holds a reserved share of scan concurrency and lends unused capacity to the others.
+One of three logical queues the proxy scan draws from: verification (re-checking proxies whose evidence is about to expire), recovery (retrying recently working proxies that failed, with growing delays), and background (a continuous sweep of every non-succeeding proxy that is not retired). Each holds a reserved share of scan concurrency and lends unused capacity to the others.
 _Avoid_: scan pool, cohort, dead pool
 
 **Scan lease**:
@@ -157,8 +157,12 @@ The per-replica baseline check of the general-health endpoint itself. While it i
 _Avoid_: circuit breaker
 
 **Proxy status**:
-A proxy's historical classification in the pool: active, inactive, or dead. It never gates the background scan and never decides live availability; freshness does.
+A proxy's historical classification in the pool: active, inactive, or dead. It never gates the background scan (retirement does) and never decides live availability; freshness does.
 _Avoid_: health status
+
+**Retired proxy**:
+A proxy that never worked, has failed at least a set number of times (default 10) and was first seen more than a set number of days ago (default 14). The background scan skips it, but its row stays in the pool so the unique key keeps discovery from registering it again. A provider listing it again revives it, at most once per hour per row. Unlike proxy status, retirement gates scanning.
+_Avoid_: dead proxy (that is the historical status), deleted proxy, banned proxy, archived proxy
 
 **Proxy lock**:
 The exclusive, time-limited hold one census worker has on a proxy while using it. Expired holds may be taken over by other workers.
