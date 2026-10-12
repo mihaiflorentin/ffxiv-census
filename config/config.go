@@ -161,7 +161,10 @@ type ExpansionConfig struct {
 }
 
 type CensusConfig struct {
-	ActivityWindowDays int               `mapstructure:"activity_window_days"`
+	ActivityWindowDays int `mapstructure:"activity_window_days"`
+	// PrivateRecheckDays is how many days a character found private is left
+	// alone before its achievement census runs again.
+	PrivateRecheckDays int               `mapstructure:"private_recheck_days"`
 	MaxLevel           uint32            `mapstructure:"max_level"`
 	Expansions         []ExpansionConfig `mapstructure:"expansions"`
 	UIStats            *UIStatsConfig    `mapstructure:"ui_stats"`

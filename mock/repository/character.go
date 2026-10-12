@@ -72,8 +72,12 @@ func (f *CharacterRepository) Upsert(ctx context.Context, rec contract.Character
 		return f.UpsertErr
 	}
 	// Mirror SQL ON CONFLICT semantics: preserve first_seen_at, clear deleted_at.
+	// A refresh never clears a private flag or its verification time; only an
+	// achievement census writes those.
 	if existing, ok := f.characters[rec.ID]; ok {
 		rec.FirstSeenAt = existing.FirstSeenAt
+		rec.AchievementsPrivate = rec.AchievementsPrivate || existing.AchievementsPrivate
+		rec.AchievementsCheckedAt = cloneTime(existing.AchievementsCheckedAt)
 	}
 	rec.DeletedAt = nil
 	f.characters[rec.ID] = cloneCharacter(rec)
@@ -128,6 +132,9 @@ func (f *CharacterRepository) StoreResult(ctx context.Context, result contract.C
 		f.mu.Lock()
 		if rec, ok := f.characters[a.CharacterID]; ok { // SQL UPDATE affects 0 rows otherwise
 			rec.AchievementsPrivate = true
+			if a.Private && !a.CheckedAt.IsZero() {
+				rec.AchievementsCheckedAt = cloneTime(&a.CheckedAt)
+			}
 			if !a.Private {
 				rec.AchievementsPrivate = false
 				rec.LatestAchievementID = cloneUint32(a.LatestID)
