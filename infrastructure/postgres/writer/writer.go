@@ -119,7 +119,7 @@ func (w *BatchWriter) run() {
 
 	var (
 		pending []request
-		size    int
+		size    int // CensusResult.Size summed over pending, for the BatchSize trigger
 		timer   *time.Timer
 		timerC  <-chan time.Time
 	)
@@ -134,7 +134,7 @@ func (w *BatchWriter) run() {
 		if len(pending) == 0 {
 			return
 		}
-		w.flush(pending, size)
+		_ = w.commit(pending)
 		pending, size = nil, 0
 	}
 
@@ -159,7 +159,7 @@ func (w *BatchWriter) run() {
 	}
 }
 
-// flush stores the pending results and answers every waiter.
+// commit stores batch and answers every waiter.
 //
 // Failure rule: the whole batch is first tried in ONE transaction. If that
 // fails with a data-level error (errors.Is(err, contract.ErrInvalidData): a
@@ -173,15 +173,10 @@ func (w *BatchWriter) run() {
 // Any other error (connection loss, timeout, shutdown) says nothing about the
 // individual results, so it is NOT isolated: every result not yet committed
 // gets that error from the one attempt that hit it and nothing more is sent
-// to a struggling database. Their jobs are not acked and retry.
-func (w *BatchWriter) flush(batch []request, size int) {
-	_ = w.commit(batch, size)
-}
-
-// commit tries batch in one transaction and answers its waiters, bisecting on
-// data-level errors. It returns a non-nil error if a transient failure was
-// seen, so callers skip their remaining sibling attempts.
-func (w *BatchWriter) commit(batch []request, size int) error {
+// to a struggling database. Their jobs are not acked and retry. commit
+// returns that transient error so callers skip their remaining sibling
+// attempts; it returns nil otherwise.
+func (w *BatchWriter) commit(batch []request) error {
 	var merged contract.CensusResult
 	for _, r := range batch {
 		merged.Characters = append(merged.Characters, r.result.Characters...)
@@ -193,12 +188,13 @@ func (w *BatchWriter) commit(batch []request, size int) error {
 	err := w.store.StoreResult(ctx, merged)
 	cancel()
 	if w.observer != nil {
-		w.observer.ObserveFlush(size, time.Since(start), err)
+		w.observer.ObserveFlush(merged.Size(), time.Since(start), err)
 	}
 
-	if err == nil || len(batch) == 1 || !errors.Is(err, contract.ErrInvalidData) {
+	transient := err != nil && !errors.Is(err, contract.ErrInvalidData)
+	if err == nil || transient || len(batch) == 1 {
 		answer(batch, err)
-		if err != nil && !errors.Is(err, contract.ErrInvalidData) {
+		if transient {
 			return err
 		}
 		return nil
@@ -206,25 +202,17 @@ func (w *BatchWriter) commit(batch []request, size int) error {
 
 	mid := len(batch) / 2
 	left, right := batch[:mid], batch[mid:]
-	if terr := w.commit(left, sizeOf(left)); terr != nil {
+	if terr := w.commit(left); terr != nil {
 		answer(right, terr)
 		return terr
 	}
-	return w.commit(right, sizeOf(right))
+	return w.commit(right)
 }
 
 func answer(batch []request, err error) {
 	for _, r := range batch {
 		r.done <- err
 	}
-}
-
-func sizeOf(batch []request) int {
-	n := 0
-	for _, r := range batch {
-		n += r.result.Size()
-	}
-	return n
 }
 
 var _ contract.ResultWriter = (*BatchWriter)(nil)
