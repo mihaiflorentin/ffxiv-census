@@ -196,7 +196,7 @@ workers:
     # --- Proxy consumers (per-event-type with proxy rotation) ---
     - name: proxy-id-sweep
       metricsPort: 9090
-      replicaCount: 3
+      replicaCount: 2
       command:
         - /app/ffxiv-census
         - consume
@@ -254,7 +254,7 @@ workers:
 
     # --- Proxy discovery/scanning ---
     - name: proxy-scan
-      replicaCount: 5
+      replicaCount: 1
       command:
         - /app/ffxiv-census
         - proxy
