@@ -20,10 +20,10 @@ type CharacterCensus struct {
 	lodestone contract.LodestoneClient
 	census    *census.Service
 	logger    contract.Logger
-	// writer, when set, stores the character through a batch. Handle waits
-	// for the batch to commit before returning, so the worker acks the job
-	// only after the character is durable. When nil the handler upserts
-	// directly (the legacy path).
+	// writer stores the character through a batch. Handle waits for the
+	// batch to commit before returning, so the worker acks the job only after
+	// the character is durable. Required: Handle fails with ErrNoWriter
+	// without it.
 	writer contract.ResultWriter
 }
 
@@ -54,6 +54,10 @@ func (h *CharacterCensus) Handle(ctx context.Context, payload []byte) ([]contrac
 
 	if h.lodestone == nil {
 		return nil, errors.New("lodestone client unconfigured on this worker")
+	}
+
+	if h.writer == nil {
+		return nil, ErrNoWriter
 	}
 
 	char, err := h.lodestone.FetchCharacter(ctx, p.CharacterID)
@@ -97,13 +101,9 @@ func (h *CharacterCensus) finishLodestone(ctx context.Context, char *contract.Ch
 	return next, nil
 }
 
-// store persists the profile: through the writer (waiting for the batch to
-// commit) when one is set, otherwise directly. It returns
-// census.ErrProfileHidden for a profile that must not be stored.
+// store hands the profile to the writer and waits for its batch to commit. It
+// returns census.ErrProfileHidden for a profile that must not be stored.
 func (h *CharacterCensus) store(ctx context.Context, char *contract.CharacterProfile) error {
-	if h.writer == nil {
-		return h.census.UpsertCharacter(ctx, char)
-	}
 	w, err := h.census.PrepareCharacter(char)
 	if err != nil {
 		return err

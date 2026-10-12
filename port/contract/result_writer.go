@@ -15,7 +15,7 @@ var ErrWriterClosed = errors.New("result writer closed")
 // infrastructure (lost connection, timeout, shutdown). Retrying the same data
 // can never succeed, but the other writes of a batch are unaffected, so a
 // writer may isolate the offending result instead of failing the whole batch.
-// CharacterRepository.UpsertBatch returns it joined with the cause.
+// CharacterRepository.StoreResult returns it joined with the cause.
 var ErrInvalidData = errors.New("invalid data")
 
 // CensusResult is a handler's finished work, ready to be stored. Handlers

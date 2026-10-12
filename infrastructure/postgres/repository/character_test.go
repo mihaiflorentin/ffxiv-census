@@ -125,7 +125,7 @@ func TestCharacterRepository_SummaryCountsUsesStoredMaxLevel(t *testing.T) {
 			t.Fatal(err)
 		}
 		if id < 2 {
-			if err := repo.UpdateAchievementSummary(ctx, charID, false, nil, &recent); err != nil {
+			if err := setLatestAchievement(ctx, repo, charID, &recent); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -241,12 +241,12 @@ func TestCharacterRepository_Count_SinceFilter(t *testing.T) {
 	_ = repo.Upsert(ctx, contract.CharacterRecord{
 		ID: 1, Name: "Active", World: "Balmung", FirstSeenAt: now,
 	}, nil)
-	_ = repo.UpdateAchievementSummary(ctx, 1, false, nil, &recent)
+	_ = setLatestAchievement(ctx, repo, 1, &recent)
 
 	_ = repo.Upsert(ctx, contract.CharacterRecord{
 		ID: 2, Name: "Inactive", World: "Balmung", FirstSeenAt: now,
 	}, nil)
-	_ = repo.UpdateAchievementSummary(ctx, 2, false, nil, &old)
+	_ = setLatestAchievement(ctx, repo, 2, &old)
 
 	_ = repo.Upsert(ctx, contract.CharacterRecord{
 		ID: 3, Name: "Never", World: "Balmung", FirstSeenAt: now,

@@ -25,8 +25,7 @@ type CharacterRepository struct {
 	UpsertBatchCalls int
 	rejectIDs        map[uint32]bool
 	// OnUpsertBatch, when set, is called with the 1-based call number at the
-	// start of every StoreResult (and so UpsertBatch); a non-nil result fails
-	// that call.
+	// start of every StoreResult; a non-nil result fails that call.
 	OnUpsertBatch func(call int) error
 	// StoredAchievements records the achievement writes applied by StoreResult.
 	StoredAchievements       []contract.AchievementWrite
@@ -37,7 +36,6 @@ type CharacterRepository struct {
 	AdvanceFillGapsCursorErr error
 	GetErr                   error
 	MarkDeletedErr           error
-	UpdateErr                error
 	ListStaleErr             error
 	ListErr                  error
 	StreamErr                error
@@ -83,7 +81,7 @@ func (f *CharacterRepository) Upsert(ctx context.Context, rec contract.Character
 	return nil
 }
 
-// RejectID makes any UpsertBatch containing a write for id fail with
+// RejectID makes any StoreResult containing a write for id fail with
 // contract.ErrInvalidData before anything is stored, like a database that
 // rejects that row and rolls the transaction back.
 func (f *CharacterRepository) RejectID(id uint32) {
@@ -95,16 +93,10 @@ func (f *CharacterRepository) RejectID(id uint32) {
 	f.rejectIDs[id] = true
 }
 
-// UpsertBatch applies every write; UpsertBatchErr fails the whole batch before
-// anything is stored, like a rolled-back transaction.
-func (f *CharacterRepository) UpsertBatch(ctx context.Context, writes []contract.CharacterWrite) error {
-	return f.StoreResult(ctx, contract.CensusResult{Characters: writes})
-}
-
 // StoreResult applies the characters, then each achievement write's summary
 // (milestones are only recorded in StoredAchievements: this fake does not own
 // the milestone table). UpsertBatchErr fails the whole result before anything
-// is stored.
+// is stored, like a rolled-back transaction.
 func (f *CharacterRepository) StoreResult(ctx context.Context, result contract.CensusResult) error {
 	f.mu.Lock()
 	f.UpsertBatchCalls++
@@ -132,16 +124,16 @@ func (f *CharacterRepository) StoreResult(ctx context.Context, result contract.C
 		}
 	}
 	for _, a := range result.Achievements {
-		var err error
-		if a.Private {
-			err = f.SetAchievementsPrivate(ctx, a.CharacterID, true)
-		} else {
-			err = f.UpdateAchievementSummary(ctx, a.CharacterID, false, a.LatestID, a.LatestAt)
-		}
-		if err != nil {
-			return err
-		}
 		f.mu.Lock()
+		if rec, ok := f.characters[a.CharacterID]; ok { // SQL UPDATE affects 0 rows otherwise
+			rec.AchievementsPrivate = true
+			if !a.Private {
+				rec.AchievementsPrivate = false
+				rec.LatestAchievementID = cloneUint32(a.LatestID)
+				rec.LatestAchievementAt = cloneTime(a.LatestAt)
+			}
+			f.characters[a.CharacterID] = rec
+		}
 		f.StoredAchievements = append(f.StoredAchievements, a)
 		f.mu.Unlock()
 	}
@@ -279,35 +271,6 @@ func (f *CharacterRepository) MarkDeleted(ctx context.Context, id uint32, at tim
 		return nil // SQL UPDATE affects 0 rows; no phantom record
 	}
 	rec.DeletedAt = cloneTime(&at)
-	f.characters[id] = rec
-	return nil
-}
-
-func (f *CharacterRepository) UpdateAchievementSummary(ctx context.Context, id uint32, private bool, latestID *uint32, latestAt *time.Time) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.UpdateErr != nil {
-		return f.UpdateErr
-	}
-	rec, ok := f.characters[id]
-	if !ok {
-		return nil // SQL UPDATE affects 0 rows
-	}
-	rec.AchievementsPrivate = private
-	rec.LatestAchievementID = cloneUint32(latestID)
-	rec.LatestAchievementAt = cloneTime(latestAt)
-	f.characters[id] = rec
-	return nil
-}
-
-func (f *CharacterRepository) SetAchievementsPrivate(ctx context.Context, id uint32, private bool) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	rec, ok := f.characters[id]
-	if !ok {
-		return nil // SQL UPDATE affects 0 rows
-	}
-	rec.AchievementsPrivate = private
 	f.characters[id] = rec
 	return nil
 }

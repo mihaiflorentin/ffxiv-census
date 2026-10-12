@@ -45,7 +45,7 @@ func NewService(
 	}
 }
 
-// ErrProfileHidden is returned by the upsert entry points when a character
+// ErrProfileHidden is returned by PrepareCharacter when a character
 // carries no usable race data. On Lodestone this happens for private profiles
 // (no race block at all), access-restricted profiles (HTTP 403), and
 // suppressed demographics (race/clan rendered as "----"). Such characters
@@ -159,22 +159,10 @@ func (s *Service) GetCharacter(ctx context.Context, charID uint32) (*contract.Ch
 	return s.characters.Get(ctx, charID)
 }
 
-// UpsertCharacter converts a Lodestone character into a CharacterRecord and
-// persists it (profile + jobs) atomically. Region is derived from the
-// datacenter. A profile without usable race data returns ErrProfileHidden and
-// is not persisted; an existing row keeps its last known good data.
-func (s *Service) UpsertCharacter(ctx context.Context, char *contract.CharacterProfile) error {
-	w, err := s.PrepareCharacter(char)
-	if err != nil {
-		return err
-	}
-	return s.characters.Upsert(ctx, w.Record, w.Jobs)
-}
-
 // PrepareCharacter validates a Lodestone character and converts it into the
 // write that stores it, without storing anything. Handlers hand the result to
 // a contract.ResultWriter. It returns ErrProfileHidden for a profile without
-// usable race data, exactly like UpsertCharacter.
+// usable race data.
 func (s *Service) PrepareCharacter(char *contract.CharacterProfile) (contract.CharacterWrite, error) {
 	if char == nil {
 		return contract.CharacterWrite{}, errors.New("cannot upsert nil character")
@@ -234,33 +222,6 @@ func profileToJobs(char *contract.CharacterProfile) []contract.ClassJobRecord {
 }
 
 const defaultActivityWindow = 30 * 24 * time.Hour
-
-// ProcessAchievements filters earned achievements against the registry, persists
-// only the matching milestones, and updates the character's achievement summary
-// (private flag + latest achievement, which may be any achievement). Returns the
-// milestones that matched the registry.
-// ProcessMilestoneResults persists milestone achievements from the custom client's
-// summary and updates the character's achievement summary (private flag + latest
-// achievement). Returns the milestones that were persisted.
-func (s *Service) ProcessMilestoneResults(ctx context.Context, charID uint32, summary *contract.AchievementSummary) ([]contract.CharacterMilestone, error) {
-	w, err := s.PrepareMilestoneResults(ctx, charID, summary)
-	if err != nil {
-		return nil, err
-	}
-	if w.Private {
-		if err := s.characters.SetAchievementsPrivate(ctx, charID, true); err != nil {
-			return nil, err
-		}
-		return nil, nil
-	}
-	if err := s.achievements.UpsertCharacterMilestones(ctx, charID, w.Milestones); err != nil {
-		return nil, err
-	}
-	if err := s.characters.UpdateAchievementSummary(ctx, charID, false, w.LatestID, w.LatestAt); err != nil {
-		return nil, err
-	}
-	return w.Milestones, nil
-}
 
 // PrepareMilestoneResults filters a fetched achievement summary against the
 // milestone registry and returns the write that stores it, without storing

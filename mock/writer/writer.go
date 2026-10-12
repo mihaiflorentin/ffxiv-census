@@ -16,12 +16,22 @@ type Fake struct {
 	mu       sync.Mutex
 	results  []contract.CensusResult
 	closed   bool
+	chars    contract.CharacterRepository
+	ach      contract.AchievementRepository
 	WriteErr error
 }
 
 func NewFake() *Fake { return &Fake{} }
 
-func (f *Fake) Write(_ context.Context, result contract.CensusResult) error {
+// NewStoring returns a Fake that also applies every committed result to the
+// given repositories, like a real writer committing a batch: characters and
+// achievement summaries through chars.StoreResult, then the milestones into
+// ach (nil to skip them). Handler tests use it to assert on stored state.
+func NewStoring(chars contract.CharacterRepository, ach contract.AchievementRepository) *Fake {
+	return &Fake{chars: chars, ach: ach}
+}
+
+func (f *Fake) Write(ctx context.Context, result contract.CensusResult) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.closed {
@@ -29,6 +39,21 @@ func (f *Fake) Write(_ context.Context, result contract.CensusResult) error {
 	}
 	if f.WriteErr != nil {
 		return f.WriteErr
+	}
+	if f.chars != nil {
+		if err := f.chars.StoreResult(ctx, result); err != nil {
+			return err
+		}
+	}
+	if f.ach != nil {
+		for _, a := range result.Achievements {
+			if a.Private {
+				continue
+			}
+			if err := f.ach.UpsertCharacterMilestones(ctx, a.CharacterID, a.Milestones); err != nil {
+				return err
+			}
+		}
 	}
 	f.results = append(f.results, result)
 	return nil

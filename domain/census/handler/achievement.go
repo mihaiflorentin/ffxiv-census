@@ -20,10 +20,10 @@ type AchievementCensus struct {
 	census      *census.Service
 	logger      contract.Logger
 	rateLimiter contract.ProviderRateLimiter
-	// writer, when set, stores milestones and the latest achievement through
-	// a batch. Handle waits for the batch to commit before returning, so the
-	// worker acks the job only after the data is durable. When nil the
-	// handler stores directly (the legacy path).
+	// writer stores milestones and the latest achievement through a batch.
+	// Handle waits for the batch to commit before returning, so the worker
+	// acks the job only after the data is durable. Required: Handle fails with
+	// ErrNoWriter without it.
 	writer contract.ResultWriter
 }
 
@@ -47,6 +47,10 @@ func (h *AchievementCensus) Handle(ctx context.Context, payload []byte) ([]contr
 		return nil, errors.Join(contract.ErrPoisonPayload, fmt.Errorf("achievement-census payload: %w", err))
 	}
 	h.logger.DebugContext(ctx, "handler.achievement_census", slog.Uint64("character_id", uint64(p.CharacterID)))
+
+	if h.writer == nil {
+		return nil, ErrNoWriter
+	}
 
 	// Wait for Lodestone if rate-limited (blocks until cooldown expires).
 	if h.rateLimiter != nil && !h.rateLimiter.IsAvailable(contract.ProviderLodestone) {
@@ -117,13 +121,9 @@ func (h *AchievementCensus) Handle(ctx context.Context, payload []byte) ([]contr
 	return nil, nil
 }
 
-// process stores the summary: through the writer (waiting for the batch to
-// commit) when one is set, otherwise directly. It returns the persisted
-// milestones.
+// process hands the summary to the writer and waits for its batch to commit.
+// It returns the persisted milestones.
 func (h *AchievementCensus) process(ctx context.Context, charID uint32, summary *contract.AchievementSummary) ([]contract.CharacterMilestone, error) {
-	if h.writer == nil {
-		return h.census.ProcessMilestoneResults(ctx, charID, summary)
-	}
 	w, err := h.census.PrepareMilestoneResults(ctx, charID, summary)
 	if err != nil {
 		return nil, err

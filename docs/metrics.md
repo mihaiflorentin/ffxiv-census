@@ -29,6 +29,8 @@ Prometheus metrics are exposed at `http://<host>:8080/metrics` and scraped autom
 | `result_writer_flush_duration_seconds` | Histogram | Duration of one batch transaction. |
 | `result_writer_flush_failures_total` | Counter | Batch flushes that failed to commit (their jobs stay unacked and are retried). |
 
+The `result_writer_*` metrics observe every batch transaction attempt, including the extra attempts made while isolating a result the database rejected, so `result_writer_flush_failures_total` can rise by more than one for a single bad character. Batch size is counted in results (characters plus achievement updates). Tune `[writer] batch_size` and `flush_interval` (`WRITER_BATCH_SIZE`, `WRITER_FLUSH_INTERVAL`) against these; see [docs/queue.md](queue.md#batched-writes-and-acks).
+
 `ui_stats_refresh_total` and `ui_stats_refresh_duration_seconds` are emitted by the process that executes a refresh. In the default short-lived Kubernetes CronJob, the completion log is the durable refresh outcome; the web Grafana dashboard therefore uses snapshot age, last refresh duration, and `ui_stats_cache_total`, which are continuously scrapeable from web pods.
 
 ---

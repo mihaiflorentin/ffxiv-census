@@ -53,7 +53,7 @@ Maximum worker backends: 3 x 3 (id-sweep) + 3 (character) + 2 x 3 (achievement) 
 
 ## Synchronous commit
 
-Postgres commits synchronously by default (`synchronous_commit = on`). Only census data writes relax this: `CharacterRepository.StoreResult` (the batch transaction behind the batching writer, and `Upsert` / `UpsertBatch`, which call it) runs `SET LOCAL synchronous_commit = off` as its first statement. `SET LOCAL` lasts for that transaction only, so the pooled connection is synchronous again afterwards. A server crash can lose the last few commits (up to about three `wal_writer_delay` periods, 600 ms by default) but never corrupts data, and the next census pass rewrites them.
+Postgres commits synchronously by default (`synchronous_commit = on`). Only census data writes relax this: `CharacterRepository.StoreResult` (the batch transaction behind the batching writer; `Upsert` calls it too) runs `SET LOCAL synchronous_commit = off` as its first statement. `SET LOCAL` lasts for that transaction only, so the pooled connection is synchronous again afterwards. A server crash can lose the last few commits (up to about three `wal_writer_delay` periods, 600 ms by default) but never corrupts data, and the next census pass rewrites them.
 
 Everything else stays synchronous: UI statistics refresh, migrations (goose), proxy claims, leases, locks and scan results, cursors, and the direct not-found `MarkDeleted` update. Do not add `SET synchronous_commit` (session level) or set it in the DSN. `TestCharacterRepository_StoreResultCommitsAsynchronously` and `TestOtherWritePathsStaySynchronous` enforce this with a trigger that records `current_setting('synchronous_commit')` inside the writing transaction.
 

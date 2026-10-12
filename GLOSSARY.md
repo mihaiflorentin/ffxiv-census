@@ -86,6 +86,14 @@ _Avoid_: handler (bare — this repo also has HTTP handlers)
 A long-running process that consumes queue jobs of one event type and dispatches them to the registered event handler.
 _Avoid_: consumer, consumer process
 
+**Result writer**:
+The per-worker component that event handlers hand a finished census result to instead of storing it themselves. A handler waits until the result's write batch has committed, so a queue job is acknowledged only once its data is durable. Marking a character confirmed missing is the one write that bypasses it.
+_Avoid_: batch writer, persister, store (as a noun)
+
+**Write batch**:
+The results the result writer has gathered, stored together in one database transaction. It closes when it holds a set number of results or about a second has passed. If the database rejects one result, that result is split off and retried alone so its neighbours still commit; if the batch fails for any other reason, every job in it stays unacknowledged and is retried through the failed queue.
+_Avoid_: flush (as a noun for the unit), chunk
+
 **Chaining**:
 The pattern in which a handled event causes further events to be published, forming the ingest graph — an ID sweep chains an achievement census for every character it discovers.
 _Avoid_: event cascading, downstream jobs, follow-up job

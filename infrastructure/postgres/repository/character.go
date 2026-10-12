@@ -28,14 +28,10 @@ const characterColumns = `id, name, world, datacenter, region, race, tribe, gend
 		        achievements_private, latest_achievement_id, latest_achievement_at,
 		        first_seen_at, last_census_at, deleted_at`
 
+// Upsert stores one character and its jobs through StoreResult, the only write
+// path for characters.
 func (r *CharacterRepository) Upsert(ctx context.Context, rec contract.CharacterRecord, jobs []contract.ClassJobRecord) error {
-	return r.UpsertBatch(ctx, []contract.CharacterWrite{{Record: rec, Jobs: jobs}})
-}
-
-// UpsertBatch stores every write in ONE transaction: all characters and jobs
-// commit together or none do. An empty batch is a no-op.
-func (r *CharacterRepository) UpsertBatch(ctx context.Context, writes []contract.CharacterWrite) error {
-	return r.StoreResult(ctx, contract.CensusResult{Characters: writes})
+	return r.StoreResult(ctx, contract.CensusResult{Characters: []contract.CharacterWrite{{Record: rec, Jobs: jobs}}})
 }
 
 // StoreResult stores the characters, jobs, milestones and achievement
@@ -125,8 +121,8 @@ func markInvalidData(err error) error {
 }
 
 // storeAchievementTx writes one achievement census inside tx, with the same
-// effect as AchievementRepository.UpsertCharacterMilestones followed by
-// UpdateAchievementSummary (or SetAchievementsPrivate for a private profile).
+// effect as AchievementRepository.UpsertCharacterMilestones followed by the
+// summary update (a private profile only flags the character private).
 func storeAchievementTx(ctx context.Context, tx *sql.Tx, a contract.AchievementWrite) error {
 	if a.Private {
 		if _, err := tx.ExecContext(ctx,
@@ -460,29 +456,6 @@ func (r *CharacterRepository) MarkDeleted(ctx context.Context, id uint32, at tim
 		`UPDATE characters SET deleted_at = $1 WHERE id = $2`, at, id)
 	if err != nil {
 		return fmt.Errorf("character mark deleted: %w", err)
-	}
-	return nil
-}
-
-func (r *CharacterRepository) UpdateAchievementSummary(ctx context.Context, id uint32, private bool, latestID *uint32, latestAt *time.Time) error {
-	_, err := r.driver.Execute(ctx,
-		`UPDATE characters
-		    SET achievements_private = $1,
-		        latest_achievement_id = $2,
-		        latest_achievement_at = $3
-		  WHERE id = $4`,
-		boolInt(private), nullableUint32(latestID), nullableTime(latestAt), id)
-	if err != nil {
-		return fmt.Errorf("character update achievement summary: %w", err)
-	}
-	return nil
-}
-
-func (r *CharacterRepository) SetAchievementsPrivate(ctx context.Context, id uint32, private bool) error {
-	_, err := r.driver.Execute(ctx,
-		`UPDATE characters SET achievements_private = $1 WHERE id = $2`, boolInt(private), id)
-	if err != nil {
-		return fmt.Errorf("character set achievements private: %w", err)
 	}
 	return nil
 }

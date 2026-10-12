@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
@@ -13,6 +14,13 @@ import (
 type Handler interface {
 	Handle(ctx context.Context, payload []byte) ([]contract.QueueJob, error)
 }
+
+// ErrNoWriter is returned by a census handler built without a result writer.
+// Handlers never store anything themselves: every character, job and
+// achievement goes through contract.ResultWriter so the worker acks a job only
+// after its batch has committed. The job fails and is retried rather than
+// writing outside that path.
+var ErrNoWriter = errors.New("result writer unconfigured on this worker")
 
 // discardLogger is a no-op logger whose Enabled always returns false,
 // allowing callers to skip expensive attribute construction.
