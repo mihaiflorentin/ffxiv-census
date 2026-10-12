@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/mihaiflorentin88/ffxiv-census/mock/repository"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
@@ -372,6 +373,32 @@ func TestPublishDiscoveredProxies_LimitCrossProviderFallback(t *testing.T) {
 	}
 	if p2.emittedRecords != 1 {
 		t.Errorf("p2 emittedRecords = %d, want 1 (stopped after first emission filled limit)", p2.emittedRecords)
+	}
+}
+
+// storeOnlyProxyRepository satisfies ProxyRepository through the fake but
+// hides the retirement store, as a repository adapter without that support
+// would.
+type storeOnlyProxyRepository struct{ contract.ProxyRepository }
+
+func TestNewRetirementSweep_RequiresRetirementStore(t *testing.T) {
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	rule := contract.RetirementRule{MinFailures: 10, MinAge: time.Hour}
+	repo := repository.NewFakeProxyRepository(contract.ProxyScanPolicy{})
+
+	sweep, err := newRetirementSweep(repo, rule, time.Hour, 100, logger)
+	if err != nil || sweep == nil {
+		t.Fatalf("newRetirementSweep = %v, %v; want a sweep for a repository that supports retirement", sweep, err)
+	}
+	if _, err := newRetirementSweep(storeOnlyProxyRepository{repo}, rule, time.Hour, 100, logger); err == nil {
+		t.Fatal("a repository without a retirement store was accepted")
+	}
+}
+
+func TestProxyRetireCmd_IsRegistered(t *testing.T) {
+	found, _, err := proxyCmd.Find([]string{"retire"})
+	if err != nil || found == nil || found.Name() != "retire" {
+		t.Fatalf("proxy retire command missing: %v, %v", found, err)
 	}
 }
 

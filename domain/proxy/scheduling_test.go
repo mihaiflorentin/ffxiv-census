@@ -181,6 +181,18 @@ func TestMakeScanUpdateFailureSchedulesRecoveryNotCooldown(t *testing.T) {
 	}
 }
 
+func TestMakeScanUpdateCarriesRetirementRuleOnEveryOutcome(t *testing.T) {
+	p := scanPolicy()
+	p.Retirement = contract.RetirementRule{MinFailures: 10, MinAge: 14 * 24 * time.Hour}
+
+	for name, err := range map[string]error{"success": nil, "failure": proxyErr(), "inconclusive": errors.New("local")} {
+		update := MakeScanUpdate(p, scanRecord(0), 0, err, stableGuard(), stableGuard())
+		if update.Retirement != p.Retirement {
+			t.Errorf("%s: retirement rule = %+v, want %+v", name, update.Retirement, p.Retirement)
+		}
+	}
+}
+
 func TestMakeScanUpdateFailureStepSaturates(t *testing.T) {
 	p := scanPolicy()
 
