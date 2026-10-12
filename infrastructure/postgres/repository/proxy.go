@@ -167,6 +167,102 @@ func (r *ProxyRepository) InsertIfAbsent(ctx context.Context, rec contract.Proxy
 	return newID, true, nil
 }
 
+// insertNewChunk bounds the records one InsertNew statement handles, so a
+// caller passing a whole list still gets short statements.
+const insertNewChunk = 5000
+
+// InsertNew inserts the records no row exists for yet, in one statement per
+// chunk. Known endpoints are filtered out before the INSERT rather than left
+// to ON CONFLICT: a conflicting candidate still draws a serial id, and with
+// mostly-known lists re-read every few minutes that would burn through the
+// 32-bit id space. ON CONFLICT DO NOTHING stays as the guard against a
+// concurrent discovery run inserting the same endpoint.
+func (r *ProxyRepository) InsertNew(ctx context.Context, recs []contract.ProxyRecord, limit int) ([]contract.ProxyEndpoint, error) {
+	var inserted []contract.ProxyEndpoint
+	for start := 0; start < len(recs); start += insertNewChunk {
+		room := 0
+		if limit > 0 {
+			room = limit - len(inserted)
+			if room <= 0 {
+				break
+			}
+		}
+		end := min(start+insertNewChunk, len(recs))
+		got, err := r.insertNewChunk(ctx, recs[start:end], room)
+		if err != nil {
+			return inserted, err
+		}
+		inserted = append(inserted, got...)
+	}
+	return inserted, nil
+}
+
+// insertNewChunk runs the statement for one chunk; room <= 0 means no cap.
+func (r *ProxyRepository) insertNewChunk(ctx context.Context, recs []contract.ProxyRecord, room int) ([]contract.ProxyEndpoint, error) {
+	protocols := make([]string, len(recs))
+	ips := make([]string, len(recs))
+	ports := make([]int32, len(recs))
+	countries := make([]*string, len(recs))
+	anonymities := make([]*string, len(recs))
+	uptimes := make([]*float64, len(recs))
+	sources := make([]string, len(recs))
+	for i, rec := range recs {
+		protocols[i], ips[i], ports[i] = rec.Protocol, rec.IP, int32(rec.Port)
+		countries[i], anonymities[i], uptimes[i] = rec.Country, rec.Anonymity, rec.UptimePercent
+		sources[i] = rec.Source
+	}
+	maxRows := any(nil)
+	if room > 0 {
+		maxRows = room
+	}
+	db, err := r.driver.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, `WITH input AS (
+			SELECT DISTINCT ON (protocol, ip, port)
+				protocol, ip, port, country, anonymity, uptime_percent, source, ord
+			FROM unnest($1::text[], $2::text[], $3::int[], $4::text[], $5::text[], $6::float8[], $7::text[])
+				WITH ORDINALITY AS t(protocol, ip, port, country, anonymity, uptime_percent, source, ord)
+			ORDER BY protocol, ip, port, ord
+		), fresh AS (
+			SELECT i.* FROM input i
+			WHERE NOT EXISTS (
+				SELECT 1 FROM proxies p
+				WHERE p.protocol = i.protocol AND p.ip = i.ip AND p.port = i.port)
+			ORDER BY i.ord
+			LIMIT $8
+		), ins AS (
+			INSERT INTO proxies (protocol, ip, port, country, anonymity, uptime_percent, status,
+				first_seen_at, source, fail_count, created_at, updated_at, last_listed_at)
+			SELECT protocol, ip, port, country, anonymity, uptime_percent, $9,
+				statement_timestamp(), source, 0, statement_timestamp(), statement_timestamp(), statement_timestamp()
+			FROM fresh
+			ON CONFLICT (protocol, ip, port) DO NOTHING
+			RETURNING protocol, ip, port
+		)
+		SELECT ins.protocol, ins.ip, ins.port
+		FROM ins JOIN fresh f ON f.protocol = ins.protocol AND f.ip = ins.ip AND f.port = ins.port
+		ORDER BY f.ord`,
+		protocols, ips, ports, countries, anonymities, uptimes, sources, maxRows, contract.ProxyStatusInactive)
+	if err != nil {
+		return nil, fmt.Errorf("proxy insert new: %w", err)
+	}
+	defer rows.Close()
+	var out []contract.ProxyEndpoint
+	for rows.Next() {
+		var e contract.ProxyEndpoint
+		if err := rows.Scan(&e.Protocol, &e.IP, &e.Port); err != nil {
+			return nil, fmt.Errorf("proxy insert new scan: %w", err)
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("proxy insert new rows: %w", err)
+	}
+	return out, nil
+}
+
 const (
 	// listedRewriteInterval is the shortest time between two writes to the
 	// same row from MarkListed.

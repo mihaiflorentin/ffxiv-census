@@ -97,6 +97,41 @@ type ProxyProvider interface {
 	FetchProxies(ctx context.Context, emit func(ProxyRecord) error) error
 }
 
+// ListValidators identify one version of a provider list: the HTTP ETag and
+// Last-Modified the provider sent with it. A server that sends neither has no
+// validators, and its list is always read.
+type ListValidators struct {
+	ETag         string
+	LastModified string
+}
+
+// IsZero reports whether the validators carry nothing to compare.
+func (v ListValidators) IsZero() bool { return v.ETag == "" && v.LastModified == "" }
+
+// ConditionalProvider is a ProxyProvider made of plain lists fetched by URL,
+// which can skip a list the server says has not changed since an earlier run.
+type ConditionalProvider interface {
+	ProxyProvider
+	// FetchProxiesIfChanged behaves like FetchProxies, except that a list whose
+	// known validators the server still accepts (HTTP 304) is skipped without
+	// emitting anything. known returns the validators stored for a list URL.
+	// After the last record of a list that was read completely, listDone is
+	// called with the validators of that copy; the caller persists them only
+	// once the records are safely stored, and an error from listDone aborts the
+	// fetch. Nil known and listDone give plain FetchProxies behaviour.
+	FetchProxiesIfChanged(ctx context.Context, known func(url string) (ListValidators, bool),
+		emit func(ProxyRecord) error, listDone func(url string, v ListValidators) error) error
+}
+
+// ProxyListCache persists the validators of the lists that were last read
+// completely, across discovery runs (each run is a new process).
+type ProxyListCache interface {
+	// LoadListValidators returns the stored validators by list URL.
+	LoadListValidators(ctx context.Context) (map[string]ListValidators, error)
+	// SaveListValidators stores (replaces) the validators of one list URL.
+	SaveListValidators(ctx context.Context, url string, v ListValidators) error
+}
+
 // ProxyRepository persists proxy records.
 type ProxyRepository interface {
 	// Exists returns true if a proxy with the exact (protocol, ip, port) tuple
@@ -107,6 +142,14 @@ type ProxyRepository interface {
 	// actually inserted, and any error. On conflict, returns (0, false, nil)
 	// without modifying the existing row.
 	InsertIfAbsent(ctx context.Context, rec ProxyRecord) (id int64, inserted bool, err error)
+	// InsertNew bulk-inserts the records whose (protocol, ip, port) is not in
+	// the table yet and returns the endpoints it inserted, in input order.
+	// Endpoints already stored (retired ones included) are left untouched, and
+	// duplicates within recs count once. New rows are stamped as listed now.
+	// limit caps how many rows are inserted (0 or less means no cap); the
+	// first new records in input order win. It is one conflict-ignoring
+	// statement, so it costs one round trip however long recs is.
+	InsertNew(ctx context.Context, recs []ProxyRecord, limit int) ([]ProxyEndpoint, error)
 	// MarkListed records that a provider listed the given endpoints again:
 	// it stamps last_listed_at and revives retired proxies. Endpoints that are
 	// not in the table are ignored (inserting is InsertIfAbsent's job), and a

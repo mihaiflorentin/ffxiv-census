@@ -43,6 +43,14 @@ type FakeProxyRepository struct {
 	ExistsCalls int
 	// InsertCalls counts how many times InsertIfAbsent was called.
 	InsertCalls int
+	// InsertNewErr is returned by InsertNew when set.
+	InsertNewErr error
+	// InsertNewCalls counts how many times InsertNew was called.
+	InsertNewCalls int
+	// MarkListedCalls counts how many times MarkListed was called, and
+	// MarkListedEndpoints collects every endpoint it was given.
+	MarkListedCalls     int
+	MarkListedEndpoints []contract.ProxyEndpoint
 }
 
 // Defaults for unset policy fields, mirroring the PostgreSQL adapter.
@@ -181,6 +189,43 @@ func (f *FakeProxyRepository) InsertIfAbsent(_ context.Context, rec contract.Pro
 	return rec.ID, true, nil
 }
 
+// InsertNew mirrors the PostgreSQL adapter: unknown endpoints are inserted
+// (retired and live known ones are not), duplicates inside recs count once,
+// limit caps the rows inserted and new rows are stamped as listed now.
+func (f *FakeProxyRepository) InsertNew(_ context.Context, recs []contract.ProxyRecord, limit int) ([]contract.ProxyEndpoint, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.InsertNewCalls++
+	if f.InsertNewErr != nil {
+		return nil, f.InsertNewErr
+	}
+	known := make(map[contract.ProxyEndpoint]bool, len(f.proxies)+len(recs))
+	for _, p := range f.proxies {
+		known[contract.ProxyEndpoint{Protocol: p.Protocol, IP: p.IP, Port: p.Port}] = true
+	}
+	now := f.now()
+	var inserted []contract.ProxyEndpoint
+	for _, rec := range recs {
+		if limit > 0 && len(inserted) >= limit {
+			break
+		}
+		key := contract.ProxyEndpoint{Protocol: rec.Protocol, IP: rec.IP, Port: rec.Port}
+		if known[key] {
+			continue
+		}
+		known[key] = true
+		f.nextID++
+		rec.ID = f.nextID
+		rec.Status = contract.ProxyStatusInactive
+		rec.FailCount = 0
+		rec.CreatedAt, rec.UpdatedAt, rec.FirstSeenAt = now, now, now
+		rec.LastListedAt = &now
+		f.proxies[rec.ID] = rec
+		inserted = append(inserted, key)
+	}
+	return inserted, nil
+}
+
 // MarkListed mirrors the PostgreSQL adapter: known endpoints not stamped
 // within the last hour get last_listed_at and lose their retirement; unknown
 // endpoints are ignored and duplicates within one call count once. Rows
@@ -189,6 +234,8 @@ func (f *FakeProxyRepository) MarkListed(_ context.Context, endpoints []contract
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	now := f.now()
+	f.MarkListedCalls++
+	f.MarkListedEndpoints = append(f.MarkListedEndpoints, endpoints...)
 	wanted := make(map[contract.ProxyEndpoint]bool, len(endpoints))
 	for _, e := range endpoints {
 		wanted[e] = true
