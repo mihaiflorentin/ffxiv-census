@@ -434,16 +434,25 @@ func (r *CharacterRepository) FindIDGapsAfter(ctx context.Context, afterID, maxI
 		limit = 100
 	}
 
+	// The anchor is the highest stored ID at or below the cursor (0 when none),
+	// followed by stored IDs above it, so the scan starts at the cursor and
+	// stops after limit gaps instead of walking every stored character.
 	query := `
 		WITH anchored AS (
-			SELECT id FROM (SELECT 0 AS id UNION SELECT id FROM characters WHERE id <= $1) s
-			ORDER BY id
+			SELECT COALESCE(MAX(id), 0) AS id FROM characters WHERE id <= $2
+			UNION ALL
+			(SELECT id FROM characters WHERE id > $2 AND id <= $1 ORDER BY id)
+		), gaps AS (
+			SELECT id + 1 AS gap_start,
+			       LEAST(COALESCE(LEAD(id) OVER (ORDER BY id) - 1, $1), $1) AS gap_end
+			  FROM anchored
 		)
-		SELECT id + 1 AS gap_start,
-		       LEAST(COALESCE(LEAD(id) OVER (ORDER BY id) - 1, $1), $1) AS gap_end
-		  FROM anchored`
+		SELECT GREATEST(gap_start, $2 + 1), gap_end
+		  FROM gaps
+		 WHERE GREATEST(gap_start, $2 + 1) <= gap_end
+		 LIMIT $3`
 
-	rows, err := r.driver.FetchMany(ctx, query, maxID)
+	rows, err := r.driver.FetchMany(ctx, query, maxID, afterID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("find id gaps after %d: %w", afterID, err)
 	}
