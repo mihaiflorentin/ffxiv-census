@@ -120,8 +120,10 @@ func runProxyConsumer(ctx context.Context, q contract.Queue, eventTypes []string
 	lodestoneCfg := cfg.Lodestone
 
 	var proxyLodestoneRate float64
+	var jobAttempts int
 	if pcfg := cfg.Proxy; pcfg != nil {
 		proxyLodestoneRate = pcfg.Consumer.LodestoneRateLimit
+		jobAttempts = pcfg.Consumer.JobAttempts
 	}
 
 	// Prewarm CensusService on the command goroutine so milestone sync and
@@ -163,7 +165,7 @@ func runProxyConsumer(ctx context.Context, q contract.Queue, eventTypes []string
 
 	// Pass nil handlers — RunEventsWithProxy uses the per-goroutine registry
 	// returned by newHandlers, never reads w.handlers.
-	w := worker.New(q, nil, logger)
+	w := worker.New(q, nil, logger).WithProxyAttempts(jobAttempts)
 	return w.RunEventsWithProxy(ctx, eventTypes, concurrency, ownerPrefix, proxyHub, newHandlers, newLodestoneClient, newRateLimiter)
 }
 

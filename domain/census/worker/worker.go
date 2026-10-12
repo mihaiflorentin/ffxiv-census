@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"runtime/debug"
 	"strings"
 	"sync"
@@ -51,6 +52,8 @@ type Worker struct {
 	handlers    *handler.Registry
 	logger      contract.Logger
 	rateLimiter contract.ProviderRateLimiter
+
+	maxProxyAttempts int // proxies one job may try in-process; 0 = default
 }
 
 func New(q contract.Queue, h *handler.Registry, logger contract.Logger, rateLimiter ...contract.ProviderRateLimiter) *Worker {
@@ -223,6 +226,106 @@ func (w *Worker) waitForProviders(ctx context.Context, eventType string) error {
 func isGeneralProxyFailure(err error) bool {
 	var checkErr *contract.ProxyCheckError
 	return errors.As(err, &checkErr) && checkErr.Kind == contract.CheckProxy
+}
+
+// proxyFailureAction is what the consumer does about a failed job attempt.
+type proxyFailureAction uint8
+
+const (
+	// proxyFailureNone: an ordinary job outcome (genuine 404/403, parse or
+	// business error, cancellation). No proxy write, no rotation.
+	proxyFailureNone proxyFailureAction = iota
+	// proxyFailureCooldown: the destination rate-limits this identity (no
+	// challenge, no 5xx). Cool the proxy and return the delivery to the
+	// queue; the provider-wide pause already applies.
+	proxyFailureCooldown
+	// proxyFailureRotate: a challenge, timeout or 5xx. Cool the proxy and
+	// retry the same job in-process on a different one.
+	proxyFailureRotate
+	// proxyFailureDead: a proven proxy dial/negotiation failure. Persist the
+	// general failure and retry in-process on a different proxy.
+	proxyFailureDead
+)
+
+// classifyProxyFailure maps a job error to a proxyFailureAction using the
+// typed *contract.ProxyCheckError only (errors.As), never error text.
+func classifyProxyFailure(err error) proxyFailureAction {
+	var checkErr *contract.ProxyCheckError
+	if !errors.As(err, &checkErr) {
+		return proxyFailureNone
+	}
+	switch checkErr.Kind {
+	case contract.CheckProxy:
+		return proxyFailureDead
+	case contract.CheckDeadline:
+		return proxyFailureRotate
+	case contract.CheckTarget:
+		if checkErr.Challenge || checkErr.Status >= http.StatusInternalServerError {
+			return proxyFailureRotate
+		}
+		return proxyFailureCooldown
+	default:
+		return proxyFailureNone
+	}
+}
+
+// defaultProxyAttempts is how many proxies a job may try in-process before it
+// takes the normal queue error path.
+const defaultProxyAttempts = 3
+
+// WithProxyAttempts sets the maximum number of proxies one job tries
+// in-process (first attempt included). Values below one keep the default.
+func (w *Worker) WithProxyAttempts(n int) *Worker {
+	if n > 0 {
+		w.maxProxyAttempts = n
+	}
+	return w
+}
+
+func (w *Worker) proxyAttempts() int {
+	if w.maxProxyAttempts > 0 {
+		return w.maxProxyAttempts
+	}
+	return defaultProxyAttempts
+}
+
+// recordProxyFailure persists the proxy-side consequence of a failed attempt
+// in a single write: a dial failure becomes a fenced general failure
+// (Proxy.MarkFailed); every destination failure raises the destination
+// cooldown, which grows with the proxy's consecutive failures, and releases
+// the claim.
+func (w *Worker) recordProxyFailure(
+	ctx context.Context,
+	action proxyFailureAction,
+	jobErr error,
+	proxy *proxydomain.Proxy,
+	owner string,
+	proxyHub *proxydomain.ProxyHub,
+) error {
+	writeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	lockTTL := proxyHub.LockTTL()
+	if action == proxyFailureDead {
+		w.logger.InfoContext(ctx, "worker.proxy_bad", slog.String("proxy", proxy.Address()))
+		if _, err := proxy.MarkFailed(writeCtx, owner, lockTTL); err != nil {
+			return fmt.Errorf("record proxy failure: %w", err)
+		}
+		return nil
+	}
+	var hint time.Duration
+	var checkErr *contract.ProxyCheckError
+	if errors.As(jobErr, &checkErr) {
+		hint = checkErr.RetryAfter
+	}
+	delay := proxyHub.CooldownFor(proxy, hint)
+	w.logger.InfoContext(ctx, "worker.proxy_cooldown",
+		slog.String("proxy", proxy.Address()),
+		slog.Int("consecutive_failures", proxy.Record().DestinationFailures+1),
+		slog.Duration("cooldown", delay))
+	if err := proxy.CooldownDestination(writeCtx, owner, lockTTL, delay); err != nil {
+		return fmt.Errorf("destination cooldown: %w", err)
+	}
+	return nil
 }
 
 // missingHandlerError builds the sentinel-classified error for a delivery
@@ -461,6 +564,35 @@ func (w *Worker) proxyWorkerLoop(
 		return nil
 	}
 
+	// attemptJob runs the job once through the current proxy's handlers:
+	// event-aware provider wait, handler lookup and panic recovery. It reads
+	// the loop's current handlers/proxy, so a rotation between attempts is
+	// picked up automatically.
+	attemptJob := func(ctx context.Context, job contract.QueueJob, attempt int) (next []contract.QueueJob, err error) {
+		if err := proxyWaitForProviders(ctx, job.Type); err != nil {
+			return nil, err
+		}
+		h, ok := handlers.Get(job.Type)
+		if !ok {
+			w.logger.ErrorContext(ctx, "worker.missing_handler", slog.String("event_type", job.Type))
+			return nil, missingHandlerError(job.Type)
+		}
+		w.logger.DebugContext(
+			ctx, "worker.job_start",
+			slog.String("event_type", job.Type),
+			slog.Int("worker_id", workerID),
+			slog.Int("attempt", attempt),
+			slog.String("proxy", proxy.Address()),
+			slog.String("owner", owner),
+		)
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("worker panic: %v\nstack: %s", r, debug.Stack())
+			}
+		}()
+		return h.Handle(ctx, job.Payload)
+	}
+
 	processJob := func(ctx context.Context, job contract.QueueJob) error {
 		// Check proxy ownership and extend the lock.
 		// Use a short-lived context so shutdown doesn't block lock extension.
@@ -489,172 +621,73 @@ func (w *Worker) proxyWorkerLoop(
 			w.logger.InfoContext(ctx, "worker.proxy_reacquired", slog.Int("worker_id", workerID), slog.String("proxy", proxy.Address()), slog.String("owner", owner))
 		}
 
-		// Event-aware provider wait before handler call.
-		if err := proxyWaitForProviders(ctx, job.Type); err != nil {
-			return err
-		}
-
-		h, ok := handlers.Get(job.Type)
-		if !ok {
-			w.logger.ErrorContext(ctx, "worker.missing_handler", slog.String("event_type", job.Type))
-			return missingHandlerError(job.Type)
-		}
-
 		start := time.Now()
-		w.logger.DebugContext(
-			ctx, "worker.job_start",
-			slog.String("event_type", job.Type),
-			slog.Int("worker_id", workerID),
-			slog.String("proxy", proxy.Address()),
-			slog.String("owner", owner),
-		)
-
 		var next []contract.QueueJob
 		var jobErr error
-
-		func() {
-			defer func() {
-				if r := recover(); r != nil {
-					jobErr = fmt.Errorf("worker panic: %v\nstack: %s", r, debug.Stack())
-				}
-			}()
-			next, jobErr = h.Handle(ctx, job.Payload)
-		}()
-
-		if jobErr != nil {
+		for attempt := 1; ; attempt++ {
+			next, jobErr = attemptJob(ctx, job, attempt)
+			if jobErr == nil {
+				break
+			}
 			w.logger.WarnContext(
 				ctx, "worker.job_retry",
-				slog.String("event_type", job.Type),
-				slog.Duration("duration", time.Since(start)),
-				slog.Any("error", jobErr),
+				append([]any{
+					slog.String("event_type", job.Type),
+					slog.Int("worker_id", workerID),
+					slog.Int("attempt", attempt),
+					slog.String("proxy", proxy.Address()),
+					slog.Duration("duration", time.Since(start)),
+					slog.Any("error", jobErr),
+				}, jobAttrs(job.Payload)...)...,
 			)
 
-			// Typed destination rejection (403/429/5xx): cool this proxy's
-			// destination down for at least the Retry-After hint. The client
-			// that saw the response already applied its own provider pause
-			// via the rate limiter. No identity rotation — return the
-			// delivery for a normal queue retry instead of bypassing the
-			// cooldown with another proxy.
-			var checkErr *contract.ProxyCheckError
-			if errors.As(jobErr, &checkErr) && checkErr.Kind == contract.CheckTarget {
-				delay := max(checkErr.RetryAfter, proxyHub.DestinationCooldown())
-				cooldownCtx, cooldownCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				if cdErr := proxy.CooldownDestination(cooldownCtx, owner, lockTTL, delay); cdErr != nil {
-					cooldownCancel()
-					return fmt.Errorf("destination cooldown: %w", cdErr)
+			action := classifyProxyFailure(jobErr)
+			if action == proxyFailureNone {
+				return jobErr
+			}
+			if err := w.recordProxyFailure(ctx, action, jobErr, proxy, owner, proxyHub); err != nil {
+				return err
+			}
+			if action == proxyFailureCooldown || attempt >= w.proxyAttempts() {
+				// A rate-limited destination returns to the queue's retry
+				// path; an exhausted job does too. The claim is already
+				// given up (cooldown) or released below (dial failure); the
+				// next job re-acquires through the proxy-lost path.
+				if action == proxyFailureDead {
+					releaseCtx, releaseCancel := context.WithTimeout(context.Background(), 10*time.Second)
+					if relErr := proxy.Release(releaseCtx, owner); relErr != nil {
+						w.logger.WarnContext(releaseCtx, "worker.proxy_release_error",
+							slog.String("proxy", proxy.Address()), slog.Any("error", relErr))
+					}
+					releaseCancel()
 				}
-				cooldownCancel()
 				return jobErr
 			}
 
-			// Typed conclusive proxy failure: persist the fenced failure on
-			// the version captured before the job, then replace the proxy
-			// and retry once. Ambiguous deadline/TLS/read errors and business
-			// errors stay ordinary job errors — no evidence write, no rotation.
-			if isGeneralProxyFailure(jobErr) {
-				w.logger.InfoContext(ctx, "worker.proxy_bad", slog.Int("worker_id", workerID), slog.String("proxy", proxy.Address()))
-				markCtx, markCancel := context.WithTimeout(context.Background(), 5*time.Second)
-				if _, err := proxy.MarkFailed(markCtx, owner, lockTTL); err != nil {
-					markCancel()
-					return fmt.Errorf("record proxy failure: %w", err)
-				}
-				markCancel()
-				newProxy, newLodestone, newLimiter, newReg, rerr := w.replaceProxy(
-					ctx, proxy, lodestoneClient, owner, proxyHub,
-					newLodestoneClient, newRateLimiter, newHandlers,
-				)
-				if rerr != nil {
-					return fmt.Errorf("proxy re-acquire after failure: %w", rerr)
-				}
-				proxy = newProxy
-				lodestoneClient = newLodestone
-				proxyLimiter = newLimiter
-				handlers = newReg
-				w.logger.InfoContext(ctx, "worker.proxy_reacquired", slog.Int("worker_id", workerID), slog.String("proxy", proxy.Address()), slog.String("owner", owner))
-
-				// Retry the same delivery once through the replacement proxy.
-				// Wait for providers before retrying.
-				if err := proxyWaitForProviders(ctx, job.Type); err != nil {
-					return err
-				}
-				retryH, retryOk := handlers.Get(job.Type)
-				if !retryOk {
-					w.logger.ErrorContext(ctx, "worker.missing_handler", slog.String("event_type", job.Type))
-					return missingHandlerError(job.Type)
-				}
-
-				retryStart := time.Now()
-				w.logger.InfoContext(
-					ctx, "worker.job_retry_start",
-					slog.String("event_type", job.Type),
-					slog.Int("worker_id", workerID),
-					slog.String("proxy", proxy.Address()),
-					slog.String("owner", owner),
-				)
-
-				var retryNext []contract.QueueJob
-				var retryErr error
-				func() {
-					defer func() {
-						if r := recover(); r != nil {
-							retryErr = fmt.Errorf("worker panic: %v\nstack: %s", r, debug.Stack())
-						}
-					}()
-					retryNext, retryErr = retryH.Handle(ctx, job.Payload)
-				}()
-
-				if retryErr != nil {
-					w.logger.ErrorContext(
-						ctx, "worker.job_retry_failed",
-						append([]any{
-							slog.String("event_type", job.Type),
-							slog.Duration("duration", time.Since(retryStart)),
-							slog.Any("error", retryErr),
-						}, jobAttrs(job.Payload)...)...,
-					)
-					// A typed general failure on the replacement is persisted
-					// too; either way the claim is given up before the
-					// delivery returns to the queue.
-					if isGeneralProxyFailure(retryErr) {
-						w.logger.InfoContext(ctx, "worker.proxy_retry_bad", slog.Int("worker_id", workerID), slog.String("proxy", proxy.Address()))
-						markCtx, markCancel := context.WithTimeout(context.Background(), 5*time.Second)
-						if _, err := proxy.MarkFailed(markCtx, owner, lockTTL); err != nil {
-							markCancel()
-							return fmt.Errorf("record proxy failure: %w", err)
-						}
-						markCancel()
-					}
-					relCtx, relCancel := context.WithTimeout(context.Background(), 10*time.Second)
-					if relErr := proxy.Release(relCtx, owner); relErr != nil {
-						w.logger.WarnContext(relCtx, "worker.proxy_release_error",
-							slog.String("proxy", proxy.Address()), slog.Any("error", relErr))
-					}
-					relCancel()
-					return retryErr
-				}
-
-				for _, nextJob := range retryNext {
-					if pubErr := w.queue.Publish(ctx, nextJob); pubErr != nil {
-						w.logger.ErrorContext(
-							ctx, "worker.publish_error",
-							slog.String("event_type", nextJob.Type),
-							slog.Any("error", pubErr),
-						)
-						return pubErr
-					}
-				}
-				w.logger.InfoContext(
-					ctx, "worker.job_done",
-					append([]any{
-						slog.String("event_type", job.Type),
-						slog.Duration("duration", time.Since(retryStart)),
-						slog.Int("chained", len(retryNext)),
-					}, jobAttrs(job.Payload)...)...,
-				)
-				return nil
+			newProxy, newLodestone, newLimiter, newReg, rerr := w.replaceProxy(
+				ctx, proxy, lodestoneClient, owner, proxyHub,
+				newLodestoneClient, newRateLimiter, newHandlers,
+			)
+			if rerr != nil {
+				return fmt.Errorf("proxy re-acquire after failure: %w", rerr)
 			}
+			proxy = newProxy
+			lodestoneClient = newLodestone
+			proxyLimiter = newLimiter
+			handlers = newReg
+			w.logger.InfoContext(ctx, "worker.proxy_reacquired", slog.Int("worker_id", workerID), slog.String("proxy", proxy.Address()), slog.String("owner", owner))
+		}
 
-			return jobErr
+		// The job worked through this proxy: a failure streak is over. The
+		// record was refreshed by CanUse (or came with the claim), so a
+		// streak-free proxy costs no write here.
+		if proxy.Record().DestinationFailures > 0 {
+			resetCtx, resetCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := proxy.ResetDestinationFailures(resetCtx, owner); err != nil {
+				w.logger.WarnContext(resetCtx, "worker.proxy_reset_failures_error",
+					slog.String("proxy", proxy.Address()), slog.Any("error", err))
+			}
+			resetCancel()
 		}
 
 		// Publish downstream jobs individually.

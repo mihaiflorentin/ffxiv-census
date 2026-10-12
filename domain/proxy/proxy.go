@@ -89,6 +89,17 @@ func (p *Proxy) CooldownDestination(ctx context.Context, owner string, lockTTL t
 	return p.repo.CooldownDestination(ctx, p.record.ID, owner, lockTTL, delay)
 }
 
+// ResetDestinationFailures clears the consecutive destination failure streak
+// after a success. The store skips the write when the streak is already zero,
+// and the in-memory record follows so the caller can skip the call too.
+func (p *Proxy) ResetDestinationFailures(ctx context.Context, owner string) error {
+	if err := p.repo.ResetDestinationFailures(ctx, p.record.ID, owner); err != nil {
+		return err
+	}
+	p.record.DestinationFailures = 0
+	return nil
+}
+
 // Release releases the lock on this proxy.
 func (p *Proxy) Release(ctx context.Context, owner string) error {
 	if err := p.repo.ReleaseProxy(ctx, p.record.ID, owner); err != nil {

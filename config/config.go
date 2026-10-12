@@ -208,6 +208,12 @@ type ProxyConsumerConfig struct {
 	TestURL            string        `mapstructure:"test_url"`
 	TestTimeout        time.Duration `mapstructure:"test_timeout"`
 	Cooldown           time.Duration `mapstructure:"cooldown"`
+	// CooldownMax caps the destination cooldown that doubles per consecutive
+	// destination failure of one proxy, starting at Cooldown.
+	CooldownMax time.Duration `mapstructure:"cooldown_max"`
+	// JobAttempts is how many proxies one job tries in-process (first
+	// attempt included) before it takes the queue's error path.
+	JobAttempts int `mapstructure:"job_attempts"`
 }
 
 type ProxyProviderConfig struct {
@@ -369,7 +375,17 @@ func validateProxySettings(cfg *Config) error {
 	if err := validatePositiveDuration("proxy.consumer.test_timeout", proxy.Consumer.TestTimeout); err != nil {
 		return err
 	}
-	return validatePositiveDuration("proxy.consumer.cooldown", proxy.Consumer.Cooldown)
+	if err := validatePositiveDuration("proxy.consumer.cooldown", proxy.Consumer.Cooldown); err != nil {
+		return err
+	}
+	if proxy.Consumer.CooldownMax < proxy.Consumer.Cooldown {
+		return fmt.Errorf("config: proxy.consumer.cooldown_max (%s) must be at least cooldown (%s)",
+			proxy.Consumer.CooldownMax, proxy.Consumer.Cooldown)
+	}
+	if proxy.Consumer.JobAttempts < 1 {
+		return fmt.Errorf("config: proxy.consumer.job_attempts must be at least 1, got %d", proxy.Consumer.JobAttempts)
+	}
+	return nil
 }
 
 func NewConfig() (*Config, error) {

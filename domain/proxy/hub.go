@@ -18,6 +18,7 @@ type ProxyHub struct {
 	lockTTL      time.Duration
 	checker      contract.ProxyChecker
 	destCooldown time.Duration // floor for destination cooldowns without a Retry-After
+	destCap      time.Duration // ceiling of the per-failure doubling; <= floor disables growth
 	policy       contract.ProxyScanPolicy
 	notify       chan struct{} // buffered(1); signals waiting workers when a proxy becomes available
 }
@@ -26,6 +27,21 @@ type ProxyHub struct {
 // optional destination checker, destination cooldown floor and scan policy.
 func NewProxyHub(repo contract.ProxyRepository, lockTTL time.Duration, checker contract.ProxyChecker, destCooldown time.Duration, policy contract.ProxyScanPolicy) *ProxyHub {
 	return &ProxyHub{repo: repo, lockTTL: lockTTL, checker: checker, destCooldown: destCooldown, policy: policy, notify: make(chan struct{}, 1)}
+}
+
+// WithDestinationCooldownCap sets the ceiling the destination cooldown grows
+// to while a proxy keeps failing (floor * 2^consecutive failures). A cap at or
+// below the floor keeps the cooldown flat. It returns the hub for chaining.
+func (h *ProxyHub) WithDestinationCooldownCap(cap time.Duration) *ProxyHub {
+	h.destCap = cap
+	return h
+}
+
+// CooldownFor returns the destination cooldown to apply to p for its next
+// failure: the floor doubled once per consecutive destination failure already
+// recorded on the row, capped, and never shorter than the Retry-After hint.
+func (h *ProxyHub) CooldownFor(p *Proxy, hint time.Duration) time.Duration {
+	return DestinationBackoff(h.destCooldown, h.destCap, hint, p.Record().DestinationFailures)
 }
 
 // NewProxy atomically claims an available proxy for the given owner, tests it
@@ -94,8 +110,7 @@ func (h *ProxyHub) NewProxy(ctx context.Context, owner string) (*Proxy, error) {
 	case contract.CheckTarget:
 		// Destination rejection (403/429/5xx): raise the destination cooldown
 		// to at least the Retry-After hint; general evidence is untouched.
-		delay := max(checkErr.RetryAfter, h.destCooldown)
-		if err := p.CooldownDestination(ctx, owner, h.lockTTL, delay); err != nil {
+		if err := p.CooldownDestination(ctx, owner, h.lockTTL, h.CooldownFor(p, checkErr.RetryAfter)); err != nil {
 			releaseClaim(p, owner)
 			return nil, err
 		}

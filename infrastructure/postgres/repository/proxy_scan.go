@@ -441,6 +441,7 @@ func (r *ProxyRepository) CooldownDestination(ctx context.Context, id int64, own
 		SET destination_cooldown_until = GREATEST(
 				COALESCE(destination_cooldown_until, '-infinity'::timestamptz),
 				statement_timestamp() + ($2 * interval '1 second')),
+			destination_failures = destination_failures + 1,
 			locked_by = NULL,
 			locked_at = NULL,
 			updated_at = statement_timestamp()
@@ -448,6 +449,25 @@ func (r *ProxyRepository) CooldownDestination(ctx context.Context, id int64, own
 		id, delay.Seconds(), owner)
 	if err != nil {
 		return fmt.Errorf("destination cooldown: %w", err)
+	}
+	return nil
+}
+
+// ResetDestinationFailures zeroes the consecutive destination failure counter
+// of an owned proxy after a success. The destination_failures > 0 predicate
+// makes the steady state (counter already zero) a no-row update, so healthy
+// proxies cost no write per job.
+func (r *ProxyRepository) ResetDestinationFailures(ctx context.Context, id int64, owner string) error {
+	db, err := r.driver.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, `UPDATE proxies
+		SET destination_failures = 0, updated_at = statement_timestamp()
+		WHERE id = $1 AND locked_by = $2 AND destination_failures > 0`,
+		id, owner)
+	if err != nil {
+		return fmt.Errorf("reset destination failures: %w", err)
 	}
 	return nil
 }

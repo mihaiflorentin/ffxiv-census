@@ -169,7 +169,7 @@ The rule that a proxy must be fresh and pass a live Lodestone check before a wor
 _Avoid_: blind handout
 
 **Destination cooldown**:
-The temporary exclusion of a proxy from Lodestone use after The Lodestone rejects or rate-limits it. It does not mark the proxy generally unhealthy.
+The temporary exclusion of a proxy from Lodestone use after The Lodestone challenges, rejects, rate-limits or times out on it. It does not mark the proxy generally unhealthy. It starts at the cooldown floor (60 s) and doubles for each consecutive failure of the same proxy up to a configurable cap (15 min), never undercutting a server `Retry-After`; the first successful job on the proxy resets the streak. A cooled proxy is not handed out again until the cooldown ends, and afterwards it ranks behind proxies with no recent failures.
 _Avoid_: proxy ban, proxy failure
 
 **Proxy mode**:
@@ -181,7 +181,7 @@ The temporary pause on requests to one provider after it signals a rate limit. I
 _Avoid_: provider pause, rate-limit error
 
 **Immediate proxy switch**:
-The policy of abandoning a proxy on its first transport-level failure rather than retrying through it.
+The policy of abandoning a proxy on its first transport-level failure rather than retrying through it. In proxy mode the same job is retried in-process on a different proxy (at most three proxies per job) after a proxy-dial failure, challenge, timeout or server error; a 404 or private outcome is never a reason to switch.
 _Avoid_: bad-proxy retry
 
 ## Statistics

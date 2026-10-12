@@ -164,6 +164,7 @@ func TestNewConfigRejectsNonPositiveScanDurations(t *testing.T) {
 		"PROXY_SCAN_CONTROL_INTERVAL",
 		"PROXY_CONSUMER_TEST_TIMEOUT",
 		"PROXY_CONSUMER_COOLDOWN",
+		"PROXY_CONSUMER_COOLDOWN_MAX",
 	}
 	for _, key := range keys {
 		for _, val := range []string{"0s", "-1s"} {
@@ -289,6 +290,12 @@ func TestNewConfig_ProxyScanDefaults(t *testing.T) {
 	if cfg.Proxy.Consumer.Cooldown != 60*time.Second {
 		t.Errorf("expected consumer cooldown 60s, got %s", cfg.Proxy.Consumer.Cooldown)
 	}
+	if cfg.Proxy.Consumer.CooldownMax != 15*time.Minute {
+		t.Errorf("expected consumer cooldown_max 15m, got %s", cfg.Proxy.Consumer.CooldownMax)
+	}
+	if cfg.Proxy.Consumer.JobAttempts != 3 {
+		t.Errorf("expected consumer job_attempts 3, got %d", cfg.Proxy.Consumer.JobAttempts)
+	}
 }
 
 func TestNewConfig_ProxyScanEnvOverrides(t *testing.T) {
@@ -309,6 +316,8 @@ func TestNewConfig_ProxyScanEnvOverrides(t *testing.T) {
 	t.Setenv("PROXY_CONSUMER_TEST_URL", "https://destination.example.com/lodestone/")
 	t.Setenv("PROXY_CONSUMER_TEST_TIMEOUT", "15s")
 	t.Setenv("PROXY_CONSUMER_COOLDOWN", "90s")
+	t.Setenv("PROXY_CONSUMER_COOLDOWN_MAX", "30m")
+	t.Setenv("PROXY_CONSUMER_JOB_ATTEMPTS", "5")
 
 	cfg, err := NewConfig()
 	if err != nil {
@@ -359,5 +368,28 @@ func TestNewConfig_ProxyScanEnvOverrides(t *testing.T) {
 	}
 	if cfg.Proxy.Consumer.Cooldown != 90*time.Second {
 		t.Errorf("PROXY_CONSUMER_COOLDOWN override not applied: %s", cfg.Proxy.Consumer.Cooldown)
+	}
+	if cfg.Proxy.Consumer.CooldownMax != 30*time.Minute {
+		t.Errorf("PROXY_CONSUMER_COOLDOWN_MAX override not applied: %s", cfg.Proxy.Consumer.CooldownMax)
+	}
+	if cfg.Proxy.Consumer.JobAttempts != 5 {
+		t.Errorf("PROXY_CONSUMER_JOB_ATTEMPTS override not applied: %d", cfg.Proxy.Consumer.JobAttempts)
+	}
+}
+
+func TestNewConfigRejectsConsumerCooldownMaxBelowFloor(t *testing.T) {
+	t.Setenv("PROXY_CONSUMER_COOLDOWN", "5m")
+	t.Setenv("PROXY_CONSUMER_COOLDOWN_MAX", "1m")
+	if _, err := NewConfig(); err == nil {
+		t.Fatal("accepted a destination cooldown cap below the floor")
+	}
+}
+
+func TestNewConfigRejectsNonPositiveJobAttempts(t *testing.T) {
+	for _, val := range []string{"0", "-1"} {
+		t.Setenv("PROXY_CONSUMER_JOB_ATTEMPTS", val)
+		if _, err := NewConfig(); err == nil {
+			t.Fatalf("accepted PROXY_CONSUMER_JOB_ATTEMPTS=%s", val)
+		}
 	}
 }

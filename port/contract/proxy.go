@@ -48,6 +48,10 @@ type ProxyRecord struct {
 	ScanLeaseUntil           *time.Time
 	ClaimedVersion           *int64
 	DestinationCooldownUntil *time.Time
+	// DestinationFailures counts consecutive destination failures (challenge,
+	// timeout, 5xx, 429) since the last success. It drives the growing
+	// destination cooldown and ranks recently failing proxies behind clean ones.
+	DestinationFailures int
 }
 
 // ProxyChecker tests whether a proxy endpoint is reachable and measures latency.
@@ -106,9 +110,14 @@ type ProxyRepository interface {
 	// accepted path — the caller owns release.
 	RecordConsumerFailure(ctx context.Context, rec ProxyRecord, owner string, lockTTL time.Duration, update ScanUpdate) (bool, error)
 	// CooldownDestination raises the destination cooldown to at least
-	// now+delay and releases the owned consumer lock. It touches neither
+	// now+delay, increments the consecutive destination failure counter and
+	// releases the owned consumer lock in one statement. It touches neither
 	// general evidence nor the scan version.
 	CooldownDestination(ctx context.Context, id int64, owner string, lockTTL time.Duration, delay time.Duration) error
+	// ResetDestinationFailures zeroes the consecutive destination failure
+	// counter after a success. It is a no-op unless the caller owns the lock
+	// and the counter is non-zero, and keeps the lock.
+	ResetDestinationFailures(ctx context.Context, id int64, owner string) error
 	// ReleaseProxy releases the lock on a proxy owned by the given owner.
 	ReleaseProxy(ctx context.Context, id int64, owner string) error
 	// RandomActive returns a random active proxy, optionally excluding IDs.

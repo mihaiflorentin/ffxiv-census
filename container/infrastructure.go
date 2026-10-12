@@ -103,7 +103,8 @@ func (s *ServiceContainer) discoveryHTTPClientUnlocked() contract.HTTPClient {
 		}
 	}
 	checker := s.destinationCheckerUnlocked()
-	hub := proxydomain.NewProxyHub(repo, lockTTL, checker, s.proxyConsumerCooldownUnlocked(), s.proxyScanPolicyUnlocked())
+	hub := proxydomain.NewProxyHub(repo, lockTTL, checker, s.proxyConsumerCooldownUnlocked(), s.proxyScanPolicyUnlocked()).
+		WithDestinationCooldownCap(s.proxyConsumerCooldownMaxUnlocked())
 	if hub == nil {
 		return s.HTTPClient()
 	}
@@ -628,9 +629,20 @@ func (s *ServiceContainer) ProxyHub() *proxydomain.ProxyHub {
 		}
 	}
 	hub := proxydomain.NewProxyHub(repo, lockTTL, s.destinationCheckerUnlocked(),
-		s.proxyConsumerCooldownUnlocked(), s.proxyScanPolicyUnlocked())
+		s.proxyConsumerCooldownUnlocked(), s.proxyScanPolicyUnlocked()).
+		WithDestinationCooldownCap(s.proxyConsumerCooldownMaxUnlocked())
 	s.mu.Unlock()
 	return hub
+}
+
+// proxyConsumerCooldownMaxUnlocked returns the ceiling the destination
+// cooldown doubles to from [proxy.consumer].cooldown_max, defaulting to
+// fifteen minutes when unset.
+func (s *ServiceContainer) proxyConsumerCooldownMaxUnlocked() time.Duration {
+	if cfg := s.configUnlocked().Proxy; cfg != nil && cfg.Consumer.CooldownMax > 0 {
+		return cfg.Consumer.CooldownMax
+	}
+	return 15 * time.Minute
 }
 
 // proxyConsumerCooldownUnlocked returns the destination cooldown floor from
