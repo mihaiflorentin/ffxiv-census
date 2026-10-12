@@ -17,7 +17,7 @@ import (
 func TestRotatingProxyClient_GetStream_NoProxy_Fallback(t *testing.T) {
 	// No proxies in the repo — should fall back to direct.
 	repo := repository.NewFakeProxyRepository(contract.ProxyScanPolicy{})
-	hub := proxy.NewProxyHub(repo, 5*time.Minute, nil, 0, contract.ProxyScanPolicy{})
+	hub := proxy.NewProxyHub(repo, 5*time.Minute, 0, contract.ProxyScanPolicy{})
 
 	direct := &mockhttpclient.Client{
 		GetStreamFn: func(_ context.Context, url string, _, _ map[string]string, consume func(int, io.Reader) error) error {
@@ -50,7 +50,7 @@ func TestRotatingProxyClient_GetStream_SwapActiveReturnsDifferentProxy(t *testin
 		})
 		repo.SeedSuccess(int64(i), 0)
 	}
-	hub := proxy.NewProxyHub(repo, 5*time.Minute, nil, 0, contract.ProxyScanPolicy{})
+	hub := proxy.NewProxyHub(repo, 5*time.Minute, 0, contract.ProxyScanPolicy{})
 
 	// SwapActive must always return a different proxy than the current one.
 	for trial := 0; trial < 10; trial++ {
@@ -80,7 +80,7 @@ func TestRotatingProxyClient_GetStream_ConsumerError_NoRotate(t *testing.T) {
 		Port:     8080,
 	})
 	repo.SeedSuccess(1, 0)
-	hub := proxy.NewProxyHub(repo, 5*time.Minute, nil, 0, contract.ProxyScanPolicy{})
+	hub := proxy.NewProxyHub(repo, 5*time.Minute, 0, contract.ProxyScanPolicy{})
 
 	direct := &mockhttpclient.Client{
 		GetStreamFn: func(_ context.Context, _ string, _, _ map[string]string, _ func(int, io.Reader) error) error {

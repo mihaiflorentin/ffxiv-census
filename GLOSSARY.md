@@ -168,9 +168,9 @@ _Avoid_: health status
 The exclusive, time-limited hold one census worker has on a proxy while using it. Expired holds may be taken over by other workers.
 _Avoid_: proxy lease (that is the scan lease), consumer lease
 
-**Test-before-handout**:
-The rule that a proxy must be fresh and pass a live Lodestone check before a worker is ever asked to use it.
-_Avoid_: blind handout
+**Freshness-only handout**:
+The rule that a proxy is handed to a worker on scan freshness alone (general health verified within the freshness window, 120 s), with ownership and freshness revalidated against the database right after the claim. No separate Lodestone request is made at hand-out; the first real request of the job is the destination check, and a proxy The Lodestone rejects then is released and put on a destination cooldown at once.
+_Avoid_: Test-before-handout, handout check, destination check at handout, blind handout
 
 **Destination cooldown**:
 The temporary exclusion of a proxy from Lodestone use after The Lodestone challenges, rejects, rate-limits or times out on it. It does not mark the proxy generally unhealthy. It starts at the cooldown floor (60 s) and doubles for each consecutive failure of the same proxy up to a configurable cap (15 min), never undercutting a server `Retry-After`; the first successful job on the proxy resets the streak. A cooled proxy is not handed out again until the cooldown ends, and afterwards it ranks behind proxies with no recent failures.
