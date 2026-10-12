@@ -31,7 +31,13 @@ func (r *CharacterRepository) Upsert(ctx context.Context, rec contract.Character
 // UpsertBatch stores every write in ONE transaction: all characters and jobs
 // commit together or none do. An empty batch is a no-op.
 func (r *CharacterRepository) UpsertBatch(ctx context.Context, writes []contract.CharacterWrite) error {
-	if len(writes) == 0 {
+	return r.StoreResult(ctx, contract.CensusResult{Characters: writes})
+}
+
+// StoreResult stores the characters, jobs, milestones and achievement
+// summaries of result in ONE transaction. An empty result is a no-op.
+func (r *CharacterRepository) StoreResult(ctx context.Context, result contract.CensusResult) error {
+	if result.Size() == 0 {
 		return nil
 	}
 	db, err := r.driver.Acquire(ctx)
@@ -44,12 +50,45 @@ func (r *CharacterRepository) UpsertBatch(ctx context.Context, writes []contract
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	for _, w := range writes {
+	for _, w := range result.Characters {
 		if err := upsertCharacterTx(ctx, tx, w.Record, w.Jobs); err != nil {
 			return err
 		}
 	}
+	for _, a := range result.Achievements {
+		if err := storeAchievementTx(ctx, tx, a); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
+}
+
+// storeAchievementTx writes one achievement census inside tx, with the same
+// effect as AchievementRepository.UpsertCharacterMilestones followed by
+// UpdateAchievementSummary (or SetAchievementsPrivate for a private profile).
+func storeAchievementTx(ctx context.Context, tx *sql.Tx, a contract.AchievementWrite) error {
+	if a.Private {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE characters SET achievements_private = $1 WHERE id = $2`, boolInt(true), a.CharacterID); err != nil {
+			return fmt.Errorf("character set achievements private: %w", err)
+		}
+		return nil
+	}
+	if query, args := milestoneUpsert(a.Milestones); query != "" {
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("milestones batch upsert: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE characters
+		    SET achievements_private = $1,
+		        latest_achievement_id = $2,
+		        latest_achievement_at = $3
+		  WHERE id = $4`,
+		boolInt(false), nullableUint32(a.LatestID), nullableTime(a.LatestAt), a.CharacterID); err != nil {
+		return fmt.Errorf("character update achievement summary: %w", err)
+	}
+	return nil
 }
 
 // upsertCharacterTx writes one character row and its jobs inside tx.

@@ -97,8 +97,8 @@ func (s *ServiceContainer) Handlers() *handler.Registry {
 		return reg
 	}
 	reg.Register(handler.EventIDSweep, handler.NewIDSweep(s.LodestoneClient(), svc, s.Logger()).WithWriter(s.ResultWriter()))
-	reg.Register(handler.EventAchievementCensus, handler.NewAchievementCensus(s.LodestoneClient(), svc, s.Logger(), s.ProviderRateLimiter()))
-	reg.Register(handler.EventCharacterCensus, handler.NewCharacterCensus(s.LodestoneClient(), svc, s.Logger()))
+	reg.Register(handler.EventAchievementCensus, handler.NewAchievementCensus(s.LodestoneClient(), svc, s.Logger(), s.ProviderRateLimiter()).WithWriter(s.ResultWriter()))
+	reg.Register(handler.EventCharacterCensus, handler.NewCharacterCensus(s.LodestoneClient(), svc, s.Logger()).WithWriter(s.ResultWriter()))
 	return reg
 }
 
@@ -178,7 +178,7 @@ func (s *ServiceContainer) ProxyCensusHandlers(lodestoneClient contract.Lodeston
 		return reg
 	}
 	reg.Register(handler.EventIDSweep, handler.NewIDSweep(lodestoneClient, svc, s.Logger()).WithWriter(s.ResultWriter()))
-	reg.Register(handler.EventAchievementCensus, handler.NewAchievementCensus(lodestoneClient, svc, s.Logger(), rateLimiter))
-	reg.Register(handler.EventCharacterCensus, handler.NewCharacterCensus(lodestoneClient, svc, s.Logger()))
+	reg.Register(handler.EventAchievementCensus, handler.NewAchievementCensus(lodestoneClient, svc, s.Logger(), rateLimiter).WithWriter(s.ResultWriter()))
+	reg.Register(handler.EventCharacterCensus, handler.NewCharacterCensus(lodestoneClient, svc, s.Logger()).WithWriter(s.ResultWriter()))
 	return reg
 }

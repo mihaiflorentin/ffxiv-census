@@ -25,12 +25,12 @@ import (
 // batch commits that the writer issues.
 type gatedRepo struct {
 	contract.CharacterRepository
-	gate    chan struct{} // when non-nil, UpsertBatch waits for it to close
+	gate    chan struct{} // when non-nil, StoreResult waits for it to close
 	failErr error
 	calls   atomic.Int32
 }
 
-func (r *gatedRepo) UpsertBatch(ctx context.Context, writes []contract.CharacterWrite) error {
+func (r *gatedRepo) StoreResult(ctx context.Context, result contract.CensusResult) error {
 	r.calls.Add(1)
 	if r.gate != nil {
 		<-r.gate
@@ -38,7 +38,7 @@ func (r *gatedRepo) UpsertBatch(ctx context.Context, writes []contract.Character
 	if r.failErr != nil {
 		return r.failErr
 	}
-	return r.CharacterRepository.UpsertBatch(ctx, writes)
+	return r.CharacterRepository.StoreResult(ctx, result)
 }
 
 // sweepRig is a worker consuming id-sweep jobs from the in-memory queue,

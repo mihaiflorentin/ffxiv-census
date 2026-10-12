@@ -198,3 +198,26 @@ func TestBatchWriter_EmptyResultReturnsImmediately(t *testing.T) {
 		t.Fatalf("UpsertBatch calls = %d, want 0", repo.UpsertBatchCalls)
 	}
 }
+
+func TestBatchWriter_StoresCharactersAndAchievementsOfABatchInOneStoreCall(t *testing.T) {
+	repo := mockrepo.NewCharacterFake()
+	w := writer.New(repo, writer.Config{BatchSize: 2, FlushInterval: time.Hour}, nil)
+	defer func() { _ = w.Close(context.Background()) }()
+
+	latest := uint32(9)
+	a := writeAsync(w, result(1))
+	b := writeAsync(w, contract.CensusResult{Achievements: []contract.AchievementWrite{{CharacterID: 1, LatestID: &latest}}})
+	if err := waitErr(t, a); err != nil {
+		t.Fatalf("Write characters: %v", err)
+	}
+	if err := waitErr(t, b); err != nil {
+		t.Fatalf("Write achievements: %v", err)
+	}
+
+	if repo.UpsertBatchCalls != 1 {
+		t.Fatalf("store calls = %d, want 1 transaction for both results", repo.UpsertBatchCalls)
+	}
+	if len(repo.StoredAchievements) != 1 || repo.StoredAchievements[0].CharacterID != 1 {
+		t.Fatalf("stored achievements = %+v", repo.StoredAchievements)
+	}
+}

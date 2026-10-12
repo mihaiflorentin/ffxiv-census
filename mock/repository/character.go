@@ -16,13 +16,15 @@ import (
 // deleted_at clearing, jobs replacement, stale ordering) so handler tests don't
 // drift from production behavior.
 type CharacterRepository struct {
-	mu                       sync.Mutex
-	characters               map[uint32]contract.CharacterRecord
-	jobs                     map[uint32][]contract.ClassJobRecord
-	gear                     map[uint32][]contract.CharacterGearRecord
-	UpsertErr                error
-	UpsertBatchErr           error
-	UpsertBatchCalls         int
+	mu               sync.Mutex
+	characters       map[uint32]contract.CharacterRecord
+	jobs             map[uint32][]contract.ClassJobRecord
+	gear             map[uint32][]contract.CharacterGearRecord
+	UpsertErr        error
+	UpsertBatchErr   error
+	UpsertBatchCalls int
+	// StoredAchievements records the achievement writes applied by StoreResult.
+	StoredAchievements       []contract.AchievementWrite
 	UpsertGearErr            error
 	GetGearErr               error
 	FindIDGapsAfterErr       error
@@ -79,6 +81,14 @@ func (f *CharacterRepository) Upsert(ctx context.Context, rec contract.Character
 // UpsertBatch applies every write; UpsertBatchErr fails the whole batch before
 // anything is stored, like a rolled-back transaction.
 func (f *CharacterRepository) UpsertBatch(ctx context.Context, writes []contract.CharacterWrite) error {
+	return f.StoreResult(ctx, contract.CensusResult{Characters: writes})
+}
+
+// StoreResult applies the characters, then each achievement write's summary
+// (milestones are only recorded in StoredAchievements: this fake does not own
+// the milestone table). UpsertBatchErr fails the whole result before anything
+// is stored.
+func (f *CharacterRepository) StoreResult(ctx context.Context, result contract.CensusResult) error {
 	f.mu.Lock()
 	f.UpsertBatchCalls++
 	err := f.UpsertBatchErr
@@ -86,10 +96,24 @@ func (f *CharacterRepository) UpsertBatch(ctx context.Context, writes []contract
 	if err != nil {
 		return err
 	}
-	for _, w := range writes {
+	for _, w := range result.Characters {
 		if err := f.Upsert(ctx, w.Record, w.Jobs); err != nil {
 			return err
 		}
+	}
+	for _, a := range result.Achievements {
+		var err error
+		if a.Private {
+			err = f.SetAchievementsPrivate(ctx, a.CharacterID, true)
+		} else {
+			err = f.UpdateAchievementSummary(ctx, a.CharacterID, false, a.LatestID, a.LatestAt)
+		}
+		if err != nil {
+			return err
+		}
+		f.mu.Lock()
+		f.StoredAchievements = append(f.StoredAchievements, a)
+		f.mu.Unlock()
 	}
 	return nil
 }

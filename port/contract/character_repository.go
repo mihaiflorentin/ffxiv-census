@@ -47,6 +47,13 @@ type CharacterRepository interface {
 	// with the same semantics as Upsert for each element. It is atomic: on
 	// error nothing in the batch is committed. An empty batch is a no-op.
 	UpsertBatch(ctx context.Context, writes []CharacterWrite) error
+	// StoreResult stores a whole census result in ONE transaction: the
+	// characters and jobs as UpsertBatch does, then each achievement write
+	// (milestones upserted additively, then the character's achievement
+	// summary updated; a Private write only flags the character private).
+	// Atomic: on error nothing in the result is committed. An empty result is
+	// a no-op.
+	StoreResult(ctx context.Context, result CensusResult) error
 	// UpsertGear replaces all gear slots for a character in one transaction.
 	UpsertGear(ctx context.Context, charID uint32, gear []CharacterGearRecord) error
 	// GetGear returns the character's equipped gear slots (empty if none).

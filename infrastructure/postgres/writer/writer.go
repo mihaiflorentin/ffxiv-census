@@ -161,15 +161,16 @@ func (w *BatchWriter) run() {
 // flush stores every pending result in one transaction and gives every waiter
 // the same outcome.
 func (w *BatchWriter) flush(batch []request, size int) {
-	writes := make([]contract.CharacterWrite, 0, size)
+	var merged contract.CensusResult
 	for _, r := range batch {
-		writes = append(writes, r.result.Characters...)
+		merged.Characters = append(merged.Characters, r.result.Characters...)
+		merged.Achievements = append(merged.Achievements, r.result.Achievements...)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), w.cfg.FlushTimeout)
 	defer cancel()
 	start := time.Now()
-	err := w.store.UpsertBatch(ctx, writes)
+	err := w.store.StoreResult(ctx, merged)
 	if w.observer != nil {
 		w.observer.ObserveFlush(size, time.Since(start), err)
 	}

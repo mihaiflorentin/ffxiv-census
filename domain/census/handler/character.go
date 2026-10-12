@@ -20,6 +20,17 @@ type CharacterCensus struct {
 	lodestone contract.LodestoneClient
 	census    *census.Service
 	logger    contract.Logger
+	// writer, when set, stores the character through a batch. Handle waits
+	// for the batch to commit before returning, so the worker acks the job
+	// only after the character is durable. When nil the handler upserts
+	// directly (the legacy path).
+	writer contract.ResultWriter
+}
+
+// WithWriter routes this handler's storage through w and returns the handler.
+func (h *CharacterCensus) WithWriter(w contract.ResultWriter) *CharacterCensus {
+	h.writer = w
+	return h
 }
 
 func NewCharacterCensus(
@@ -72,7 +83,7 @@ func (h *CharacterCensus) Handle(ctx context.Context, payload []byte) ([]contrac
 // storing or chaining.
 func (h *CharacterCensus) finishLodestone(ctx context.Context, char *contract.CharacterProfile) ([]contract.QueueJob, error) {
 	h.logger.DebugContext(ctx, "handler.character_census.fetched", slog.Uint64("character_id", uint64(char.ID)), slog.String("name", char.Name), slog.String("world", char.World), slog.String("fc_id", char.FreeCompanyID), slog.String("source", "lodestone"))
-	if err := h.census.UpsertCharacter(ctx, char); err != nil {
+	if err := h.store(ctx, char); err != nil {
 		if errors.Is(err, census.ErrProfileHidden) {
 			h.logger.InfoContext(ctx, "handler.character_census.skipped", slog.Uint64("character_id", uint64(char.ID)), slog.String("reason", "profile_hidden"))
 			return nil, nil
@@ -84,4 +95,18 @@ func (h *CharacterCensus) finishLodestone(ctx context.Context, char *contract.Ch
 	next := BuildDependentCharacterJobs(char.ID)
 	h.logger.DebugContext(ctx, "handler.character_census.done", slog.Uint64("character_id", uint64(char.ID)), slog.Int("chained", len(next)))
 	return next, nil
+}
+
+// store persists the profile: through the writer (waiting for the batch to
+// commit) when one is set, otherwise directly. It returns
+// census.ErrProfileHidden for a profile that must not be stored.
+func (h *CharacterCensus) store(ctx context.Context, char *contract.CharacterProfile) error {
+	if h.writer == nil {
+		return h.census.UpsertCharacter(ctx, char)
+	}
+	w, err := h.census.PrepareCharacter(char)
+	if err != nil {
+		return err
+	}
+	return h.writer.Write(ctx, contract.CensusResult{Characters: []contract.CharacterWrite{w}})
 }

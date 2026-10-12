@@ -239,6 +239,55 @@ func TestService_ProcessAchievements_Private(t *testing.T) {
 	}
 }
 
+func TestService_PrepareMilestoneResults(t *testing.T) {
+	svc, chars := newTestService(t)
+	if err := svc.SyncMilestones(context.Background()); err != nil {
+		t.Fatalf("SyncMilestones: %v", err)
+	}
+	earned := time.Now().Add(-48 * time.Hour)
+	latest := contract.AchievementResult{AchievementID: 999, Earned: true, EarnedAt: time.Now().Add(-time.Hour)}
+	summary := &contract.AchievementSummary{
+		Milestones: []contract.AchievementResult{
+			{AchievementID: 590, Earned: true, EarnedAt: earned},
+			{AchievementID: 591, Earned: false},
+			{AchievementID: 999, Earned: true, EarnedAt: latest.EarnedAt},
+		},
+		LatestAchievement: &latest,
+	}
+
+	w, err := svc.PrepareMilestoneResults(context.Background(), 123, summary)
+	if err != nil {
+		t.Fatalf("PrepareMilestoneResults: %v", err)
+	}
+
+	if w.CharacterID != 123 || w.Private {
+		t.Fatalf("write = %+v", w)
+	}
+	if len(w.Milestones) != 1 || w.Milestones[0].AchievementID != 590 || w.Milestones[0].CharacterID != 123 || !w.Milestones[0].AchievedAt.Equal(earned) {
+		t.Fatalf("milestones = %+v, want only earned registered 590", w.Milestones)
+	}
+	if w.LatestID == nil || *w.LatestID != 999 || w.LatestAt == nil || !w.LatestAt.Equal(latest.EarnedAt) {
+		t.Fatalf("latest = %v @ %v, want 999", w.LatestID, w.LatestAt)
+	}
+	if chars.UpsertCalls != 0 || len(chars.StoredAchievements) != 0 {
+		t.Fatal("PrepareMilestoneResults must not store anything")
+	}
+}
+
+func TestService_PrepareMilestoneResults_PrivateAndErrors(t *testing.T) {
+	svc, _ := newTestService(t)
+	w, err := svc.PrepareMilestoneResults(context.Background(), 5, &contract.AchievementSummary{Private: true})
+	if err != nil || !w.Private || w.CharacterID != 5 || len(w.Milestones) != 0 {
+		t.Fatalf("private write = %+v, %v", w, err)
+	}
+	if _, err := svc.PrepareMilestoneResults(context.Background(), 5, nil); err == nil {
+		t.Fatal("nil summary: want error")
+	}
+	if _, err := svc.PrepareMilestoneResults(context.Background(), 5, &contract.AchievementSummary{}); err == nil {
+		t.Fatal("empty registry: want error")
+	}
+}
+
 func TestService_IsActive(t *testing.T) {
 	svc, _ := newTestService(t)
 	now := time.Now().UTC()

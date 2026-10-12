@@ -24,7 +24,7 @@ One row per Lodestone character. `id` is the Lodestone character ID (externally 
 | `last_census_at` | TEXT (nullable) | NULL until a full census has run |
 | `deleted_at` | TEXT (nullable) | set when Lodestone returns 404 (character gone) |
 
-**Discovery:** the `id-sweep` handler ingests a discovered character fully (profile + jobs) in one `UpsertCharacter` call. `last_census_at` is set by the upsert; `latest_achievement_at` stays NULL until the achievement census runs.
+**Discovery:** the `id-sweep` handler ingests a discovered character fully (profile + jobs) in one `UpsertCharacter` call (through the batching writer when one is configured, which is the default on workers). `last_census_at` is set by the upsert; `latest_achievement_at` stays NULL until the achievement census runs.
 
 **`ListStale` behaviour:** returns up to `limit` characters ordered by `last_census_at ASC NULLS FIRST, id ASC`. A zero `cutoff` disables the age predicate — **all characters are eligible, including deleted ones**; a deleted character that reappears on the Lodestone is therefore re-probed and `Upsert` clears its `deleted_at` (resurrection self-healing). A positive `cutoff` filters to rows whose `last_census_at` is before the cutoff (NULL `last_census_at` counts as stale in both modes).
 
@@ -75,7 +75,8 @@ that have not earned the first missing milestone produce no new row.
 Four contracts in `port/contract`, each with a PostgreSQL implementation in `infrastructure/postgres/repository/` and an in-memory fake in `mock/repository/`:
 
 - **`CharacterRepository`** — `Upsert` (character + jobs atomically), `Get`, `GetJobs`, `UpsertGear`, `GetGear`, `FindIDGaps`, `MarkDeleted`, `UpdateAchievementSummary`, `SetAchievementsPrivate`, `ListStale`, `List`, `Count`, `CountActive`, `Breakdown`, `NewPerDay`, `MaxID`. The complete persistence and query contract for character data.
-- **`CharacterRepository.UpsertBatch`** — stores several characters and their jobs in one transaction (all or nothing); used by the batching writer.
+- **`CharacterRepository.UpsertBatch`** — stores several characters and their jobs in one transaction (all or nothing).
+- **`CharacterRepository.StoreResult`** — stores a whole `contract.CensusResult` in one transaction (all or nothing): the characters and jobs, then each `AchievementWrite` (milestones upserted additively, then the latest-achievement summary; a private profile only flips `achievements_private` and keeps earlier milestones). This is what the batching writer calls, so a character with its jobs, and an achievement census with its milestones and latest achievement, always commit together. The `character-census` and `achievement-census` handlers store through the writer (`Service.PrepareCharacter` / `Service.PrepareMilestoneResults` build the write) and return only after the batch commits; a handler without a writer falls back to the direct `UpsertCharacter` / `ProcessMilestoneResults` path. Marking a character deleted (Lodestone 404) is a single-row update and stays direct.
 - **`AchievementRepository`** — `SyncMilestones` (idempotent registry upsert), `ListMilestones`, `UpsertCharacterMilestones` (batch multi-row INSERT, single round-trip), `ListCharacterMilestones`, `CountExpansions`, `CountExpansionsFiltered`, `NewCharactersPerDay`, `CountChocoboMilestones`.
 - **`CensusRunRepository`** — `Start`, `Finish`.
 - **`UIStatsRepository`** — `LoadCurrent` and `Refresh` for the versioned aggregate read model. Refresh uses a bounded number of census-wide queries outside the HTTP request path and publishes the result atomically.

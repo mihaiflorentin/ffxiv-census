@@ -243,61 +243,70 @@ const defaultActivityWindow = 30 * 24 * time.Hour
 // summary and updates the character's achievement summary (private flag + latest
 // achievement). Returns the milestones that were persisted.
 func (s *Service) ProcessMilestoneResults(ctx context.Context, charID uint32, summary *contract.AchievementSummary) ([]contract.CharacterMilestone, error) {
-	if summary == nil {
-		return nil, errors.New("nil achievement summary")
+	w, err := s.PrepareMilestoneResults(ctx, charID, summary)
+	if err != nil {
+		return nil, err
 	}
-
-	// A private profile hides its achievements: preserve any prior milestones and
-	// latest achievement, only mark the profile private.
-	if summary.Private {
+	if w.Private {
 		if err := s.characters.SetAchievementsPrivate(ctx, charID, true); err != nil {
 			return nil, err
 		}
 		return nil, nil
 	}
+	if err := s.achievements.UpsertCharacterMilestones(ctx, charID, w.Milestones); err != nil {
+		return nil, err
+	}
+	if err := s.characters.UpdateAchievementSummary(ctx, charID, false, w.LatestID, w.LatestAt); err != nil {
+		return nil, err
+	}
+	return w.Milestones, nil
+}
+
+// PrepareMilestoneResults filters a fetched achievement summary against the
+// milestone registry and returns the write that stores it, without storing
+// anything. Handlers hand the result to a contract.ResultWriter. A private
+// profile hides its achievements, so its write only flags the character
+// private and preserves any prior milestones and latest achievement.
+func (s *Service) PrepareMilestoneResults(ctx context.Context, charID uint32, summary *contract.AchievementSummary) (contract.AchievementWrite, error) {
+	if summary == nil {
+		return contract.AchievementWrite{}, errors.New("nil achievement summary")
+	}
+	if summary.Private {
+		return contract.AchievementWrite{CharacterID: charID, Private: true}, nil
+	}
 
 	registry, err := s.cachedMilestones(ctx)
 	if err != nil {
-		return nil, err
+		return contract.AchievementWrite{}, err
 	}
 	if len(registry) == 0 {
-		return nil, errors.New("milestone registry is empty; run SyncMilestones before processing achievements")
+		return contract.AchievementWrite{}, errors.New("milestone registry is empty; run SyncMilestones before processing achievements")
 	}
 	byID := make(map[uint32]contract.MilestoneAchievement, len(registry))
 	for _, m := range registry {
 		byID[m.AchievementID] = m
 	}
 
-	var milestones []contract.CharacterMilestone
+	w := contract.AchievementWrite{CharacterID: charID}
 	for _, r := range summary.Milestones {
 		if !r.Earned {
 			continue
 		}
 		if _, ok := byID[r.AchievementID]; ok {
-			milestones = append(milestones, contract.CharacterMilestone{
+			w.Milestones = append(w.Milestones, contract.CharacterMilestone{
 				CharacterID:   charID,
 				AchievementID: r.AchievementID,
 				AchievedAt:    r.EarnedAt,
 			})
 		}
 	}
-
-	if err := s.achievements.UpsertCharacterMilestones(ctx, charID, milestones); err != nil {
-		return nil, err
-	}
-
-	var latestID *uint32
-	var latestAt *time.Time
 	if summary.LatestAchievement != nil {
 		id := summary.LatestAchievement.AchievementID
 		at := summary.LatestAchievement.EarnedAt
-		latestID = &id
-		latestAt = &at
+		w.LatestID = &id
+		w.LatestAt = &at
 	}
-	if err := s.characters.UpdateAchievementSummary(ctx, charID, false, latestID, latestAt); err != nil {
-		return nil, err
-	}
-	return milestones, nil
+	return w, nil
 }
 
 // IsActive reports whether a latest-achievement timestamp falls within the
