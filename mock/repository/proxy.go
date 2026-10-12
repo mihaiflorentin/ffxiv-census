@@ -5,7 +5,6 @@ import (
 	crand "crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"math/rand/v2"
 	"sort"
 	"sync"
 	"time"
@@ -32,9 +31,6 @@ type FakeProxyRepository struct {
 	policy  contract.ProxyScanPolicy
 	// Now returns the current time. When nil, time.Now is used.
 	Now func() time.Time
-	// Rand is an optional injectable RNG for deterministic RandomActive selection.
-	// When nil, a default PCG source is used.
-	Rand *rand.Rand
 	// ExistsErr is returned by Exists when set.
 	ExistsErr error
 	// InsertErr is returned by InsertIfAbsent when set.
@@ -442,44 +438,6 @@ func (f *FakeProxyRepository) ReleaseProxy(_ context.Context, id int64, owner st
 	p.UpdatedAt = time.Now().UTC()
 	f.proxies[id] = p
 	return nil
-}
-
-// RandomActive returns a random fresh healthy proxy for discovery, honoring
-// ID exclusions and protocol support. No destination cooldown filter and no
-// lock side effects.
-func (f *FakeProxyRepository) RandomActive(_ context.Context, excludeIDs []int64) (*contract.ProxyRecord, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	now := f.now()
-	excludeSet := make(map[int64]bool, len(excludeIDs))
-	for _, id := range excludeIDs {
-		excludeSet[id] = true
-	}
-	var eligible []contract.ProxyRecord
-	for _, p := range f.proxies {
-		if !f.fresh(p, now) {
-			continue
-		}
-		if p.Protocol != "http" && p.Protocol != "https" && p.Protocol != "socks4" && p.Protocol != "socks5" {
-			continue
-		}
-		if excludeSet[p.ID] {
-			continue
-		}
-		eligible = append(eligible, p)
-	}
-	if len(eligible) == 0 {
-		return nil, nil
-	}
-	// Sort by ID for deterministic iteration order before random selection.
-	sort.Slice(eligible, func(i, j int) bool { return eligible[i].ID < eligible[j].ID })
-	r := f.Rand
-	if r == nil {
-		r = rand.New(rand.NewPCG(1, 2))
-	}
-	idx := r.IntN(len(eligible))
-	rec := eligible[idx]
-	return &rec, nil
 }
 
 func uptimeOrZero(p contract.ProxyRecord) float64 {

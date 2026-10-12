@@ -148,9 +148,6 @@ func TestProxyQueries_WorkWithoutLegacyIndexes(t *testing.T) {
 	if err != nil || counts["active"] != 1 || counts["inactive"] != 1 || counts["dead"] != 1 {
 		t.Fatalf("CountByStatus = %v, %v", counts, err)
 	}
-	if rec, err := repo.RandomActive(ctx, nil); err != nil || rec == nil || rec.ID != healthy {
-		t.Fatalf("RandomActive = %v, %v", rec, err)
-	}
 	claimed, err := repo.ClaimProxy(ctx, "owner", time.Minute)
 	if err != nil || claimed == nil || claimed.ID != healthy {
 		t.Fatalf("ClaimProxy = %v, %v", claimed, err)

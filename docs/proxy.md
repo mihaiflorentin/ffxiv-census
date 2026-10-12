@@ -22,7 +22,7 @@ The proxy feature is a separate bounded context (`domain/proxy/`) with its own C
 | Infrastructure | `infrastructure/proxy/guard.go` | `EndpointGuard` — per-replica egress circuit breaker |
 | Infrastructure | `infrastructure/proxyscrape/`, `infrastructure/geonode/`, `infrastructure/textproxy/`, … | Discovery providers (streaming; `textproxy` is a `ConditionalProvider`) |
 | Infrastructure | `infrastructure/httpclient/list_client.go` | Direct HTTP client for provider lists: User-Agent, timeout, body size limit |
-| Infrastructure | `infrastructure/httpclient/proxy_client.go` | Proxy transport construction (HTTP, HTTPS, SOCKS4, SOCKS5), cancellation-safe |
+| Infrastructure | `infrastructure/httpclient/proxy_transport.go` | Proxy transport construction (HTTP, HTTPS, SOCKS4, SOCKS5), cancellation-safe |
 | Infrastructure | `infrastructure/postgres/repository/proxy.go`, `proxy_scan.go` | One adapter serving both `ProxyRepository` and `ProxyScanStore` |
 | Mock | `mock/repository/proxy.go`, `mock/proxy/provider.go`, `mock/proxy/listprovider.go` | In-memory fakes for tests (`FakeListProvider` and `FakeListCache` for conditional fetch) |
 
@@ -113,7 +113,7 @@ All `proxies` indexes beyond the primary key and the `(protocol, ip, port)` uniq
 | `idx_proxies_recovery_recent` | `(last_verified_at)` | `NOT general_healthy AND last_verified_at IS NOT NULL` | recovery queue, range of rows verified within the horizon |
 | `idx_proxies_background_completed` | `(last_completed_at NULLS FIRST, id)` | `NOT general_healthy` | background queue before retirement; kept so replicas still on the old claim keep an index, then a follow-up migration can drop it |
 | `idx_proxies_background_live` | `(last_completed_at NULLS FIRST, id)` | `NOT general_healthy AND retired_at IS NULL` | background queue: only the live candidates, so the index shrinks from ~1.85M rows to the rows that can still recover |
-| `idx_proxies_fresh_verified` | `(last_verified_at)` | `general_healthy` | freshness reads (`ListActive`, `ClaimProxy`, `RandomActive`, `CountByStatus`) |
+| `idx_proxies_fresh_verified` | `(last_verified_at)` | `general_healthy` | freshness reads (`ListActive`, `ClaimProxy`, `CountByStatus`) |
 
 Migration `00021` adds `retired_at` and `last_listed_at` and creates `idx_proxies_background_live` (`CONCURRENTLY`, `IF NOT EXISTS`). The background claim predicate (`NOT general_healthy AND retired_at IS NULL`) must stay identical to that index predicate, and `TestClaimScansBackground_UsesLiveCandidateIndex` pins the plan, generic plans included.
 
@@ -129,11 +129,10 @@ All consumer-facing reads share one general-health predicate:
 general_healthy AND last_verified_at > <database time> - freshness_ttl
 ```
 
-`freshness_ttl` defaults to 120 s and must exceed `verification_interval + test_timeout` (validated at startup). The predicate gates `ListActive`, `CountByStatus`, `ClaimProxy`, `RefreshConsumerLock`, and `RandomActive`:
+`freshness_ttl` defaults to 120 s and must exceed `verification_interval + test_timeout` (validated at startup). The predicate gates `ListActive`, `CountByStatus`, `ClaimProxy` and `RefreshConsumerLock`:
 
 - `active` = the fresh predicate holds; a retired row counts as `retired`; a historically active but non-fresh row counts as `stale`; historical `inactive`/`dead` categories are preserved for the remaining rows.
 - `ClaimProxy` and `RefreshConsumerLock` additionally require an expired/absent destination cooldown and an unlocked (or TTL-expired) row.
-- `RandomActive` applies the fresh predicate and ID exclusions but no destination-cooldown filter — cooldowns gate consumers, not provider discovery.
 - There is no stale fallback: a non-fresh proxy is never handed to a consumer.
 
 When every scanner stops, fresh lists, counts, and acquisitions decay to zero within `freshness_ttl` of each row's last verification — measured at exactly this staggered 120 s boundary in the local exercise.
@@ -176,8 +175,6 @@ A timeout the caller's own context imposed is not typed as `CheckDeadline`, so s
 - Replacement claims are acquired before the previous lock is released (release-before-reacquire at cleanup, no hold-and-wait).
 
 `NotifyAvailable` (wired as the scan worker's success notifier) wakes waiting consumers as soon as a scanner accepts a success.
-
-`ProxyHub.RandomActive`, `RandomActiveExcluding` and `SwapActive` (and `ProxyRepository.RandomActive`) were used only by the removed rotating discovery client. Nothing calls them any more; they are dead code awaiting the cleanup ticket and must not be used for Lodestone APIs.
 
 ### Removed interfaces
 
@@ -291,7 +288,7 @@ There is no rolling mixed-binary cutover, no automatic destructive rollback (rol
 
 `proxy discover` runs the `Discoverer` use case (`domain/proxy/discovery.go`), a cron job every two minutes with `--limit 400`. It reads the providers itself and inserts what it finds; there is no queue hop, so a run needs no RabbitMQ and the `new-proxy` event, its handler, the `proxy consume` command and the `proxy-new` deployment are gone.
 
-- **Direct fetch.** Provider lists and APIs (ProxyScrape, Geonode, PubProxy, the plain-text GitHub lists) are fetched straight from the cluster, never through the Lodestone proxy pool, so list downloads no longer use the pool's bandwidth and request budget. The client (`infrastructure/httpclient/list_client.go`) sends a project `User-Agent`, gives each request a 30 s timeout and fails a body longer than 64 MiB with `ErrBodyTooLarge`. The former rotating discovery client and its use of `RandomActive` for lists are removed.
+- **Direct fetch.** Provider lists and APIs (ProxyScrape, Geonode, PubProxy, the plain-text GitHub lists) are fetched straight from the cluster, never through the Lodestone proxy pool, so list downloads no longer use the pool's bandwidth and request budget. The client (`infrastructure/httpclient/list_client.go`) sends a project `User-Agent`, gives each request a 30 s timeout and fails a body longer than 64 MiB with `ErrBodyTooLarge`. The former rotating discovery client, `ProxyHub.RandomActive`, `RandomActiveExcluding`, `SwapActive` and `ProxyRepository.RandomActive` are removed.
 - **Set-based dedup and bulk insert.** Records are buffered in chunks of 2000 (so a huge list never sits in memory whole). Per chunk, `ProxyRepository.InsertNew` runs one statement: it collapses duplicates inside the chunk, drops endpoints already in the table with an anti-join (retired proxies included, so they are never registered twice), caps the rows at the remaining share and inserts the rest with `INSERT ... ON CONFLICT (protocol, ip, port) DO NOTHING`, which only guards against two discovery runs racing. Known endpoints are filtered before the insert because a conflicting candidate still draws a `serial` id; re-reading mostly-known lists every two minutes would otherwise use up the 32-bit id space. Nothing reads the table once per list line any more. New rows are inserted with no evidence, so the background scan owns their verification, and are stamped `last_listed_at` at insert.
 - **Re-listing.** Every endpoint a provider lists, new or known, goes through `MarkListed` per chunk (at most once per `listed_rewrite_interval` per row, 5000 endpoints per statement), which stamps `last_listed_at` and revives a proxy retired for at least `revive_after`. A retired proxy is never re-inserted, only revived.
 - **Fair budget.** `--limit` is the number of new proxies one run may register (0 = no limit), split across the providers: the providers are read in a random order each run, and each read gets `ceil(remaining budget / providers still to read)` as its share. A provider that finds fewer new proxies than its share leaves the rest to the providers after it. A provider that used its whole share is read again with whatever budget is left (at most three passes per run), so the budget is spent even when the small providers come last. Within a plain-text provider the protocol lists are read in random order too, so map order never decides who gets the budget. No provider is starved by an earlier one, and the share a failed provider would have used goes to the others.

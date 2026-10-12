@@ -31,7 +31,7 @@ Handlers return the downstream jobs they want published; the worker publishes ea
 
 ## Loop safety
 
-Handlers are idempotent (`CharacterRepository.StoreResult` is a conflict-upsert), so a retried `id-sweep` chunk re-probes safely without duplicating chained jobs. RabbitMQ does not deduplicate at the queue level — idempotency is enforced by the database layer. The `proxy discover` command checks PostgreSQL read-only before publishing each `new-proxy` event; existing tuples are counted as `skipped_existing` and never published. Lookup errors fail closed per provider. The consumer independently checks then inserts conflict-safely via `INSERT ... ON CONFLICT DO NOTHING`.
+Handlers are idempotent (`CharacterRepository.StoreResult` is a conflict-upsert), so a retried `id-sweep` chunk re-probes safely without duplicating chained jobs. RabbitMQ does not deduplicate at the queue level — idempotency is enforced by the database layer. `proxy discover` publishes no events: it drops endpoints already in the table with an anti-join and inserts the rest conflict-safely via `INSERT ... ON CONFLICT DO NOTHING` (see [Discovery](proxy.md#discovery)).
 
 ## Ingest behavior
 

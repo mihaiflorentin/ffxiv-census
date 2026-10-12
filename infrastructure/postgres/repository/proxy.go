@@ -61,7 +61,7 @@ const proxyColumnsClaimed = `p.id, p.protocol, p.ip, p.port, p.country, p.anonym
 	p.retired_at, p.last_listed_at`
 
 // freshPredicate is the single general-health availability predicate shared
-// by ListActive, RandomActive, CountByStatus, ClaimProxy and
+// by ListActive, CountByStatus, ClaimProxy and
 // RefreshConsumerLock: healthy AND verified within the freshness TTL. $N is
 // the TTL in seconds; n is database time taken inside the statement.
 const freshPredicate = `general_healthy AND last_verified_at > statement_timestamp() - ($%d * interval '1 second')`
@@ -534,32 +534,4 @@ func (r *ProxyRepository) ReleaseProxy(ctx context.Context, id int64, owner stri
 		return fmt.Errorf("proxy release: %w", err)
 	}
 	return nil
-}
-
-// RandomActive returns a random fresh healthy proxy for provider discovery,
-// honoring ID exclusions and protocol support. It applies no destination
-// cooldown filter — cooldowns gate consumers, not discovery — and does not
-// claim or lock the row.
-func (r *ProxyRepository) RandomActive(ctx context.Context, excludeIDs []int64) (*contract.ProxyRecord, error) {
-	db, err := r.driver.Acquire(ctx)
-	if err != nil {
-		return nil, err
-	}
-	row := db.QueryRowContext(ctx,
-		`SELECT `+proxyColumns+` FROM proxies
-		WHERE `+fmt.Sprintf(freshPredicate, 2)+`
-		  AND protocol IN ('http', 'https', 'socks4', 'socks5')
-		  AND (cardinality(COALESCE($1::bigint[], '{}'::bigint[])) = 0
-		       OR id <> ALL(COALESCE($1::bigint[], '{}'::bigint[])))
-		ORDER BY RANDOM()
-		LIMIT 1`,
-		excludeIDs, r.policy.FreshnessTTL.Seconds())
-	rec, err := scanProxy(row)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("proxy random active: %w", err)
-	}
-	return rec, nil
 }

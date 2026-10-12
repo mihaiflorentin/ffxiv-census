@@ -210,8 +210,4 @@ type ProxyRepository interface {
 	ResetDestinationFailures(ctx context.Context, id int64, owner string) error
 	// ReleaseProxy releases the lock on a proxy owned by the given owner.
 	ReleaseProxy(ctx context.Context, id int64, owner string) error
-	// RandomActive returns a random active proxy, optionally excluding IDs.
-	// Returns nil (no error) if no eligible proxy exists. Does NOT claim or lock
-	// the proxy — used only for discovery/provider scraping, never for Lodestone.
-	RandomActive(ctx context.Context, excludeIDs []int64) (*ProxyRecord, error)
 }
