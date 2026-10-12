@@ -135,7 +135,8 @@ Every goroutine owns exactly one proxy (`census-consume-<host>-p<pid>-w<workerID
 - `Proxy.CanUse` revalidates through `RefreshConsumerLock` — the historical local-status shortcut is gone; a lock lost or a freshness lapse mid-job is detected against the database.
 - A typed conclusive proxy failure is persisted by `Proxy.MarkFailed` → `RecordConsumerFailure` under a CAS on the version captured **before** the job's I/O, the owner, and a still-valid lock; a stale observation is rejected and only its own lock is released. The failure transition mirrors the scanner's (recovery delay, common-cooldown move, dead thresholds) and invalidates any older scan lease.
 - A typed destination rejection (`CheckTarget`, e.g. 429 with `Retry-After`) applies `CooldownDestination` and returns the delivery for a normal queue retry — no identity rotation, no failure history. Provider 429 handling keeps its existing limiter pause and never rotates the proxy.
-- Local errors and cancellation release without evidence writes.
+- Local errors and cancellation release without evidence writes. A database error while persisting a check outcome or revalidating the lock also releases the claim before the error propagates, so a failed acquisition never leaves a proxy locked until the TTL.
+- Swapping proxies closes the replaced client's idle connections (`CustomClient.CloseIdleConnections`); the live client does the same when the worker exits.
 - Replacement claims are acquired before the previous lock is released (release-before-reacquire at cleanup, no hold-and-wait).
 
 `NotifyAvailable` (wired as the scan worker's success notifier) wakes waiting consumers as soon as a scanner accepts a success.

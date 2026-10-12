@@ -341,6 +341,87 @@ func TestNewProxy_RepositoryErrorPropagates(t *testing.T) {
 	}
 }
 
+var errDBDown = errors.New("db down")
+
+// failingWriteRepo injects database failures on the writes NewProxy performs
+// after a claim, so each acquisition error path can be exercised.
+type failingWriteRepo struct {
+	*repository.FakeProxyRepository
+	failRefresh  bool
+	failFailure  bool
+	failCooldown bool
+}
+
+func (r *failingWriteRepo) RefreshConsumerLock(ctx context.Context, id int64, owner string, ttl time.Duration) (*contract.ProxyRecord, error) {
+	if r.failRefresh {
+		return nil, errDBDown
+	}
+	return r.FakeProxyRepository.RefreshConsumerLock(ctx, id, owner, ttl)
+}
+
+func (r *failingWriteRepo) RecordConsumerFailure(ctx context.Context, rec contract.ProxyRecord, owner string, ttl time.Duration, update contract.ScanUpdate) (bool, error) {
+	if r.failFailure {
+		return false, errDBDown
+	}
+	return r.FakeProxyRepository.RecordConsumerFailure(ctx, rec, owner, ttl, update)
+}
+
+func (r *failingWriteRepo) CooldownDestination(ctx context.Context, id int64, owner string, ttl, delay time.Duration) error {
+	if r.failCooldown {
+		return errDBDown
+	}
+	return r.FakeProxyRepository.CooldownDestination(ctx, id, owner, ttl, delay)
+}
+
+func TestNewProxy_ErrorPathsLeaveProxyUnlocked(t *testing.T) {
+	tests := []struct {
+		name     string
+		inject   func(*failingWriteRepo)
+		checkErr error
+	}{
+		{
+			name:   "revalidation write fails after a successful check",
+			inject: func(r *failingWriteRepo) { r.failRefresh = true },
+		},
+		{
+			name:     "failure persistence fails after a conclusive proxy error",
+			inject:   func(r *failingWriteRepo) { r.failFailure = true },
+			checkErr: &contract.ProxyCheckError{Kind: contract.CheckProxy, Reason: "refused", Err: errors.New("refused")},
+		},
+		{
+			name:     "cooldown write fails after a destination rejection",
+			inject:   func(r *failingWriteRepo) { r.failCooldown = true },
+			checkErr: &contract.ProxyCheckError{Kind: contract.CheckTarget, Reason: "429", Err: errors.New("429")},
+		},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			base, _ := newClockRepo()
+			id := seedFreshProxy(t, base, "1.2.3.4")
+			repo := &failingWriteRepo{FakeProxyRepository: base}
+			tc.inject(repo)
+			hub := NewProxyHub(repo, 5*time.Minute, fakeChecker(func(context.Context, string, string, int) (int, error) {
+				return 1, tc.checkErr
+			}), time.Minute, consumerPolicy)
+
+			p, err := hub.NewProxy(context.Background(), "test-g1")
+			if !errors.Is(err, errDBDown) {
+				t.Fatalf("expected the database error to propagate, got %v", err)
+			}
+			if p != nil {
+				t.Fatal("expected no proxy on an error path")
+			}
+			after, err := base.Get(context.Background(), id)
+			if err != nil {
+				t.Fatalf("repo.Get: %v", err)
+			}
+			if after.LockedBy != nil {
+				t.Errorf("expected claim released, still locked by %q", *after.LockedBy)
+			}
+		})
+	}
+}
+
 func TestProxyHub_NewProxy_NoAvailable(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(consumerPolicy)
 	hub := NewProxyHub(repo, 5*time.Minute, nil, 0, consumerPolicy)

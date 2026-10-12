@@ -281,8 +281,9 @@ func (w *Worker) waitForProxy(ctx context.Context, owner string, proxyHub *proxy
 	}
 }
 
-// replaceProxy releases the previous proxy claim, acquires a replacement,
-// and builds new clients/handlers. The previous claim is released before the
+// replaceProxy closes the previous client's idle connections, releases the
+// previous proxy claim, acquires a replacement, and builds new
+// clients/handlers. The previous claim is released before the
 // replacement is acquired so a pool with no spare capacity can rotate; a
 // window without a proxy is bounded by the release being local. Release
 // errors are logged but do not prevent the replacement from being used.
@@ -291,12 +292,16 @@ func (w *Worker) waitForProxy(ctx context.Context, owner string, proxyHub *proxy
 func (w *Worker) replaceProxy(
 	ctx context.Context,
 	previous *proxydomain.Proxy,
+	previousClient contract.LodestoneClient,
 	owner string,
 	proxyHub *proxydomain.ProxyHub,
 	newLodestoneClient func(string, contract.ProviderRateLimiter) (contract.LodestoneClient, error),
 	newRateLimiter func() contract.ProviderRateLimiter,
 	newHandlers func(contract.LodestoneClient, contract.ProviderRateLimiter) *handler.Registry,
 ) (*proxydomain.Proxy, contract.LodestoneClient, contract.ProviderRateLimiter, *handler.Registry, error) {
+	// The replaced client owns an idle tunnel to the old proxy that would
+	// otherwise linger until its idle timeout.
+	closeIdleConnections(previousClient)
 	if previous != nil {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		if relErr := previous.Release(cleanupCtx, owner); relErr != nil {
@@ -471,7 +476,7 @@ func (w *Worker) proxyWorkerLoop(
 		if !canUse {
 			w.logger.InfoContext(ctx, "worker.proxy_lost", slog.Int("worker_id", workerID), slog.String("proxy", proxy.Address()), slog.String("owner", owner))
 			newProxy, newLodestone, newLimiter, newReg, rerr := w.replaceProxy(
-				ctx, proxy, owner, proxyHub,
+				ctx, proxy, lodestoneClient, owner, proxyHub,
 				newLodestoneClient, newRateLimiter, newHandlers,
 			)
 			if rerr != nil {
@@ -555,7 +560,7 @@ func (w *Worker) proxyWorkerLoop(
 				}
 				markCancel()
 				newProxy, newLodestone, newLimiter, newReg, rerr := w.replaceProxy(
-					ctx, proxy, owner, proxyHub,
+					ctx, proxy, lodestoneClient, owner, proxyHub,
 					newLodestoneClient, newRateLimiter, newHandlers,
 				)
 				if rerr != nil {

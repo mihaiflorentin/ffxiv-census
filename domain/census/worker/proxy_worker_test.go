@@ -194,6 +194,7 @@ func TestReplaceProxy_ReleasesBadBeforeReplacement(t *testing.T) {
 	p2, _, _, _, err := w.replaceProxy(
 		context.Background(),
 		p1,
+		nil,
 		owner,
 		proxyHub,
 		func(string, contract.ProviderRateLimiter) (contract.LodestoneClient, error) {
@@ -253,6 +254,7 @@ func TestReplaceProxy_ReplacementTransportError(t *testing.T) {
 	p2, _, _, _, err := w.replaceProxy(
 		context.Background(),
 		p1,
+		nil,
 		owner,
 		proxyHub,
 		func(string, contract.ProviderRateLimiter) (contract.LodestoneClient, error) {
@@ -798,5 +800,86 @@ func TestConsumerJob_BusinessErrorStaysOrdinary(t *testing.T) {
 			t.Errorf("proxy %d: expected evidence and cooldowns untouched, got healthy=%v fail_count=%d cooldown=%v",
 				id, rec.GeneralHealthy, rec.FailCount, rec.DestinationCooldownUntil)
 		}
+	}
+}
+
+// recordingLodestoneClient counts CloseIdleConnections calls.
+type recordingLodestoneClient struct {
+	fakeLodestoneClient
+	closed int32
+}
+
+func (c *recordingLodestoneClient) CloseIdleConnections() { atomic.AddInt32(&c.closed, 1) }
+
+// TestProxyWorkerLoop_SwapClosesReplacedClientIdleConnections proves a swapped
+// proxy's client gives up its idle tunnel at the swap, and the surviving
+// client does the same when the worker exits.
+func TestProxyWorkerLoop_SwapClosesReplacedClientIdleConnections(t *testing.T) {
+	repo := repository.NewFakeProxyRepository(workerPolicy)
+	seedTwoFreshProxies(t, repo)
+	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, nil, time.Minute, workerPolicy)
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	q := &fakeProxyQueue{}
+	w := newTestCensusWorker(q, logger)
+	if err := q.Publish(context.Background(), contract.QueueJob{Type: censushandler.EventIDSweep, Payload: []byte(`{}`)}); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	retried := make(chan struct{})
+	handler := &scriptedHandler{script: func(call int) error {
+		if call == 1 {
+			return typedJobErr(contract.CheckProxy, 0)
+		}
+		close(retried)
+		return nil
+	}}
+	handlers := func(contract.LodestoneClient, contract.ProviderRateLimiter) *censushandler.Registry {
+		reg := censushandler.NewRegistry()
+		reg.Register(censushandler.EventIDSweep, handler)
+		return reg
+	}
+
+	var mu sync.Mutex
+	var clients []*recordingLodestoneClient
+	newClient := func(string, contract.ProviderRateLimiter) (contract.LodestoneClient, error) {
+		c := &recordingLodestoneClient{}
+		mu.Lock()
+		clients = append(clients, c)
+		mu.Unlock()
+		return c, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- w.RunEventsWithProxy(ctx, []string{censushandler.EventIDSweep}, 1, "test", hub, handlers, newClient,
+			func() contract.ProviderRateLimiter { return nil })
+	}()
+
+	select {
+	case <-retried:
+	case <-time.After(5 * time.Second):
+		t.Fatal("job was not retried through a replacement proxy")
+	}
+	mu.Lock()
+	if len(clients) != 2 {
+		mu.Unlock()
+		t.Fatalf("expected two clients (original and replacement), got %d", len(clients))
+	}
+	replaced, current := clients[0], clients[1]
+	mu.Unlock()
+	if got := atomic.LoadInt32(&replaced.closed); got != 1 {
+		t.Errorf("expected the replaced client's idle connections closed once at the swap, got %d", got)
+	}
+	if got := atomic.LoadInt32(&current.closed); got != 0 {
+		t.Errorf("expected the live client left open while the worker runs, got %d closes", got)
+	}
+
+	cancel()
+	<-done
+	if got := atomic.LoadInt32(&current.closed); got != 1 {
+		t.Errorf("expected the live client's idle connections closed on worker exit, got %d", got)
 	}
 }
