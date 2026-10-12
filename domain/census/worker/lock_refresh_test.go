@@ -127,7 +127,7 @@ func newLockRefreshRun(t *testing.T, freshnessTTL time.Duration, spareFresh bool
 	return &lockRefreshRun{
 		repo:  repo,
 		clock: clock,
-		hub:   proxydomain.NewProxyHub(repo, 5*time.Minute, nil, time.Minute, policy),
+		hub:   proxydomain.NewProxyHub(repo, 5*time.Minute, time.Minute, policy),
 	}
 }
 
@@ -178,7 +178,15 @@ func (r *lockRefreshRun) run(t *testing.T, jobs int, before func(call int, addr 
 
 type addrClient struct {
 	fakeLodestoneClient
-	addr string
+	addr     string
+	requests *atomic.Int64 // counts every request that reaches the Lodestone through this client; may be nil
+}
+
+func (c *addrClient) FetchCharacter(ctx context.Context, id uint32) (*contract.CharacterProfile, error) {
+	if c.requests != nil {
+		c.requests.Add(1)
+	}
+	return c.fakeLodestoneClient.FetchCharacter(ctx, id)
 }
 
 func (r *lockRefreshRun) addrOf(call int) string {
@@ -274,7 +282,9 @@ func TestProxyWorkerLockRefresh_ProxyCausedFailureForcesRevalidation(t *testing.
 	}{
 		// The destination cooldown releases the lock, so the next job must
 		// notice at once instead of running on a proxy it no longer holds.
-		{"destination rejection", typedJobErr(contract.CheckTarget, time.Minute), 2, "http://2.2.2.2:8080"},
+		// Refreshes: the first hand-out, the check that finds the lock gone,
+		// and the replacement's hand-out.
+		{"destination rejection", typedJobErr(contract.CheckTarget, time.Minute), 3, "http://2.2.2.2:8080"},
 		// A timeout no longer leaves the proxy in place: the job is retried
 		// in-process on another proxy (see proxy_retry_test.go).
 		// A job error that says nothing about the proxy does not cost a write.

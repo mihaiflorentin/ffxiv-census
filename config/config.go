@@ -223,8 +223,6 @@ type ProxyConsumerConfig struct {
 	LockTTL            string        `mapstructure:"lock_ttl"`
 	LodestoneRateLimit float64       `mapstructure:"lodestone_rate_limit"`
 	RequestTimeout     string        `mapstructure:"request_timeout"`
-	TestURL            string        `mapstructure:"test_url"`
-	TestTimeout        time.Duration `mapstructure:"test_timeout"`
 	Cooldown           time.Duration `mapstructure:"cooldown"`
 	// CooldownMax caps the destination cooldown that doubles per consecutive
 	// destination failure of one proxy, starting at Cooldown.
@@ -405,12 +403,6 @@ func validateProxySettings(cfg *Config) error {
 		return fmt.Errorf("config: proxy.retire.sweep_batch must be positive, got %d", retire.SweepBatch)
 	}
 
-	if err := validateHTTPSURL("proxy.consumer.test_url", proxy.Consumer.TestURL); err != nil {
-		return err
-	}
-	if err := validatePositiveDuration("proxy.consumer.test_timeout", proxy.Consumer.TestTimeout); err != nil {
-		return err
-	}
 	if err := validatePositiveDuration("proxy.consumer.cooldown", proxy.Consumer.Cooldown); err != nil {
 		return err
 	}

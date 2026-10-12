@@ -22,7 +22,7 @@ import (
 func TestConsumerJob_MissingHandlerWrapsErrNoHandler(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(workerPolicy)
 	seedTwoFreshProxies(t, repo)
-	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, nil, time.Minute, workerPolicy)
+	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, time.Minute, workerPolicy)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	q := &fakeProxyQueue{}

@@ -465,7 +465,7 @@ func (w *Worker) replaceProxy(
 	// Acquire replacement — now the previous slot is free.
 	replacement, err := w.waitForProxy(ctx, owner, proxyHub)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("no checked proxy available: %w", err)
+		return nil, nil, nil, nil, fmt.Errorf("no proxy available: %w", err)
 	}
 
 	// Build new clients/handlers for the replacement.
@@ -639,7 +639,10 @@ func (w *Worker) proxyWorkerLoop(
 		return h.Handle(ctx, job.Payload)
 	}
 
+	// A hand-out already revalidated and extended the lock of the proxy it
+	// returned, so a newly acquired proxy counts as refreshed.
 	lockRefresh := &lockRefreshThrottle{interval: proxyHub.LockRefreshInterval(), now: w.now}
+	lockRefresh.refreshedNow(proxy.ID())
 
 	processJob := func(ctx context.Context, job contract.QueueJob) error {
 		// Check proxy ownership and extend the lock, at most once per refresh
@@ -676,6 +679,7 @@ func (w *Worker) proxyWorkerLoop(
 			lodestoneClient = newLodestone
 			proxyLimiter = newLimiter
 			handlers = newReg
+			lockRefresh.refreshedNow(proxy.ID())
 			w.logger.InfoContext(ctx, "worker.proxy_reacquired", slog.Int("worker_id", workerID), slog.String("proxy", proxy.Address()), slog.String("owner", owner))
 		}
 
@@ -739,6 +743,7 @@ func (w *Worker) proxyWorkerLoop(
 			lodestoneClient = newLodestone
 			proxyLimiter = newLimiter
 			handlers = newReg
+			lockRefresh.refreshedNow(proxy.ID())
 			w.logger.InfoContext(ctx, "worker.proxy_reacquired", slog.Int("worker_id", workerID), slog.String("proxy", proxy.Address()), slog.String("owner", owner))
 		}
 

@@ -2,11 +2,8 @@ package proxy
 
 import (
 	"context"
-	"errors"
 	"testing"
 	"time"
-
-	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
 // TestHub_CooldownGrowsPerConsecutiveFailureAndResetsOnSuccess walks one proxy
@@ -15,7 +12,7 @@ import (
 func TestHub_CooldownGrowsPerConsecutiveFailureAndResetsOnSuccess(t *testing.T) {
 	repo, clock := newClockRepo()
 	id := seedFreshProxy(t, repo, "1.2.3.4")
-	hub := NewProxyHub(repo, 5*time.Minute, nil, 10*time.Second, consumerPolicy).
+	hub := NewProxyHub(repo, 5*time.Minute, 10*time.Second, consumerPolicy).
 		WithDestinationCooldownCap(30 * time.Second)
 	ctx := context.Background()
 
@@ -65,28 +62,5 @@ func TestHub_CooldownGrowsPerConsecutiveFailureAndResetsOnSuccess(t *testing.T) 
 	}
 	if got := hub.CooldownFor(p, 0); got != 10*time.Second {
 		t.Errorf("cooldown after a success restarts at the floor, got %s", got)
-	}
-}
-
-// TestHub_HandoutRejectionGrowsCooldown proves the hand-out check shares the
-// growth rule with the in-job failure path.
-func TestHub_HandoutRejectionGrowsCooldown(t *testing.T) {
-	repo, clock := newClockRepo()
-	id := seedFreshProxy(t, repo, "1.2.3.4")
-	hub := NewProxyHub(repo, 5*time.Minute, fakeChecker(func(context.Context, string, string, int) (int, error) {
-		return 0, &contract.ProxyCheckError{Kind: contract.CheckTarget, Reason: "status 503", Err: errors.New("503")}
-	}), 10*time.Second, consumerPolicy).WithDestinationCooldownCap(time.Minute)
-	ctx := context.Background()
-
-	for i, want := range []time.Duration{10 * time.Second, 20 * time.Second} {
-		if p, err := hub.NewProxy(ctx, "owner"); err != nil || p != nil {
-			t.Fatalf("rejection %d: %v, %v", i+1, p, err)
-		}
-		rec, _ := repo.Get(ctx, id)
-		if got := rec.DestinationCooldownUntil.Sub(*clock); got != want {
-			t.Fatalf("rejection %d: cooldown %s, want %s", i+1, got, want)
-		}
-		*clock = clock.Add(want)
-		repo.SeedSuccess(id, 50)
 	}
 }

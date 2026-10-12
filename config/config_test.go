@@ -162,7 +162,6 @@ func TestNewConfigRejectsNonPositiveScanDurations(t *testing.T) {
 		"PROXY_SCAN_MIN_REPEAT_INTERVAL",
 		"PROXY_SCAN_INCONCLUSIVE_RETRY",
 		"PROXY_SCAN_CONTROL_INTERVAL",
-		"PROXY_CONSUMER_TEST_TIMEOUT",
 		"PROXY_CONSUMER_COOLDOWN",
 		"PROXY_CONSUMER_COOLDOWN_MAX",
 	}
@@ -210,9 +209,6 @@ func TestNewConfigRejectsInvalidTestURLs(t *testing.T) {
 		{"PROXY_TEST_URL", "https://user:pass@api64.ipify.org/"},
 		{"PROXY_TEST_URL", "https://"},
 		{"PROXY_TEST_URL", "api64.ipify.org"},
-		{"PROXY_CONSUMER_TEST_URL", "http://na.finalfantasyxiv.com/lodestone/"},
-		{"PROXY_CONSUMER_TEST_URL", "https://user:pass@na.finalfantasyxiv.com/"},
-		{"PROXY_CONSUMER_TEST_URL", "https://"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.key+"="+tc.val, func(t *testing.T) {
@@ -331,12 +327,6 @@ func TestNewConfig_ProxyScanDefaults(t *testing.T) {
 	if cfg.Proxy.TestURL != "https://na.finalfantasyxiv.com/lodestone/" {
 		t.Errorf("expected general test_url to default to the Lodestone URL, got %q", cfg.Proxy.TestURL)
 	}
-	if cfg.Proxy.Consumer.TestURL != "https://na.finalfantasyxiv.com/lodestone/" {
-		t.Errorf("expected consumer test_url to default to the Lodestone URL, got %q", cfg.Proxy.Consumer.TestURL)
-	}
-	if cfg.Proxy.Consumer.TestTimeout != 10*time.Second {
-		t.Errorf("expected consumer test_timeout 10s, got %s", cfg.Proxy.Consumer.TestTimeout)
-	}
 	if cfg.Proxy.Consumer.Cooldown != 60*time.Second {
 		t.Errorf("expected consumer cooldown 60s, got %s", cfg.Proxy.Consumer.Cooldown)
 	}
@@ -366,8 +356,6 @@ func TestNewConfig_ProxyScanEnvOverrides(t *testing.T) {
 	t.Setenv("PROXY_SCAN_MIN_REPEAT_INTERVAL", "2s")
 	t.Setenv("PROXY_SCAN_INCONCLUSIVE_RETRY", "90s")
 	t.Setenv("PROXY_SCAN_CONTROL_INTERVAL", "45s")
-	t.Setenv("PROXY_CONSUMER_TEST_URL", "https://destination.example.com/lodestone/")
-	t.Setenv("PROXY_CONSUMER_TEST_TIMEOUT", "15s")
 	t.Setenv("PROXY_CONSUMER_COOLDOWN", "90s")
 	t.Setenv("PROXY_CONSUMER_COOLDOWN_MAX", "30m")
 	t.Setenv("PROXY_CONSUMER_JOB_ATTEMPTS", "5")
@@ -413,12 +401,6 @@ func TestNewConfig_ProxyScanEnvOverrides(t *testing.T) {
 	}
 	if cfg.Proxy.TestTimeout != 12*time.Second {
 		t.Errorf("PROXY_TEST_TIMEOUT override not applied: %s", cfg.Proxy.TestTimeout)
-	}
-	if cfg.Proxy.Consumer.TestURL != "https://destination.example.com/lodestone/" {
-		t.Errorf("PROXY_CONSUMER_TEST_URL override not applied: %q", cfg.Proxy.Consumer.TestURL)
-	}
-	if cfg.Proxy.Consumer.TestTimeout != 15*time.Second {
-		t.Errorf("PROXY_CONSUMER_TEST_TIMEOUT override not applied: %s", cfg.Proxy.Consumer.TestTimeout)
 	}
 	if cfg.Proxy.Consumer.Cooldown != 90*time.Second {
 		t.Errorf("PROXY_CONSUMER_COOLDOWN override not applied: %s", cfg.Proxy.Consumer.Cooldown)
