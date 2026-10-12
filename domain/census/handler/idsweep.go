@@ -73,6 +73,7 @@ func (h *IDSweep) Handle(ctx context.Context, payload []byte) ([]contract.QueueJ
 		if err == nil {
 			if h.writer != nil {
 				if serr := h.collectLodestone(ctx, id, lChar, &batch); serr != nil {
+					h.storePartial(ctx, p, batch)
 					return nil, serr
 				}
 			} else {
@@ -91,6 +92,7 @@ func (h *IDSweep) Handle(ctx context.Context, payload []byte) ([]contract.QueueJ
 			// fail the delivery so the queue's retry ladder re-probes it
 			// on Lodestone. Never skip an id on anything but a genuine 404.
 			h.logger.ErrorContext(ctx, "handler.id_sweep.fetch_error", slog.Uint64("character_id", uint64(id)), slog.String("source", "lodestone"), slog.Any("error", err))
+			h.storePartial(ctx, p, batch)
 			return nil, fmt.Errorf("id-sweep lodestone fetch %d: %w", id, err)
 		}
 
@@ -111,6 +113,20 @@ func (h *IDSweep) Handle(ctx context.Context, payload []byte) ([]contract.QueueJ
 	}
 	h.logger.InfoContext(ctx, "handler.id_sweep.done", slog.Uint64("from", uint64(p.From)), slog.Uint64("to", uint64(p.To)), slog.Int("discovered", len(next)))
 	return next, nil
+}
+
+// storePartial writes the characters found before the sweep failed, so a
+// retry of the job does not discard them. It is best effort: the caller
+// returns the original error either way and the job is redelivered, and
+// re-storing is idempotent. No dependent jobs are chained from a failed
+// delivery; the retry chains them once the whole range succeeds.
+func (h *IDSweep) storePartial(ctx context.Context, p IDSweepPayload, batch contract.CensusResult) {
+	if h.writer == nil || batch.Size() == 0 {
+		return
+	}
+	if err := h.writer.Write(ctx, batch); err != nil {
+		h.logger.ErrorContext(ctx, "handler.id_sweep.partial_write_error", slog.Uint64("from", uint64(p.From)), slog.Uint64("to", uint64(p.To)), slog.Int("characters", batch.Size()), slog.Any("error", err))
+	}
 }
 
 // collectLodestone validates a discovered character and adds it to batch.

@@ -2,6 +2,7 @@ package repository_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -75,5 +76,23 @@ func TestCharacterRepository_UpsertBatchEmptyIsNoop(t *testing.T) {
 	repo := repository.NewCharacterRepository(newTestDriver(t))
 	if err := repo.UpsertBatch(context.Background(), nil); err != nil {
 		t.Fatalf("UpsertBatch(nil): %v", err)
+	}
+}
+
+func TestCharacterRepository_UpsertBatchMarksRejectedDataAsInvalid(t *testing.T) {
+	repo := repository.NewCharacterRepository(newTestDriver(t))
+	err := repo.UpsertBatch(context.Background(), []contract.CharacterWrite{batchWrite(7201, "Bad\x00Name")})
+	if !errors.Is(err, contract.ErrInvalidData) {
+		t.Fatalf("UpsertBatch error = %v, want ErrInvalidData for a value the database rejects", err)
+	}
+}
+
+func TestCharacterRepository_UpsertBatchDoesNotMarkInfrastructureErrorsAsInvalid(t *testing.T) {
+	repo := repository.NewCharacterRepository(newTestDriver(t))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	err := repo.UpsertBatch(ctx, []contract.CharacterWrite{batchWrite(7202, "Fine")})
+	if err == nil || errors.Is(err, contract.ErrInvalidData) {
+		t.Fatalf("UpsertBatch error = %v, want a non-ErrInvalidData failure", err)
 	}
 }

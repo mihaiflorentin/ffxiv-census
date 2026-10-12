@@ -3,10 +3,12 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
@@ -52,15 +54,29 @@ func (r *CharacterRepository) StoreResult(ctx context.Context, result contract.C
 
 	for _, w := range result.Characters {
 		if err := upsertCharacterTx(ctx, tx, w.Record, w.Jobs); err != nil {
-			return err
+			return markInvalidData(err)
 		}
 	}
 	for _, a := range result.Achievements {
 		if err := storeAchievementTx(ctx, tx, a); err != nil {
-			return err
+			return markInvalidData(err)
 		}
 	}
-	return tx.Commit()
+	return markInvalidData(tx.Commit())
+}
+
+// markInvalidData joins contract.ErrInvalidData to errors that Postgres
+// raised because of the written values: SQLSTATE class 22 (data exception,
+// e.g. invalid byte sequence, value too long, out of range) and class 23
+// (integrity constraint violation). Everything else (connection loss,
+// cancelled or timed-out context, serialization failure, shutdown) is left
+// untouched so batch writers treat it as transient.
+func markInvalidData(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && (strings.HasPrefix(pgErr.Code, "22") || strings.HasPrefix(pgErr.Code, "23")) {
+		return errors.Join(contract.ErrInvalidData, err)
+	}
+	return err
 }
 
 // storeAchievementTx writes one achievement census inside tx, with the same
