@@ -37,6 +37,7 @@ type CharacterRepository struct {
 	GetErr                   error
 	MarkDeletedErr           error
 	ListStaleErr             error
+	ListDeletedErr           error
 	ListErr                  error
 	StreamErr                error
 	CountErr                 error
@@ -275,7 +276,7 @@ func (f *CharacterRepository) MarkDeleted(ctx context.Context, id uint32, at tim
 	return nil
 }
 
-func (f *CharacterRepository) ListStale(ctx context.Context, cutoff time.Time, limit int) ([]contract.CharacterRecord, error) {
+func (f *CharacterRepository) ListStaleIDs(ctx context.Context, cutoff time.Time, limit int) ([]uint32, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.ListStaleErr != nil {
@@ -287,10 +288,10 @@ func (f *CharacterRepository) ListStale(ctx context.Context, cutoff time.Time, l
 			continue
 		}
 		if cutoff.IsZero() || rec.LastCensusAt == nil || rec.LastCensusAt.Before(cutoff) {
-			stale = append(stale, cloneCharacter(rec))
+			stale = append(stale, rec)
 		}
 	}
-	// Order oldest-first (NULL last_census_at sorts first, like SQLite ASC).
+	// Order oldest-first (NULL last_census_at sorts first, like Postgres NULLS FIRST).
 	sort.Slice(stale, func(i, j int) bool {
 		li, lj := stale[i].LastCensusAt, stale[j].LastCensusAt
 		if li == nil && lj == nil {
@@ -310,7 +311,43 @@ func (f *CharacterRepository) ListStale(ctx context.Context, cutoff time.Time, l
 	if limit > 0 && len(stale) > limit {
 		stale = stale[:limit]
 	}
-	return stale, nil
+	ids := make([]uint32, len(stale))
+	for i, rec := range stale {
+		ids[i] = rec.ID
+	}
+	return ids, nil
+}
+
+func (f *CharacterRepository) ListDeletedIDs(ctx context.Context, deletedBefore time.Time, limit int) ([]uint32, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ListDeletedErr != nil {
+		return nil, f.ListDeletedErr
+	}
+	if limit <= 0 {
+		return nil, nil
+	}
+	var deleted []contract.CharacterRecord
+	for _, rec := range f.characters {
+		if rec.DeletedAt != nil && rec.DeletedAt.Before(deletedBefore) {
+			deleted = append(deleted, rec)
+		}
+	}
+	sort.Slice(deleted, func(i, j int) bool {
+		di, dj := *deleted[i].DeletedAt, *deleted[j].DeletedAt
+		if di.Equal(dj) {
+			return deleted[i].ID < deleted[j].ID
+		}
+		return di.Before(dj)
+	})
+	if len(deleted) > limit {
+		deleted = deleted[:limit]
+	}
+	ids := make([]uint32, len(deleted))
+	for i, rec := range deleted {
+		ids[i] = rec.ID
+	}
+	return ids, nil
 }
 
 func matchesFilter(rec contract.CharacterRecord, jobs []contract.ClassJobRecord, f contract.CharacterFilter) bool {
