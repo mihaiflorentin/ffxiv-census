@@ -52,6 +52,8 @@ type Worker struct {
 	handlers    *handler.Registry
 	logger      contract.Logger
 	rateLimiter contract.ProviderRateLimiter
+	// now is the clock the proxy lock refresh throttle reads; tests inject one.
+	now func() time.Time
 
 	maxProxyAttempts int // proxies one job may try in-process; 0 = default
 }
@@ -69,6 +71,7 @@ func New(q contract.Queue, h *handler.Registry, logger contract.Logger, rateLimi
 		handlers:    h,
 		logger:      logger,
 		rateLimiter: rl,
+		now:         time.Now,
 	}
 }
 
@@ -326,6 +329,49 @@ func (w *Worker) recordProxyFailure(
 		return fmt.Errorf("destination cooldown: %w", err)
 	}
 	return nil
+}
+
+// lockRefreshThrottle decides when a worker must re-validate the lock of the
+// proxy it holds. Refreshing is a database write on the proxy row, so a held
+// proxy is refreshed at most once per interval. The interval is below half of
+// the lock TTL, so the lock cannot expire between refreshes, and a lost
+// freshness or destination cooldown is noticed at the next refresh.
+type lockRefreshThrottle struct {
+	interval  time.Duration
+	now       func() time.Time
+	proxyID   int64     // proxy the last refresh was for; 0 when none is trusted
+	refreshed time.Time // when that refresh succeeded
+}
+
+// due reports whether the held proxy must be refreshed before the next job.
+func (t *lockRefreshThrottle) due(proxyID int64) bool {
+	elapsed := t.now().Sub(t.refreshed)
+	return t.proxyID != proxyID || elapsed < 0 || elapsed >= t.interval
+}
+
+// refreshedNow records a successful refresh of the held proxy.
+func (t *lockRefreshThrottle) refreshedNow(proxyID int64) {
+	t.proxyID = proxyID
+	t.refreshed = t.now()
+}
+
+// invalidate makes the next job refresh regardless of the interval.
+func (t *lockRefreshThrottle) invalidate() { t.proxyID = 0 }
+
+// isProxyCausedFailure reports whether the error may be the proxy's fault: a
+// dial failure, a destination rejection or a timeout. After one the held
+// proxy is re-validated at once instead of waiting for the refresh interval.
+func isProxyCausedFailure(err error) bool {
+	var checkErr *contract.ProxyCheckError
+	if !errors.As(err, &checkErr) {
+		return false
+	}
+	switch checkErr.Kind {
+	case contract.CheckProxy, contract.CheckTarget, contract.CheckDeadline:
+		return true
+	default:
+		return false
+	}
 }
 
 // missingHandlerError builds the sentinel-classified error for a delivery
@@ -593,17 +639,29 @@ func (w *Worker) proxyWorkerLoop(
 		return h.Handle(ctx, job.Payload)
 	}
 
+	lockRefresh := &lockRefreshThrottle{interval: proxyHub.LockRefreshInterval(), now: w.now}
+
 	processJob := func(ctx context.Context, job contract.QueueJob) error {
-		// Check proxy ownership and extend the lock.
-		// Use a short-lived context so shutdown doesn't block lock extension.
-		lockCtx, lockCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Check proxy ownership and extend the lock, at most once per refresh
+		// interval for the held proxy. Use a short-lived context so shutdown
+		// doesn't block lock extension.
 		lockTTL := proxyHub.LockTTL()
-		canUse, canErr := proxy.CanUse(lockCtx, owner, lockTTL)
-		lockCancel()
-		if canErr != nil {
-			// Database error — return for queue retry, retain current proxy.
-			w.logger.WarnContext(ctx, "worker.proxy_canuse_error", slog.Int("worker_id", workerID), slog.Any("error", canErr))
-			return fmt.Errorf("proxy canuse check: %w", canErr)
+		canUse := true
+		if lockRefresh.due(proxy.ID()) {
+			lockCtx, lockCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			var canErr error
+			canUse, canErr = proxy.CanUse(lockCtx, owner, lockTTL)
+			lockCancel()
+			if canErr != nil {
+				// Database error — return for queue retry, retain current proxy.
+				w.logger.WarnContext(ctx, "worker.proxy_canuse_error", slog.Int("worker_id", workerID), slog.Any("error", canErr))
+				return fmt.Errorf("proxy canuse check: %w", canErr)
+			}
+			if canUse {
+				lockRefresh.refreshedNow(proxy.ID())
+			} else {
+				lockRefresh.invalidate()
+			}
 		}
 		if !canUse {
 			w.logger.InfoContext(ctx, "worker.proxy_lost", slog.Int("worker_id", workerID), slog.String("proxy", proxy.Address()), slog.String("owner", owner))
@@ -640,6 +698,12 @@ func (w *Worker) proxyWorkerLoop(
 					slog.Any("error", jobErr),
 				}, jobAttrs(job.Payload)...)...,
 			)
+
+			// A proxy-caused failure may have cost the proxy its lock or its
+			// freshness: re-validate it before the next job.
+			if isProxyCausedFailure(jobErr) {
+				lockRefresh.invalidate()
+			}
 
 			action := classifyProxyFailure(jobErr)
 			if action == proxyFailureNone {

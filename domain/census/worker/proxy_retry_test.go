@@ -93,11 +93,6 @@ func runRetryJob(t *testing.T, repo *repository.FakeProxyRepository, attempts in
 	return out
 }
 
-type addrClient struct {
-	fakeLodestoneClient
-	addr string
-}
-
 type handlerFunc func() error
 
 func (f handlerFunc) Handle(context.Context, []byte) ([]contract.QueueJob, error) { return nil, f() }

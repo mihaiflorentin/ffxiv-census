@@ -83,6 +83,49 @@ func TestCharacterRepository_StoreResultPrivateAchievementsKeepPriorData(t *test
 	}
 }
 
+func TestCharacterRepository_StoreResultRecordsWhenThePrivateFlagWasVerified(t *testing.T) {
+	driver := newTestDriver(t)
+	repo := repository.NewCharacterRepository(driver)
+	ctx := context.Background()
+
+	if err := repo.Upsert(ctx, batchWrite(8151, "Priv").Record, nil); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	if got, _ := repo.Get(ctx, 8151); got == nil || got.AchievementsCheckedAt != nil {
+		t.Fatalf("a never-checked character has achievements_checked_at = %+v, want nil", got)
+	}
+
+	checkedAt := time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)
+	if err := repo.StoreResult(ctx, contract.CensusResult{Achievements: []contract.AchievementWrite{{CharacterID: 8151, Private: true, CheckedAt: checkedAt}}}); err != nil {
+		t.Fatalf("StoreResult private: %v", err)
+	}
+	got, _ := repo.Get(ctx, 8151)
+	if got == nil || !got.AchievementsPrivate || got.AchievementsCheckedAt == nil || !got.AchievementsCheckedAt.Equal(checkedAt) {
+		t.Fatalf("after private write = %+v, want private checked at %v", got, checkedAt)
+	}
+
+	// A character refresh leaves the verification time alone.
+	if err := repo.Upsert(ctx, batchWrite(8151, "Priv").Record, nil); err != nil {
+		t.Fatalf("refresh: %v", err)
+	}
+	// So does a private write without a time.
+	if err := repo.StoreResult(ctx, contract.CensusResult{Achievements: []contract.AchievementWrite{{CharacterID: 8151, Private: true}}}); err != nil {
+		t.Fatalf("StoreResult private without time: %v", err)
+	}
+	got, _ = repo.Get(ctx, 8151)
+	if got == nil || !got.AchievementsPrivate || got.AchievementsCheckedAt == nil || !got.AchievementsCheckedAt.Equal(checkedAt) {
+		t.Fatalf("after refresh = %+v, want the check time kept at %v", got, checkedAt)
+	}
+
+	later := checkedAt.Add(31 * 24 * time.Hour)
+	if err := repo.StoreResult(ctx, contract.CensusResult{Achievements: []contract.AchievementWrite{{CharacterID: 8151, Private: true, CheckedAt: later}}}); err != nil {
+		t.Fatalf("StoreResult second check: %v", err)
+	}
+	if got, _ = repo.Get(ctx, 8151); got == nil || got.AchievementsCheckedAt == nil || !got.AchievementsCheckedAt.Equal(later) {
+		t.Fatalf("after second check = %+v, want %v", got, later)
+	}
+}
+
 func TestCharacterRepository_StoreResultIsAtomicAcrossCharactersAndAchievements(t *testing.T) {
 	driver := newTestDriver(t)
 	repo := repository.NewCharacterRepository(driver)

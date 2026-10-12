@@ -23,11 +23,15 @@ type CharacterRecord struct {
 	ActiveJob           string
 	ItemLevel           int
 	AchievementsPrivate bool
-	LatestAchievementID *uint32
-	LatestAchievementAt *time.Time
-	FirstSeenAt         time.Time
-	LastCensusAt        *time.Time
-	DeletedAt           *time.Time
+	// AchievementsCheckedAt is when an achievement census last found the
+	// character private, so the private flag was last verified. Nil until it
+	// has; only the achievement census writes it, never a character refresh.
+	AchievementsCheckedAt *time.Time
+	LatestAchievementID   *uint32
+	LatestAchievementAt   *time.Time
+	FirstSeenAt           time.Time
+	LastCensusAt          *time.Time
+	DeletedAt             *time.Time
 }
 
 // CharacterGearRecord is one equipped gear slot snapshot for a character.

@@ -92,9 +92,23 @@ func (h *CharacterCensus) finishLodestone(ctx context.Context, char *contract.Ch
 		return nil, fmt.Errorf("character-census upsert %d: %w", char.ID, err)
 	}
 	h.logger.InfoContext(ctx, "handler.character_census.stored", slog.Uint64("character_id", uint64(char.ID)), slog.String("name", char.Name), slog.String("world", char.World))
-	next := BuildDependentCharacterJobs(char.ID)
+	next := h.dependentJobs(ctx, char.ID)
 	h.logger.DebugContext(ctx, "handler.character_census.done", slog.Uint64("character_id", uint64(char.ID)), slog.Int("chained", len(next)))
 	return next, nil
+}
+
+// dependentJobs chains the achievement census unless it would only be skipped:
+// a private flag verified within the recheck window. The refresh just stored
+// leaves that flag and its verification time as they were.
+func (h *CharacterCensus) dependentJobs(ctx context.Context, id uint32) []contract.QueueJob {
+	due, err := h.census.AchievementCensusDue(ctx, id)
+	if err != nil {
+		h.logger.ErrorContext(ctx, "handler.character_census.due_check_failed", slog.Uint64("character_id", uint64(id)), slog.Any("error", err))
+	}
+	if !due {
+		return nil
+	}
+	return BuildDependentCharacterJobs(id)
 }
 
 // store hands the profile to the writer and waits for its batch to commit. It

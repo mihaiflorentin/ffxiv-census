@@ -48,6 +48,20 @@ func (h *AchievementCensus) Handle(ctx context.Context, payload []byte) ([]contr
 		return nil, err
 	}
 
+	// A private flag verified within the recheck window needs no Lodestone
+	// request. The job succeeds, so the worker acks it. This is checked before
+	// the rate-limit wait: a skipped job must not queue behind a cooldown.
+	due, err := h.census.AchievementCensusDue(ctx, p.CharacterID)
+	if err != nil {
+		// Log warning but continue: the skip is an optimization, not a requirement.
+		h.logger.ErrorContext(ctx, "handler.achievement_census.due_check_failed", slog.Uint64("character_id", uint64(p.CharacterID)), slog.Any("error", err))
+	}
+	if !due {
+		h.logger.DebugContext(ctx, "handler.achievement_census.skipped",
+			slog.Uint64("character_id", uint64(p.CharacterID)), slog.String("reason", "private_recently_checked"))
+		return nil, nil
+	}
+
 	// Wait for Lodestone if rate-limited (blocks until cooldown expires).
 	if h.rateLimiter != nil && !h.rateLimiter.IsAvailable(contract.ProviderLodestone) {
 		h.logger.InfoContext(ctx, "handler.achievement_census.waiting_for_lodestone", slog.Uint64("character_id", uint64(p.CharacterID)))

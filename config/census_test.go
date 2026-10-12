@@ -12,6 +12,22 @@ func TestCensusConfig_Defaults(t *testing.T) {
 	}
 }
 
+func TestCensusConfig_PrivateRecheckWindowDefaultAndEnv(t *testing.T) {
+	cfg, err := NewConfig()
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	if cfg.Census == nil || cfg.Census.PrivateRecheckDays != 30 {
+		t.Fatalf("private_recheck_days = %+v, want 30", cfg.Census)
+	}
+
+	t.Setenv("CENSUS_PRIVATE_RECHECK_DAYS", "7")
+	cfg, _ = NewConfig()
+	if cfg.Census.PrivateRecheckDays != 7 {
+		t.Fatalf("CENSUS_PRIVATE_RECHECK_DAYS override: got %v, want 7", cfg.Census.PrivateRecheckDays)
+	}
+}
+
 func TestCensusConfig_UIStatsDefaultsAndEnv(t *testing.T) {
 	t.Setenv("CENSUS_UI_STATS_CACHE_TTL", "2m")
 	cfg, err := NewConfig()

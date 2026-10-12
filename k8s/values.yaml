@@ -48,6 +48,9 @@ serviceMonitor:
   interval: 15s
   scrapeTimeout: 10s
   path: /metrics
+  # Workers with a metricsPort have no Service, so a PodMonitor scrapes them.
+  workers:
+    enabled: true
 
 components:
   webserver:
@@ -181,6 +184,7 @@ workers:
   instances:
     # --- Census consumer (all census events + failed retries, rate-limited) ---
     - name: census-consumer
+      metricsPort: 9090
       replicaCount: 1
       command:
         - /app/ffxiv-census
@@ -191,6 +195,7 @@ workers:
         - "10"
     # --- Proxy consumers (per-event-type with proxy rotation) ---
     - name: proxy-id-sweep
+      metricsPort: 9090
       replicaCount: 3
       command:
         - /app/ffxiv-census
@@ -209,6 +214,7 @@ workers:
         - name: POSTGRES_MAX_IDLE_CONNS
           value: "2"
     - name: proxy-character-census
+      metricsPort: 9090
       replicaCount: 1
       command:
         - /app/ffxiv-census
@@ -227,6 +233,7 @@ workers:
         - name: POSTGRES_MAX_IDLE_CONNS
           value: "2"
     - name: proxy-achievement-census
+      metricsPort: 9090
       replicaCount: 2
       command:
         - /app/ffxiv-census
@@ -289,6 +296,7 @@ workers:
           cpu: 1000m
     # --- Census failed queue retry consumer ---
     - name: census-retry
+      metricsPort: 9090
       replicaCount: 1
       command:
         - /app/ffxiv-census

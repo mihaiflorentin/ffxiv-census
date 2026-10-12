@@ -41,7 +41,7 @@ The ordered sequence of milestone achievements in which earning a later one impl
 _Avoid_: achievement chain, chain verification, sequential dependency, early exit
 
 **Confirmed missing**:
-The conclusion that a character no longer exists, reached when the providers report not-found; the character stops being part of the census from then on. A not-found from The Lodestone alone is sufficient, because it is authoritative for existence.
+The conclusion that a character no longer exists, reached when the providers report not-found; the character stops being part of the regular character census from then on. Only a small periodic batch of them is re-probed, so a character that comes back is found again. A not-found from The Lodestone alone is sufficient, because it is authoritative for existence.
 _Avoid_: mark deleted, confirmed not found, character gone
 
 **Private profile**:
@@ -51,6 +51,10 @@ _Avoid_: privacy skip, skipped character
 **Achievements private**:
 A character whose achievement history is hidden from public view. This is recorded on the character and is a valid reason for it to have no milestone records.
 _Avoid_: hidden achievement list
+
+**Private recheck window**:
+How long a character found achievements private is left alone before its achievement census asks The Lodestone again — 30 days by default. A job inside the window is skipped and succeeds; a character whose flag was never verified is checked once.
+_Avoid_: private skip, private cooldown
 
 **The Lodestone**:
 FFXIV's official community site, read as web pages rather than through an official API, and the authoritative source of character existence and profile truth. The sole provider for every census event.

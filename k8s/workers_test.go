@@ -111,6 +111,28 @@ func assertWorkerEnvValue(t *testing.T, worker, section, envName, wantValue stri
 	}
 }
 
+// TestMetricsPortOnlyOnConsumeWorkers guards the worker metrics endpoint: only
+// the `consume` commands accept --metrics-port, so `proxy consume` and
+// `proxy scan` workers must not declare one.
+func TestMetricsPortOnlyOnConsumeWorkers(t *testing.T) {
+	values, err := os.ReadFile("values.yaml")
+	if err != nil {
+		t.Fatalf("read Helm values: %v", err)
+	}
+	src := string(values)
+
+	for _, name := range []string{"census-consumer", "proxy-id-sweep", "proxy-character-census", "proxy-achievement-census", "census-retry"} {
+		if !strings.Contains(workerSection(t, src, name), "      metricsPort: 9090\n") {
+			t.Fatalf("worker %s: missing metricsPort", name)
+		}
+	}
+	for _, name := range []string{"proxy-new", "proxy-scan"} {
+		if strings.Contains(workerSection(t, src, name), "metricsPort") {
+			t.Fatalf("worker %s: proxy commands have no --metrics-port flag", name)
+		}
+	}
+}
+
 func assertWorkerKeepsQueueEnv(t *testing.T, worker, section string) {
 	t.Helper()
 	for _, envName := range []string{"QUEUE_MAX_ATTEMPTS", "RABBITMQ_URL"} {

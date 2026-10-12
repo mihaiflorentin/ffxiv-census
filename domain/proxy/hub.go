@@ -21,12 +21,35 @@ type ProxyHub struct {
 	destCap      time.Duration // ceiling of the per-failure doubling; <= floor disables growth
 	policy       contract.ProxyScanPolicy
 	notify       chan struct{} // buffered(1); signals waiting workers when a proxy becomes available
+	// refreshInterval is the most often a worker re-validates and extends the
+	// lock of a proxy it holds. It is always below half of lockTTL.
+	refreshInterval time.Duration
 }
+
+// DefaultLockRefreshInterval is how often a worker re-validates the lock of a
+// held proxy when nothing else is configured. For short lock TTLs the hub
+// lowers it to a third of the TTL.
+const DefaultLockRefreshInterval = 100 * time.Second
 
 // NewProxyHub creates a ProxyHub with the given repository, lock TTL,
 // optional destination checker, destination cooldown floor and scan policy.
 func NewProxyHub(repo contract.ProxyRepository, lockTTL time.Duration, checker contract.ProxyChecker, destCooldown time.Duration, policy contract.ProxyScanPolicy) *ProxyHub {
-	return &ProxyHub{repo: repo, lockTTL: lockTTL, checker: checker, destCooldown: destCooldown, policy: policy, notify: make(chan struct{}, 1)}
+	return &ProxyHub{
+		repo: repo, lockTTL: lockTTL, checker: checker, destCooldown: destCooldown, policy: policy,
+		notify:          make(chan struct{}, 1),
+		refreshInterval: min(DefaultLockRefreshInterval, lockTTL/3),
+	}
+}
+
+// WithLockRefreshInterval sets how often a worker re-validates the lock of a
+// held proxy. A value that is not positive or not below half of the lock TTL
+// could let the lock expire between refreshes, so it is ignored and the
+// current interval stays. It returns the hub for chaining at construction.
+func (h *ProxyHub) WithLockRefreshInterval(d time.Duration) *ProxyHub {
+	if d > 0 && d < h.lockTTL/2 {
+		h.refreshInterval = d
+	}
+	return h
 }
 
 // WithDestinationCooldownCap sets the ceiling the destination cooldown grows
@@ -162,6 +185,12 @@ func (h *ProxyHub) NotifyCh() <-chan struct{} {
 // LockTTL returns the lock TTL configured for this hub.
 func (h *ProxyHub) LockTTL() time.Duration {
 	return h.lockTTL
+}
+
+// LockRefreshInterval returns the most often a worker should re-validate and
+// extend the lock of a proxy it holds.
+func (h *ProxyHub) LockRefreshInterval() time.Duration {
+	return h.refreshInterval
 }
 
 // DestinationCooldown returns the floor applied to destination cooldowns

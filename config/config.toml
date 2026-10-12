@@ -106,9 +106,15 @@ test_timeout          = "10s"
 cooldown              = "60s"
 cooldown_max          = "15m"
 job_attempts          = 3
+# A worker re-validates and extends the lock of a proxy it holds at most this
+# often. Must be below half of lock_ttl so the lock cannot expire in between.
+lock_refresh_interval = "100s"
 
 [census]
 activity_window_days = 30
+# Days a character found private is left alone before its achievement census
+# runs again.
+private_recheck_days = 30
 max_level = 100
 
 [census.ui_stats]

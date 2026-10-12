@@ -322,27 +322,83 @@ func characterCensusCutoff(now time.Time, olderThan time.Duration) time.Time {
 	return now.UTC().Add(-olderThan)
 }
 
+// characterCensusOptions bounds one character-census publish run.
+type characterCensusOptions struct {
+	// OlderThan is the age filter for live characters; zero or negative
+	// selects the oldest regardless of age.
+	OlderThan time.Duration
+	// Limit caps the live characters published.
+	Limit int
+	// DeletedLimit caps the deleted characters re-probed in this run; zero
+	// disables the re-probe.
+	DeletedLimit int
+	// DeletedOlderThan is how long a character must have been deleted
+	// (since the last time it was confirmed missing) before it is re-probed.
+	DeletedOlderThan time.Duration
+}
+
+// publishCharacterCensus publishes character-census jobs for the oldest live
+// characters, followed by a small batch of deleted characters due for a
+// re-probe. Deleted characters are not part of the normal selection: a
+// character that is still missing is stamped with a fresh deleted_at by its
+// census, which keeps it out of the next re-probes for DeletedOlderThan,
+// while one that came back is stored again (resurrection self-heals).
+func publishCharacterCensus(
+	ctx context.Context,
+	repo contract.CharacterRepository,
+	q contract.Queue,
+	logger contract.Logger,
+	now time.Time,
+	opts characterCensusOptions,
+) error {
+	cutoff := characterCensusCutoff(now, opts.OlderThan)
+	ids, err := repo.ListStaleIDs(ctx, cutoff, opts.Limit)
+	if err != nil {
+		return fmt.Errorf("list stale: %w", err)
+	}
+	stale := len(ids)
+	deleted, err := repo.ListDeletedIDs(ctx, now.UTC().Add(-opts.DeletedOlderThan), opts.DeletedLimit)
+	if err != nil {
+		return fmt.Errorf("list deleted: %w", err)
+	}
+	ids = append(ids, deleted...)
+
+	jobs := make([]contract.QueueJob, 0, len(ids))
+	for _, id := range ids {
+		jobs = append(jobs, handler.CharacterCensusJob(id))
+	}
+	if _, err := publishAll(q, logger, ctx, jobs); err != nil {
+		return err
+	}
+	logger.InfoContext(
+		ctx, "publish.character_census",
+		slog.String("older_than", opts.OlderThan.String()),
+		slog.Int("limit", opts.Limit),
+		slog.Int("stale", stale),
+		slog.Int("deleted_limit", opts.DeletedLimit),
+		slog.Int("deleted", len(deleted)),
+		slog.Int("count", len(jobs)),
+	)
+	return nil
+}
+
 var publishCharacterCensusCmd = &cobra.Command{
 	Use:   "character-census",
-	Short: "Publish character-census jobs for stale characters (oldest-first or age-filtered)",
+	Short: "Publish character-census jobs for live characters (oldest-first or age-filtered) plus a small re-probe batch of deleted ones",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		olderThan, _ := cmd.Flags().GetDuration("older-than")
 		limit, _ := cmd.Flags().GetInt("limit")
+		deletedLimit, _ := cmd.Flags().GetInt("deleted-limit")
+		deletedOlderThan, _ := cmd.Flags().GetDuration("deleted-older-than")
 		if limit <= 0 {
 			return fmt.Errorf("--limit must be positive")
+		}
+		if deletedLimit < 0 {
+			return fmt.Errorf("--deleted-limit must not be negative")
 		}
 		repo := container.Load.CharacterRepository()
 		if repo == nil {
 			return fmt.Errorf("character repository not initialised")
-		}
-		cutoff := characterCensusCutoff(time.Now(), olderThan)
-		stale, err := repo.ListStale(cmd.Context(), cutoff, limit)
-		if err != nil {
-			return fmt.Errorf("list stale: %w", err)
-		}
-		var jobs []contract.QueueJob
-		for _, c := range stale {
-			jobs = append(jobs, handler.CharacterCensusJob(c.ID))
 		}
 		q := container.Load.Queue()
 		if q == nil {
@@ -353,17 +409,12 @@ var publishCharacterCensusCmd = &cobra.Command{
 				container.Load.Logger().ErrorContext(cmd.Context(), "queue.close_error", slog.Any("error", err))
 			}
 		}()
-		if _, err := publishAll(q, container.Load.Logger(), cmd.Context(), jobs); err != nil {
-			return err
-		}
-		container.Load.Logger().InfoContext(
-			cmd.Context(), "publish.character_census",
-			slog.String("older_than", olderThan.String()),
-			slog.Int("limit", limit),
-			slog.Int("stale", len(stale)),
-			slog.Int("count", len(jobs)),
-		)
-		return nil
+		return publishCharacterCensus(cmd.Context(), repo, q, container.Load.Logger(), time.Now(), characterCensusOptions{
+			OlderThan:        olderThan,
+			Limit:            limit,
+			DeletedLimit:     deletedLimit,
+			DeletedOlderThan: deletedOlderThan,
+		})
 	},
 }
 
@@ -442,7 +493,9 @@ func init() {
 	publishIDSweepCmd.Flags().Uint32("min-id", 0, "manual gap scan start for --fill-gaps (skips the persistent cursor)")
 	publishCmd.AddCommand(publishCharacterCensusCmd)
 	publishCharacterCensusCmd.Flags().Duration("older-than", 0, "positive duration filters by age; zero or negative selects oldest entries without age cutoff")
-	publishCharacterCensusCmd.Flags().Int("limit", 1000, "max characters to enqueue")
+	publishCharacterCensusCmd.Flags().Int("limit", 1000, "max live characters to enqueue")
+	publishCharacterCensusCmd.Flags().Int("deleted-limit", 10, "max deleted characters to re-probe per run (0 disables the re-probe)")
+	publishCharacterCensusCmd.Flags().Duration("deleted-older-than", 30*24*time.Hour, "re-probe a deleted character only once it has been deleted this long")
 	publishCmd.AddCommand(publishAchievementCensusCmd)
 	publishAchievementCensusCmd.Flags().Uint32("character-id", 0, "specific character ID to census")
 	publishAchievementCensusCmd.Flags().Int("limit", 1000, "max characters to enqueue")
