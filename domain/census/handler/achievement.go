@@ -20,16 +20,12 @@ type AchievementCensus struct {
 	census      *census.Service
 	logger      contract.Logger
 	rateLimiter contract.ProviderRateLimiter
-	// writer stores milestones and the latest achievement through a batch.
-	// Handle waits for the batch to commit before returning, so the worker
-	// acks the job only after the data is durable. Required: Handle fails with
-	// ErrNoWriter without it.
-	writer contract.ResultWriter
+	writerSlot
 }
 
 // WithWriter routes this handler's storage through w and returns the handler.
 func (h *AchievementCensus) WithWriter(w contract.ResultWriter) *AchievementCensus {
-	h.writer = w
+	h.set(w)
 	return h
 }
 
@@ -48,8 +44,8 @@ func (h *AchievementCensus) Handle(ctx context.Context, payload []byte) ([]contr
 	}
 	h.logger.DebugContext(ctx, "handler.achievement_census", slog.Uint64("character_id", uint64(p.CharacterID)))
 
-	if h.writer == nil {
-		return nil, ErrNoWriter
+	if err := h.require(); err != nil {
+		return nil, err
 	}
 
 	// Wait for Lodestone if rate-limited (blocks until cooldown expires).

@@ -20,16 +20,12 @@ type CharacterCensus struct {
 	lodestone contract.LodestoneClient
 	census    *census.Service
 	logger    contract.Logger
-	// writer stores the character through a batch. Handle waits for the
-	// batch to commit before returning, so the worker acks the job only after
-	// the character is durable. Required: Handle fails with ErrNoWriter
-	// without it.
-	writer contract.ResultWriter
+	writerSlot
 }
 
 // WithWriter routes this handler's storage through w and returns the handler.
 func (h *CharacterCensus) WithWriter(w contract.ResultWriter) *CharacterCensus {
-	h.writer = w
+	h.set(w)
 	return h
 }
 
@@ -56,8 +52,8 @@ func (h *CharacterCensus) Handle(ctx context.Context, payload []byte) ([]contrac
 		return nil, errors.New("lodestone client unconfigured on this worker")
 	}
 
-	if h.writer == nil {
-		return nil, ErrNoWriter
+	if err := h.require(); err != nil {
+		return nil, err
 	}
 
 	char, err := h.lodestone.FetchCharacter(ctx, p.CharacterID)

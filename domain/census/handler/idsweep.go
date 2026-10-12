@@ -24,16 +24,12 @@ type IDSweep struct {
 	lodestone contract.LodestoneClient
 	census    *census.Service
 	logger    contract.Logger
-	// writer stores discovered characters in batches. Handle waits for the
-	// batch to commit before returning, so the worker acks the job only after
-	// its characters are durable. Required: Handle fails with ErrNoWriter
-	// without it.
-	writer contract.ResultWriter
+	writerSlot
 }
 
 // WithWriter routes this handler's storage through w and returns the handler.
 func (h *IDSweep) WithWriter(w contract.ResultWriter) *IDSweep {
-	h.writer = w
+	h.set(w)
 	return h
 }
 
@@ -65,8 +61,8 @@ func (h *IDSweep) Handle(ctx context.Context, payload []byte) ([]contract.QueueJ
 		return nil, errors.New("lodestone client unconfigured on this worker")
 	}
 
-	if h.writer == nil {
-		return nil, ErrNoWriter
+	if err := h.require(); err != nil {
+		return nil, err
 	}
 
 	var next []contract.QueueJob

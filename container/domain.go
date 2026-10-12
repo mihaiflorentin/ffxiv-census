@@ -96,10 +96,17 @@ func (s *ServiceContainer) Handlers() *handler.Registry {
 	if svc == nil {
 		return reg
 	}
-	reg.Register(handler.EventIDSweep, handler.NewIDSweep(s.LodestoneClient(), svc, s.Logger()).WithWriter(s.ResultWriter()))
-	reg.Register(handler.EventAchievementCensus, handler.NewAchievementCensus(s.LodestoneClient(), svc, s.Logger(), s.ProviderRateLimiter()).WithWriter(s.ResultWriter()))
-	reg.Register(handler.EventCharacterCensus, handler.NewCharacterCensus(s.LodestoneClient(), svc, s.Logger()).WithWriter(s.ResultWriter()))
+	s.registerCensusHandlers(reg, svc, s.LodestoneClient(), s.ProviderRateLimiter())
 	return reg
+}
+
+// registerCensusHandlers registers the three census handlers, all storing
+// through the one per-process result writer.
+func (s *ServiceContainer) registerCensusHandlers(reg *handler.Registry, svc *census.Service, lodestoneClient contract.LodestoneClient, rateLimiter contract.ProviderRateLimiter) {
+	w := s.ResultWriter()
+	reg.Register(handler.EventIDSweep, handler.NewIDSweep(lodestoneClient, svc, s.Logger()).WithWriter(w))
+	reg.Register(handler.EventAchievementCensus, handler.NewAchievementCensus(lodestoneClient, svc, s.Logger(), rateLimiter).WithWriter(w))
+	reg.Register(handler.EventCharacterCensus, handler.NewCharacterCensus(lodestoneClient, svc, s.Logger()).WithWriter(w))
 }
 
 // ProxyService returns the ingestion-only proxy service: providers plus the
@@ -177,8 +184,6 @@ func (s *ServiceContainer) ProxyCensusHandlers(lodestoneClient contract.Lodeston
 	if svc == nil {
 		return reg
 	}
-	reg.Register(handler.EventIDSweep, handler.NewIDSweep(lodestoneClient, svc, s.Logger()).WithWriter(s.ResultWriter()))
-	reg.Register(handler.EventAchievementCensus, handler.NewAchievementCensus(lodestoneClient, svc, s.Logger(), rateLimiter).WithWriter(s.ResultWriter()))
-	reg.Register(handler.EventCharacterCensus, handler.NewCharacterCensus(lodestoneClient, svc, s.Logger()).WithWriter(s.ResultWriter()))
+	s.registerCensusHandlers(reg, svc, lodestoneClient, rateLimiter)
 	return reg
 }

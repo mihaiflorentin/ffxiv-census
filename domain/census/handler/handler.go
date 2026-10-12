@@ -22,6 +22,23 @@ type Handler interface {
 // writing outside that path.
 var ErrNoWriter = errors.New("result writer unconfigured on this worker")
 
+// writerSlot is the result writer a census handler stores through. Handle
+// waits for the batch to commit before returning, so the worker acks a job
+// only after its data is durable. The writer is required: require fails with
+// ErrNoWriter without it.
+type writerSlot struct {
+	writer contract.ResultWriter
+}
+
+func (s *writerSlot) set(w contract.ResultWriter) { s.writer = w }
+
+func (s *writerSlot) require() error {
+	if s.writer == nil {
+		return ErrNoWriter
+	}
+	return nil
+}
+
 // discardLogger is a no-op logger whose Enabled always returns false,
 // allowing callers to skip expensive attribute construction.
 type discardLogger struct{}
