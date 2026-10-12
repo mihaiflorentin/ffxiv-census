@@ -33,6 +33,11 @@
   {{- $podSecurityContext := default $defaults.podSecurityContext $instance.podSecurityContext }}
   {{- $port := default $defaults.port $instance.port | default 8080 }}
   {{- $env := default $defaults.env $instance.env }}
+  {{- $metricsPort := get $instance "metricsPort" | default (get $defaults "metricsPort") }}
+  {{- $command := $instance.command }}
+  {{- if $metricsPort }}
+  {{- $command = concat $command (list "--metrics-port" ($metricsPort | toString)) }}
+  {{- end }}
 
 ---
 apiVersion: apps/v1
@@ -83,11 +88,16 @@ spec:
         - name: {{ $dot.Chart.Name }}
           image: "{{ include "manifest.image" (dict "image" $image "Values" $global "Chart" $dot.Chart) }}"
           imagePullPolicy: {{ include "manifest.pullPolicy" (dict "image" $image "Values" $global) }}
-          command: {{ $instance.command | toJson }}
+          command: {{ $command | toJson }}
           ports:
             - name: http
               containerPort: {{ $port }}
               protocol: TCP
+            {{- if $metricsPort }}
+            - name: metrics
+              containerPort: {{ $metricsPort }}
+              protocol: TCP
+            {{- end }}
           envFrom:
           {{- if $global.vault.enabled }}
             - secretRef:
