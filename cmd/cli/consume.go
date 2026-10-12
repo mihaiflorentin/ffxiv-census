@@ -130,6 +130,8 @@ func runProxyConsumer(ctx context.Context, q contract.Queue, eventTypes []string
 		return fmt.Errorf("census service not initialised")
 	}
 
+	requestObserver := container.Load.LodestoneRequestObserver()
+
 	// Create proxy-aware client factories.
 	newLodestoneClient := func(proxyURL string, limiter contract.ProviderRateLimiter) (contract.LodestoneClient, error) {
 		if lodestoneCfg == nil {
@@ -139,9 +141,9 @@ func runProxyConsumer(ctx context.Context, q contract.Queue, eventTypes []string
 		if proxyLodestoneRate > 0 {
 			override := *lodestoneCfg
 			override.RateLimit = proxyLodestoneRate
-			return lodestone.NewCustomClient(&override, logger, limiter, lodestone.WithProxy(proxyURL))
+			return lodestone.NewCustomClient(&override, logger, limiter, lodestone.WithProxy(proxyURL), lodestone.WithRequestObserver(requestObserver))
 		}
-		return lodestone.NewCustomClient(lodestoneCfg, logger, limiter, lodestone.WithProxy(proxyURL))
+		return lodestone.NewCustomClient(lodestoneCfg, logger, limiter, lodestone.WithProxy(proxyURL), lodestone.WithRequestObserver(requestObserver))
 	}
 
 	newRateLimiter := func() contract.ProviderRateLimiter {

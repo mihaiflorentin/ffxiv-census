@@ -224,7 +224,15 @@ func (s *ServiceContainer) Queue() contract.Queue {
 	return q
 }
 
+// LodestoneRequestObserver returns an observer that counts Lodestone request
+// outcomes per hashed proxy bucket in the Prometheus registry. Observers share
+// the same underlying counter, so one per client is fine.
+func (s *ServiceContainer) LodestoneRequestObserver() contract.LodestoneRequestObserver {
+	return metrics.NewLodestoneRequestObserver(s.PrometheusRegistry())
+}
+
 func (s *ServiceContainer) LodestoneClient() contract.LodestoneClient {
+	observer := s.LodestoneRequestObserver()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.infrastructure.lodestoneClient != nil {
@@ -235,7 +243,7 @@ func (s *ServiceContainer) LodestoneClient() contract.LodestoneClient {
 		logging.Warn("container.lodestone", "lodestone config missing")
 		return nil
 	}
-	client, err := lodestone.NewCustomClient(cfg, s.Logger(), s.providerRateLimiterUnlocked())
+	client, err := lodestone.NewCustomClient(cfg, s.Logger(), s.providerRateLimiterUnlocked(), lodestone.WithRequestObserver(observer))
 	if err != nil {
 		logging.Error("container.lodestone", fmt.Sprintf("failed to create lodestone client: %v", err))
 		return nil

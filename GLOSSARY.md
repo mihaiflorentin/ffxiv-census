@@ -41,7 +41,7 @@ The ordered sequence of milestone achievements in which earning a later one impl
 _Avoid_: achievement chain, chain verification, sequential dependency, early exit
 
 **Confirmed missing**:
-The conclusion that a character no longer exists, reached when the providers report not-found; the character stops being part of the census from then on. A not-found from The Lodestone alone is sufficient, because it is authoritative for existence.
+The conclusion that a character no longer exists, reached when the providers report not-found; the character stops being part of the regular character census from then on. Only a small periodic batch of them is re-probed, so a character that comes back is found again. A not-found from The Lodestone alone is sufficient, because it is authoritative for existence.
 _Avoid_: mark deleted, confirmed not found, character gone
 
 **Private profile**:
