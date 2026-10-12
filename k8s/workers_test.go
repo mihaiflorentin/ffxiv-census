@@ -28,13 +28,6 @@ func TestProxyWorkersPostgresPoolOverrides(t *testing.T) {
 	assertWorkerEnvValue(t, "proxy-scan", scan, "POSTGRES_MAX_OPEN_CONNS", "2")
 	assertWorkerEnvValue(t, "proxy-scan", scan, "POSTGRES_MAX_IDLE_CONNS", "1")
 	assertWorkerKeepsQueueEnv(t, "proxy-scan", scan)
-
-	// census-retry only republishes failed messages: it needs no more than
-	// the scan pool. Its env replaces the defaults, so it must carry its own.
-	retry := workerSection(t, src, "census-retry")
-	assertWorkerEnvValue(t, "census-retry", retry, "POSTGRES_MAX_OPEN_CONNS", "2")
-	assertWorkerEnvValue(t, "census-retry", retry, "POSTGRES_MAX_IDLE_CONNS", "1")
-	assertWorkerKeepsQueueEnv(t, "census-retry", retry)
 }
 
 // TestWorkerDefaultsPostgresPool guards the pool inherited by every worker
@@ -121,7 +114,7 @@ func TestMetricsPortOnlyOnConsumeWorkers(t *testing.T) {
 	}
 	src := string(values)
 
-	for _, name := range []string{"census-consumer", "proxy-id-sweep", "proxy-character-census", "proxy-achievement-census", "census-retry"} {
+	for _, name := range []string{"census-consumer", "proxy-id-sweep", "proxy-character-census", "proxy-achievement-census"} {
 		if !strings.Contains(workerSection(t, src, name), "      metricsPort: 9090\n") {
 			t.Fatalf("worker %s: missing metricsPort", name)
 		}

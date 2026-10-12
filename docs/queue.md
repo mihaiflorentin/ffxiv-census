@@ -247,11 +247,9 @@ workers:
       command: [/app/ffxiv-census, consume, character-census, --proxy, -c, "15"]
     - name: proxy-achievement-census
       command: [/app/ffxiv-census, consume, achievement-census, --proxy, -c, "25"]
-    - name: census-retry
-      command: [/app/ffxiv-census, consume, failed, --events, "id-sweep,character-census,achievement-census", -c, "1"]
 ```
 
-`census-retry` is the transition drain for the legacy failed queues (see [Legacy failed queues](#legacy-failed-queues)); it is not part of the normal retry path any more and can be removed once those queues are empty.
+The `census-retry` transition drain for the legacy failed queues was removed from the chart once those queues were empty (see [Legacy failed queues](#legacy-failed-queues)).
 
 Proxy scanning (`proxy scan`) is a separate lease-based worker that reads due rows directly from PostgreSQL and bypasses RabbitMQ entirely; see [docs/proxy.md](proxy.md). Concurrency is set per-deployment via the `-c` flag. The default is 4 if not specified. Each worker goroutine opens its own AMQP channel with `prefetch(1)`.
 

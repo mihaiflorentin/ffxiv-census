@@ -277,34 +277,6 @@ workers:
         limits:
           memory: 1Gi
           cpu: 1000m
-    # --- Census failed queue retry consumer ---
-    - name: census-retry
-      metricsPort: 9090
-      replicaCount: 1
-      command:
-        - /app/ffxiv-census
-        - consume
-        - failed
-        - --events
-        - "id-sweep,character-census,achievement-census"
-        - -c
-        - "1"
-      # Instance env replaces workers.defaults.env wholesale, so the queue
-      # vars must be re-declared here. Debug logging exposes the retry
-      # worker's failed-queue lifecycle (rabbitmq.failed.*) with canonical
-      # event types.
-      env:
-        - name: LOGGING_LEVEL
-          value: "debug"
-        - name: QUEUE_MAX_ATTEMPTS
-          value: "50"
-        - name: RABBITMQ_URL
-          value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASSWORD)@rabbitmq.default.svc.cluster.local:5672/ffxiv-census"
-        # Republishes failed messages only; no census writes.
-        - name: POSTGRES_MAX_OPEN_CONNS
-          value: "2"
-        - name: POSTGRES_MAX_IDLE_CONNS
-          value: "1"
 
 cronjobs:
   defaults:
