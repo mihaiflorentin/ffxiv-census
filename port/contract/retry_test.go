@@ -75,7 +75,7 @@ func TestDecideRetry(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := DecideRetry(tt.err, tt.attempts, tt.max, tiers)
+			got := DecideRetry(tt.err, tt.attempts, 0, tt.max, 20, tiers)
 			if got.Dead != tt.wantDead {
 				t.Fatalf("Dead = %v, want %v", got.Dead, tt.wantDead)
 			}
@@ -93,15 +93,55 @@ func TestDecideRetry(t *testing.T) {
 	}
 }
 
+func TestDecideRetry_ProxyFailuresPastTheCapCountAsAttempts(t *testing.T) {
+	tiers := DefaultRetryTiers()
+	proxyErr := &ProxyCheckError{Kind: CheckTarget, Challenge: true}
+	tests := []struct {
+		name          string
+		attempts      int
+		proxyFailures int
+		max           int
+		cap           int
+		wantDead      bool
+		wantAttempts  int
+		wantProxy     bool
+	}{
+		{"below the cap the failure is still the proxy's", 0, 18, 50, 20, false, 0, true},
+		{"the failure that reaches the cap is still the proxy's", 0, 19, 50, 20, false, 0, true},
+		{"the first failure past the cap counts as an attempt", 0, 20, 50, 20, false, 1, false},
+		{"further failures keep counting and climb the ladder", 2, 35, 50, 20, false, 3, false},
+		{"past the cap the attempt limit dead-parks", 49, 20, 50, 20, true, 50, false},
+		{"a zero cap never converts proxy failures", 0, 1000, 50, 0, false, 0, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := DecideRetry(proxyErr, tt.attempts, tt.proxyFailures, tt.max, tt.cap, tiers)
+			if got.Dead != tt.wantDead {
+				t.Fatalf("Dead = %v, want %v", got.Dead, tt.wantDead)
+			}
+			if got.Attempts != tt.wantAttempts || got.ProxyFault != tt.wantProxy {
+				t.Fatalf("got attempts=%d proxy=%v, want attempts=%d proxy=%v", got.Attempts, got.ProxyFault, tt.wantAttempts, tt.wantProxy)
+			}
+		})
+	}
+}
+
+func TestDecideRetry_JobFailuresIgnoreTheProxyFailureCount(t *testing.T) {
+	got := DecideRetry(errors.New("parse failure"), 0, 99, 50, 20, DefaultRetryTiers())
+	if got.Attempts != 1 || got.ProxyFault || got.Dead {
+		t.Fatalf("got %+v, want a plain first job failure", got)
+	}
+}
+
 func TestDecideRetry_FewerTiersThanLadderSteps(t *testing.T) {
-	got := DecideRetry(errors.New("x"), 5, 50, []time.Duration{time.Second, time.Minute})
+	got := DecideRetry(errors.New("x"), 5, 0, 50, 20, []time.Duration{time.Second, time.Minute})
 	if got.Tier != 1 || got.Delay != time.Minute {
 		t.Fatalf("got tier %d delay %s, want the last tier", got.Tier, got.Delay)
 	}
 }
 
 func TestDecideRetry_NoTiersFallsBackToDefaults(t *testing.T) {
-	got := DecideRetry(errors.New("x"), 0, 50, nil)
+	got := DecideRetry(errors.New("x"), 0, 0, 50, 20, nil)
 	if got.Delay != DefaultRetryTiers()[0] {
 		t.Fatalf("Delay = %s, want first default tier", got.Delay)
 	}

@@ -2,6 +2,7 @@ package rabbitmq
 
 import (
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -129,6 +130,27 @@ func TestNewRejectsInvalidTiersBeforeDialling(t *testing.T) {
 	_, err := New("amqp://127.0.0.1:1/", nil, 5, WithRetryTiers([]time.Duration{time.Minute, time.Second}))
 	if !errors.Is(err, ErrInvalidRetryTiers) {
 		t.Fatalf("New error = %v, want ErrInvalidRetryTiers", err)
+	}
+}
+
+func TestNewRejectsAProxyFailureCapBelowOne(t *testing.T) {
+	_, err := New("amqp://127.0.0.1:1/", nil, 5, WithProxyFailureCap(0))
+	if err == nil || !strings.Contains(err.Error(), "proxy failure cap") {
+		t.Fatalf("New error = %v, want a proxy failure cap error", err)
+	}
+}
+
+func TestDecideFailureCountsProxyFailuresPastTheCap(t *testing.T) {
+	q := &Queue{maxAttempts: 50, proxyFailureCap: 2, tiers: contract.DefaultRetryTiers()}
+	proxyErr := &contract.ProxyCheckError{Kind: contract.CheckTarget, Challenge: true}
+
+	d := q.decideFailure(amqp.Table{headerProxyFailures: int32(1)}, proxyErr)
+	if !d.ProxyFault || d.Attempts != 0 {
+		t.Fatalf("below the cap: %+v, want an uncounted proxy fault", d)
+	}
+	d = q.decideFailure(amqp.Table{headerProxyFailures: int32(2), headerAttempts: int32(4)}, proxyErr)
+	if d.ProxyFault || d.Attempts != 5 {
+		t.Fatalf("at the cap: %+v, want the failure counted as attempt 5", d)
 	}
 }
 

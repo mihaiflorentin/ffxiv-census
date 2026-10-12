@@ -32,12 +32,19 @@ func WithTiers(tiers []time.Duration) Option { return func(f *Fake) { f.tiers = 
 // WithMaxAttempts overrides the attempt cap that dead-parks a job (default 50).
 func WithMaxAttempts(n int) Option { return func(f *Fake) { f.maxAttempts = n } }
 
+// WithProxyFailureCap overrides how many proxy-attributable failures a job
+// absorbs before further ones count as attempts (default
+// contract.DefaultProxyFailureCap).
+func WithProxyFailureCap(n int) Option { return func(f *Fake) { f.proxyFailureCap = n } }
+
 // entry is a message inside the fake with the state the broker keeps in
 // headers.
 type entry struct {
 	job      contract.QueueJob
 	attempts int
-	readyAt  time.Time
+	// proxyFailures is the x-proxy-failures header of the real adapter.
+	proxyFailures int
+	readyAt       time.Time
 }
 
 // Fake is an in-memory queue implementing contract.Queue for tests. It models
@@ -48,22 +55,23 @@ type entry struct {
 // Acked) and every failure is recorded in Retried and Retries. Consume does
 // not return until in-flight handlers have finished.
 type Fake struct {
-	mu          sync.Mutex
-	now         func() time.Time
-	tiers       []time.Duration
-	maxAttempts int
-	jobs        []entry
-	delayed     [][]entry // per tier, in arrival order
-	legacy      []entry
-	dead        []contract.QueueJob
-	acked       []contract.QueueJob
-	retried     []contract.QueueJob
-	retries     []Retry
+	mu              sync.Mutex
+	now             func() time.Time
+	tiers           []time.Duration
+	maxAttempts     int
+	proxyFailureCap int
+	jobs            []entry
+	delayed         [][]entry // per tier, in arrival order
+	legacy          []entry
+	dead            []contract.QueueJob
+	acked           []contract.QueueJob
+	retried         []contract.QueueJob
+	retries         []Retry
 }
 
 // NewFake creates a new Fake queue.
 func NewFake(opts ...Option) *Fake {
-	f := &Fake{now: time.Now, tiers: contract.DefaultRetryTiers(), maxAttempts: 50}
+	f := &Fake{now: time.Now, tiers: contract.DefaultRetryTiers(), maxAttempts: 50, proxyFailureCap: contract.DefaultProxyFailureCap}
 	for _, opt := range opts {
 		opt(f)
 	}
@@ -154,13 +162,17 @@ func (f *Fake) next() (entry, bool) {
 // fail applies the same decision as the broker adapter. Callers hold f.mu.
 func (f *Fake) fail(e entry, err error) {
 	f.retried = append(f.retried, e.job)
-	d := contract.DecideRetry(err, e.attempts, f.maxAttempts, f.tiers)
+	d := contract.DecideRetry(err, e.attempts, e.proxyFailures, f.maxAttempts, f.proxyFailureCap, f.tiers)
 	if d.Dead {
 		f.dead = append(f.dead, e.job)
 		return
 	}
 	f.retries = append(f.retries, Retry{Job: e.job, Attempts: d.Attempts, ProxyFault: d.ProxyFault, Tier: d.Tier, Delay: d.Delay})
-	f.delayed[d.Tier] = append(f.delayed[d.Tier], entry{job: e.job, attempts: d.Attempts, readyAt: f.now().Add(d.Delay)})
+	proxyFailures := e.proxyFailures
+	if d.ProxyFault {
+		proxyFailures++
+	}
+	f.delayed[d.Tier] = append(f.delayed[d.Tier], entry{job: e.job, attempts: d.Attempts, proxyFailures: proxyFailures, readyAt: f.now().Add(d.Delay)})
 }
 
 // Consume runs concurrency consumers (at least one) that drain buffered jobs

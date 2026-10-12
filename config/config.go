@@ -35,10 +35,13 @@ type Config struct {
 // many job-attributable failures a message may have before it parks on its
 // dead queue. RetryTiers are the delays of the retry queues a failed job waits
 // in, strictly ascending; the Nth job failure uses the Nth tier, the last tier
-// repeats.
+// repeats. ProxyFailureCap is how many proxy-attributable failures a message
+// absorbs without counting as a job attempt; each further one counts, so a
+// message that only meets bad proxies still reaches MaxAttempts.
 type QueueConfig struct {
-	MaxAttempts int             `mapstructure:"max_attempts"`
-	RetryTiers  []time.Duration `mapstructure:"retry_tiers"`
+	MaxAttempts     int             `mapstructure:"max_attempts"`
+	RetryTiers      []time.Duration `mapstructure:"retry_tiers"`
+	ProxyFailureCap int             `mapstructure:"proxy_failure_cap"`
 }
 
 // WriterConfig tunes the per-pod batching writer that stores finished census
@@ -322,6 +325,14 @@ func validatePositiveDuration(key string, d time.Duration) error {
 	return nil
 }
 
+// validateQueueSettings fails startup on an invalid explicit queue setting.
+func validateQueueSettings(cfg *Config) error {
+	if cfg.Queue != nil && cfg.Queue.ProxyFailureCap < 1 {
+		return fmt.Errorf("config: queue.proxy_failure_cap must be at least 1, got %d", cfg.Queue.ProxyFailureCap)
+	}
+	return nil
+}
+
 // validateProxySettings fails startup on invalid explicit settings. Nothing
 // is clamped or silently defaulted: a bad operator value must surface here,
 // not as surprising scanner behavior.
@@ -467,6 +478,9 @@ func NewConfig() (*Config, error) {
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
+	}
+	if err := validateQueueSettings(&cfg); err != nil {
+		return nil, err
 	}
 	if err := validateProxySettings(&cfg); err != nil {
 		return nil, err

@@ -150,6 +150,32 @@ func TestFake_ProxyCausedFailureDoesNotCountAsAnAttempt(t *testing.T) {
 	}
 }
 
+func TestFake_ProxyFailuresPastTheCapCountAsAttemptsAndEndInTheDeadQueue(t *testing.T) {
+	clock := newTestClock()
+	q := newTiered(clock, WithProxyFailureCap(3), WithMaxAttempts(3))
+	h := newScript()
+	h.set("a", &contract.ProxyCheckError{Kind: contract.CheckTarget, Challenge: true})
+	_ = q.Publish(context.Background(), contract.QueueJob{Type: "a"})
+	runConsume(t, q, h.handle)
+
+	// Three proxy failures are absorbed; the next ones count as attempts.
+	for i := range 3 {
+		waitFor(t, func() bool { return len(q.Retries()) == i+1 })
+		if r := q.Retries()[i]; r.Attempts != 0 || !r.ProxyFault {
+			t.Fatalf("failure %d = %+v, want an uncounted proxy fault", i+1, r)
+		}
+		clock.Advance(5 * time.Second)
+	}
+	waitFor(t, func() bool { return len(q.Retries()) == 4 })
+	if r := q.Retries()[3]; r.Attempts != 1 || r.ProxyFault {
+		t.Fatalf("failure 4 = %+v, want it counted as attempt 1", r)
+	}
+	clock.Advance(5 * time.Second)
+	waitFor(t, func() bool { return len(q.Retries()) == 5 })
+	clock.Advance(30 * time.Second)
+	waitFor(t, func() bool { return len(q.Dead()) == 1 })
+}
+
 func TestFake_ProxyFailureAfterJobFailureKeepsTheAttemptCount(t *testing.T) {
 	clock := newTestClock()
 	q := newTiered(clock)

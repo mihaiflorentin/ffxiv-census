@@ -41,7 +41,10 @@ type Queue struct {
 	mu          sync.Mutex
 	logger      contract.Logger
 	maxAttempts int
-	tiers       []time.Duration
+	// proxyFailureCap is how many proxy-attributable failures a message
+	// absorbs before further ones count as job attempts.
+	proxyFailureCap int
+	tiers           []time.Duration
 }
 
 // Option configures a Queue.
@@ -55,6 +58,13 @@ type Option func(*Queue)
 // declaration.
 func WithRetryTiers(tiers []time.Duration) Option {
 	return func(q *Queue) { q.tiers = append([]time.Duration(nil), tiers...) }
+}
+
+// WithProxyFailureCap sets how many proxy-attributable failures a message may
+// have (x-proxy-failures) before each further one counts as a job attempt
+// (default contract.DefaultProxyFailureCap). It must be at least 1.
+func WithProxyFailureCap(n int) Option {
+	return func(q *Queue) { q.proxyFailureCap = n }
 }
 
 // validateTiers checks that tiers form a usable ascending ladder.
@@ -117,9 +127,12 @@ func New(url string, logger contract.Logger, maxAttempts int, opts ...Option) (*
 	if maxAttempts < 1 {
 		return nil, fmt.Errorf("rabbitmq max attempts must be >= 1, got %d", maxAttempts)
 	}
-	q := &Queue{url: url, logger: logger, maxAttempts: maxAttempts, tiers: contract.DefaultRetryTiers()}
+	q := &Queue{url: url, logger: logger, maxAttempts: maxAttempts, proxyFailureCap: contract.DefaultProxyFailureCap, tiers: contract.DefaultRetryTiers()}
 	for _, opt := range opts {
 		opt(q)
+	}
+	if q.proxyFailureCap < 1 {
+		return nil, fmt.Errorf("rabbitmq proxy failure cap must be >= 1, got %d", q.proxyFailureCap)
 	}
 	if err := validateTiers(q.tiers); err != nil {
 		return nil, err
@@ -639,12 +652,13 @@ func (q *Queue) consumeWorker(stopClaiming context.Context, processCtx context.C
 // attempts dead-park on the event's dead queue. Everything else is published
 // to the delay tier the decision picked, whose queue-level TTL dead-letters it
 // back to the main queue when the delay is over. A proxy-attributable error
-// leaves the attempt count unchanged. The delivery is acked only after the
+// leaves the attempt count unchanged until the message passed the proxy
+// failure cap. The delivery is acked only after the
 // replacement publish was confirmed; a failed publish nacks with requeue so no
 // message is ever dropped. jobType is the normalized event type from the
 // consumer, never the delivery's routing key.
 func (q *Queue) handleFailure(ctx context.Context, msg amqp.Delivery, jobType string, handlerErr error) {
-	decision := contract.DecideRetry(handlerErr, getAttempts(msg.Headers), q.maxAttempts, q.tiers)
+	decision := q.decideFailure(msg.Headers, handlerErr)
 	hdrs := retryHeaders(msg.Headers, decision)
 
 	if decision.Dead {
@@ -682,6 +696,12 @@ func (q *Queue) handleFailure(ctx context.Context, msg amqp.Delivery, jobType st
 	}
 
 	_ = msg.Ack(false)
+}
+
+// decideFailure applies contract.DecideRetry to the counters a delivery
+// carries in its headers.
+func (q *Queue) decideFailure(headers amqp.Table, handlerErr error) contract.RetryDecision {
+	return contract.DecideRetry(handlerErr, getAttempts(headers), getProxyFailures(headers), q.maxAttempts, q.proxyFailureCap, q.tiers)
 }
 
 // publishToQueue publishes a persistent body to a side queue (delay or dead)

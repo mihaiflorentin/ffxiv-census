@@ -46,6 +46,9 @@ vhost    = "ffxiv-census"
 [queue]
 max_attempts = 50
 retry_tiers  = ["5s", "30s", "5m", "1h"]
+# Proxy-attributable failures (x-proxy-failures) a message absorbs without
+# counting as a job attempt; each further one counts toward max_attempts.
+proxy_failure_cap = 20
 
 [writer]
 batch_size     = 100

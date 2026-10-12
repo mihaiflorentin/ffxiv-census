@@ -11,6 +11,10 @@ func DefaultRetryTiers() []time.Duration {
 	return []time.Duration{5 * time.Second, 30 * time.Second, 5 * time.Minute, time.Hour}
 }
 
+// DefaultProxyFailureCap is how many proxy-attributable failures a message
+// absorbs without counting as a job attempt.
+const DefaultProxyFailureCap = 20
+
 // ProxyFaultError marks a handler error as the proxy's fault rather than the
 // job's. Handlers and workers wrap an error in it when the failure has no
 // *ProxyCheckError of its own (e.g. no proxy could be acquired). Decisions use
@@ -34,7 +38,7 @@ func (e *ProxyFaultError) Unwrap() error { return e.Err }
 // proxy dial failure, a destination challenge, 429 or 5xx, or a timeout (a
 // *ProxyCheckError of kind CheckProxy, CheckTarget or CheckDeadline), or any
 // error wrapped in *ProxyFaultError. Such failures do not count as job
-// attempts. Unknown and local errors are the job's.
+// attempts, up to the proxy failure cap (see DecideRetry). Unknown and local errors are the job's.
 func IsProxyAttributable(err error) bool {
 	if err == nil {
 		return false
@@ -69,20 +73,24 @@ type RetryDecision struct {
 }
 
 // DecideRetry classifies a handler error. attempts is the number of
-// job-attributable failures the delivery already had. Poison payloads and
-// no-handler deliveries dead-park immediately. A proxy-attributable error
-// keeps the attempt count and retries in the tier of the job's last failure
-// (the first tier for a job that never failed on its own). Any other error
-// increments the count; reaching maxAttempts dead-parks, otherwise the tier
-// is the attempts-th step of the ladder, clamped to the last tier.
-func DecideRetry(handlerErr error, attempts, maxAttempts int, tiers []time.Duration) RetryDecision {
+// job-attributable failures the delivery already had and proxyFailures the
+// number of proxy-attributable ones. Poison payloads and no-handler deliveries
+// dead-park immediately. A proxy-attributable error keeps the attempt count
+// and retries in the tier of the job's last failure (the first tier for a job
+// that never failed on its own), until the message has had proxyFailureCap of
+// them: every further one counts as a job attempt, so a message that only ever
+// meets bad proxies still reaches maxAttempts and the dead queue. Any other
+// error increments the count; reaching maxAttempts dead-parks, otherwise the
+// tier is the attempts-th step of the ladder, clamped to the last tier. A
+// proxyFailureCap or maxAttempts of zero or less disables that limit.
+func DecideRetry(handlerErr error, attempts, proxyFailures, maxAttempts, proxyFailureCap int, tiers []time.Duration) RetryDecision {
 	if len(tiers) == 0 {
 		tiers = DefaultRetryTiers()
 	}
 	if errors.Is(handlerErr, ErrPoisonPayload) || errors.Is(handlerErr, ErrNoHandler) {
 		return RetryDecision{Dead: true, Attempts: attempts + 1}
 	}
-	if IsProxyAttributable(handlerErr) {
+	if IsProxyAttributable(handlerErr) && (proxyFailureCap <= 0 || proxyFailures < proxyFailureCap) {
 		tier := tierIndex(attempts, len(tiers))
 		return RetryDecision{Attempts: attempts, ProxyFault: true, Tier: tier, Delay: tiers[tier]}
 	}

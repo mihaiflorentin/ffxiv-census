@@ -196,6 +196,9 @@ func (s *ServiceContainer) Queue() contract.Queue {
 		maxAttempts = full.Queue.MaxAttempts
 	}
 	var opts []rabbitmq.Option
+	if full.Queue != nil && full.Queue.ProxyFailureCap > 0 {
+		opts = append(opts, rabbitmq.WithProxyFailureCap(full.Queue.ProxyFailureCap))
+	}
 	if full.Queue != nil && len(full.Queue.RetryTiers) > 0 {
 		opts = append(opts, rabbitmq.WithRetryTiers(full.Queue.RetryTiers))
 	}

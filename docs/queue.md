@@ -65,12 +65,13 @@ No consumer reads the delay queues. The broker alone moves a message out of a ti
 
 ## Retry Mechanism
 
-When a handler returns an error, the adapter calls `contract.DecideRetry(err, attempts, max_attempts, tiers)`. `attempts` is the `x-attempts` header: the number of **job-attributable** failures the message already had.
+When a handler returns an error, the adapter calls `contract.DecideRetry(err, attempts, proxy_failures, max_attempts, proxy_failure_cap, tiers)`. `attempts` is the `x-attempts` header: the number of **job-attributable** failures the message already had; `proxy_failures` is the `x-proxy-failures` header.
 
 | Condition | Action | Result |
 |-----------|--------|--------|
 | Error chain carries `contract.ErrPoisonPayload` (undecodable JSON, invalid range) or `contract.ErrNoHandler` (event type not registered in this process) | Publish to `census.<type>.dead` | Terminal park, inspectable and recoverable, never retried |
-| `contract.IsProxyAttributable(err)` | Publish to the tier of the job's last failure; `x-attempts` unchanged, `x-proxy-failures` + 1 | Retried after that tier's delay. Never dead-parks by itself, never moves the job up the ladder |
+| `contract.IsProxyAttributable(err)`, message below `proxy_failure_cap` | Publish to the tier of the job's last failure; `x-attempts` unchanged, `x-proxy-failures` + 1 | Retried after that tier's delay. Does not dead-park or move the job up the ladder |
+| `contract.IsProxyAttributable(err)`, message already at `proxy_failure_cap` | Handled like any other error (the next two rows); `x-proxy-failures` stays at the cap | Past the cap a proxy failure counts as a job attempt, so a message that only meets bad proxies still climbs the ladder and ends on the dead queue |
 | Any other error, new `x-attempts` below `max_attempts` | `x-attempts` + 1, publish to tier `min(attempts, number of tiers)` (1-based) | 1st failure waits 5 s, 2nd 30 s, 3rd 5 min, 4th and later 1 h |
 | Any other error, new `x-attempts` reaches `max_attempts` | Publish to `census.<type>.dead` | Safety net for a job that keeps failing for its own reasons |
 
@@ -83,9 +84,9 @@ A failure is **proxy-attributable** when the handler error carries, through `err
 - a `*contract.ProxyCheckError` of kind `CheckProxy` (proxy dial or negotiation failure), `CheckTarget` (a destination challenge, 429 or 5xx) or `CheckDeadline` (timeout), or
 - a `*contract.ProxyFaultError`, the explicit wrapper for proxy trouble that has no `ProxyCheckError` of its own.
 
-Error text is never parsed. Everything else, including `CheckLocal`, is the job's. The worker already retries a proxy-caused failure in-process on up to three other proxies; only when those are exhausted does the error reach the queue, still typed, so the job waits in a tier without being blamed. A job failing only on proxies therefore cycles at the tier of its last real failure (5 s for a job that never failed on its own) instead of climbing to 1 h, and `x-proxy-failures` shows how often it happened. It is informational; only `x-attempts` drives the tier and the cap.
+Error text is never parsed. Everything else, including `CheckLocal`, is the job's. The worker already retries a proxy-caused failure in-process on up to three other proxies; only when those are exhausted does the error reach the queue, still typed, so the job waits in a tier without being blamed. A job failing only on proxies therefore cycles at the tier of its last real failure (5 s for a job that never failed on its own) instead of climbing to 1 h, and `x-proxy-failures` shows how often it happened. Only `x-attempts` drives the tier and `max_attempts`, but `x-proxy-failures` now bounds the free retries: see below.
 
-`max_attempts` comes from `[queue] max_attempts` (default **50** in the embedded `config.toml`, overridable via `QUEUE_MAX_ATTEMPTS`). The ladder now has four steps and the 1 h tier repeats, so 50 job-attributable failures take roughly two days. Proxy-attributable failures do not count toward it, so a job that only meets bad proxies is not dead-parked by bad luck; it keeps retrying, bounded by the proxy cooldowns that already throttle it.
+`max_attempts` comes from `[queue] max_attempts` (default **50** in the embedded `config.toml`, overridable via `QUEUE_MAX_ATTEMPTS`). The ladder now has four steps and the 1 h tier repeats, so 50 job-attributable failures take roughly two days. Proxy-attributable failures do not count toward it until a message has had `[queue] proxy_failure_cap` of them (default **20**, `QUEUE_PROXY_FAILURE_CAP`, at least 1), so a job is not dead-parked by a short run of bad proxies. Each further proxy-attributable failure counts as a job attempt, so a message that fails on proxies forever (a persistent 5xx, timeouts, 429s, also on queues consumed without the proxy pool) reaches `max_attempts` and parks on the dead queue instead of cycling in the 5 s tier for good.
 
 The tiers come from `[queue] retry_tiers` (default `["5s", "30s", "5m", "1h"]`, override with `QUEUE_RETRY_TIERS=5s,30s,5m,1h`). They must be strictly ascending and at least 1 ms. A different list creates new `delay` queues (named after the delay); see Topology.
 
