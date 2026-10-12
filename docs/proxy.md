@@ -86,6 +86,23 @@ Shutdown releases leases it still owns on bounded fresh contexts after a ≤5 s 
 
 Each scan replica owns an `EndpointGuard` observing its own egress with a bounded direct request to the same health target (`control_interval`, default 30 s, ±10 % jitter, serial controls, 10 s control budget). A failed control pauses claiming until a later success; the generation counter increments on each healthy→unhealthy transition and is never reset. A healthy control never mutates proxy state. The guard gates claiming only — in-flight checks always run to completion and are fenced by generation as described above.
 
+### Indexes
+
+All `proxies` indexes beyond the primary key and the `(protocol, ip, port)` unique constraint are partial:
+
+| Index | Columns | Predicate | Serves |
+|-------|---------|-----------|--------|
+| `idx_proxies_verification_due` | `(next_attempt_at, id)` | `general_healthy` | verification queue |
+| `idx_proxies_recovery_due` | `(next_attempt_at, id)` | `NOT general_healthy AND last_verified_at IS NOT NULL` | recovery queue (older shape) |
+| `idx_proxies_recovery_claim` | `(next_attempt_at NULLS FIRST, id) INCLUDE (last_verified_at, scan_lease_until, scan_not_before)` | `NOT general_healthy AND last_verified_at IS NOT NULL` | recovery queue, deadline order |
+| `idx_proxies_recovery_recent` | `(last_verified_at)` | `NOT general_healthy AND last_verified_at IS NOT NULL` | recovery queue, range of rows verified within the horizon |
+| `idx_proxies_background_completed` | `(last_completed_at NULLS FIRST, id)` | `NOT general_healthy` | background queue |
+| `idx_proxies_fresh_verified` | `(last_verified_at)` | `general_healthy` | freshness reads (`ListActive`, `ClaimProxy`, `RandomActive`, `CountByStatus`) |
+
+Migration `00020` records the two recovery indexes created by hand on production on 2026-10-12 (`IF NOT EXISTS`, so production is unaffected) and drops `idx_proxies_available` and `idx_proxies_scan_priority`. No query filters on `status`, `locked_at` or `last_scanned_at` with an index in mind, and `locked_at`/`status` change on every consumer claim, refresh and release, so keeping them indexed forced non-HOT updates.
+
+The recovery claim inlines the recovery horizon as a SQL literal instead of a bind parameter. With a bind parameter, PostgreSQL's cached generic plan cannot estimate the horizon's selectivity and scans `idx_proxies_recovery_claim` in deadline order, discarding every long-unverified row; with the literal it takes the small `idx_proxies_recovery_recent` range and sorts it.
+
 ## Fresh availability (general vs destination health)
 
 All consumer-facing reads share one general-health predicate:

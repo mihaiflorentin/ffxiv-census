@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
@@ -40,16 +41,24 @@ const claimLeaseWhere = `(p2.scan_lease_until IS NULL OR p2.scan_lease_until <= 
 // claimQueueWhere returns the queue-specific static predicate. Caller values
 // arrive only as bind parameters; queue SQL is selected, never interpolated.
 // Background ignores the scheduling deadline entirely.
-func claimQueueWhere(queue contract.ScanQueue) (string, string, bool) {
+//
+// The recovery horizon is inlined as a literal, not bound: with a bind
+// parameter PostgreSQL's generic plan cannot see how selective the horizon is
+// and walks idx_proxies_recovery_claim in deadline order, filtering every
+// long-unverified row (138 ms and 108k buffers on production). A literal lets
+// it pick the small idx_proxies_recovery_recent range instead. The value
+// comes from policy, never from callers.
+func claimQueueWhere(queue contract.ScanQueue, recoveryHorizon time.Duration) (string, string, bool) {
 	switch queue {
 	case contract.ScanVerification:
 		return `p2.general_healthy
 			AND (p2.next_attempt_at IS NULL OR p2.next_attempt_at <= statement_timestamp())`,
 			`p2.next_attempt_at ASC NULLS FIRST, p2.id ASC`, true
 	case contract.ScanRecovery:
-		return `NOT p2.general_healthy
-			AND p2.last_verified_at > statement_timestamp() - ($2 * interval '1 second')
+		return fmt.Sprintf(`NOT p2.general_healthy
+			AND p2.last_verified_at > statement_timestamp() - (%s * interval '1 second')
 			AND (p2.next_attempt_at IS NULL OR p2.next_attempt_at <= statement_timestamp())`,
+				strconv.FormatFloat(recoveryHorizon.Seconds(), 'f', -1, 64)),
 			`p2.next_attempt_at ASC NULLS FIRST, p2.id ASC`, true
 	case contract.ScanBackground:
 		return `NOT p2.general_healthy`,
@@ -69,43 +78,14 @@ func (r *ProxyRepository) ClaimScans(ctx context.Context, queue contract.ScanQue
 	if limit <= 0 {
 		return nil, fmt.Errorf("scan claim: limit must be positive, got %d", limit)
 	}
-	where, order, ok := claimQueueWhere(queue)
-	if !ok {
-		return nil, fmt.Errorf("scan claim: unknown queue %d", int(queue))
-	}
-
 	token, err := newScanToken()
 	if err != nil {
 		return nil, err
 	}
-
-	args := []any{limit}
-	if queue == contract.ScanRecovery {
-		args = append(args, r.policy.RecoveryHorizon.Seconds())
+	query, args, err := r.claimQuery(queue, limit, token)
+	if err != nil {
+		return nil, err
 	}
-	tokenPH := len(args) + 1
-	args = append(args, token)
-	leasePH := len(args) + 1
-	args = append(args, r.policy.LeaseDuration.Seconds())
-
-	query := fmt.Sprintf(`WITH chosen AS (
-		SELECT p2.id
-		FROM proxies p2
-		WHERE %s
-		  AND %s
-		ORDER BY %s
-		LIMIT $1
-		FOR UPDATE SKIP LOCKED
-	)
-	UPDATE proxies p
-	SET scan_token = $%d,
-		scan_lease_until = clock_timestamp() + ($%d * interval '1 second'),
-		claimed_version = p.observation_version,
-		updated_at = clock_timestamp()
-	FROM chosen
-	WHERE p.id = chosen.id
-	RETURNING %s`,
-		claimLeaseWhere, where, order, tokenPH, leasePH, proxyColumnsClaimed)
 
 	db, err := r.driver.Acquire(ctx)
 	if err != nil {
@@ -141,6 +121,37 @@ func (r *ProxyRepository) ClaimScans(ctx context.Context, queue contract.ScanQue
 		sortScanLeases(leases, func(l contract.ScanLease) *time.Time { return l.Record.NextAttemptAt })
 	}
 	return leases, nil
+}
+
+// claimQuery assembles the lease statement and its bind arguments for one
+// queue.
+func (r *ProxyRepository) claimQuery(queue contract.ScanQueue, limit int, token string) (string, []any, error) {
+	where, order, ok := claimQueueWhere(queue, r.policy.RecoveryHorizon)
+	if !ok {
+		return "", nil, fmt.Errorf("scan claim: unknown queue %d", int(queue))
+	}
+
+	args := []any{limit, token, r.policy.LeaseDuration.Seconds()}
+
+	query := fmt.Sprintf(`WITH chosen AS (
+		SELECT p2.id
+		FROM proxies p2
+		WHERE %s
+		  AND %s
+		ORDER BY %s
+		LIMIT $1
+		FOR UPDATE SKIP LOCKED
+	)
+	UPDATE proxies p
+	SET scan_token = $2,
+		scan_lease_until = clock_timestamp() + ($3 * interval '1 second'),
+		claimed_version = p.observation_version,
+		updated_at = clock_timestamp()
+	FROM chosen
+	WHERE p.id = chosen.id
+	RETURNING %s`,
+		claimLeaseWhere, where, order, proxyColumnsClaimed)
+	return query, args, nil
 }
 
 // sortScanLeases orders leases by an optional timestamp key, NULLS FIRST,

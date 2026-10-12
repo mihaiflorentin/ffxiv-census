@@ -93,6 +93,7 @@ No separate migration step is needed. The schema is always current when the proc
 | `00015` | Adds the denormalized `characters.max_job_level` value and the single-row `ui_stats_snapshots` JSONB read model. Existing character job levels are backfilled during migration.
 | `00016` | Widens the `ui_stats_snapshots` schema-version check to `2` so the daily new-character series can carry the 60-day comparison window. Stored v1 snapshots are rejected by readers until the next refresh.
 | `00017` | Adds the proxy scan-scheduling evidence columns (`general_healthy`, completion/verification/deadline and cooldown timestamps, recovery step, observation version, lease token/version) plus four partial indexes for queue eligibility and freshness reads. No success is backfilled: every proxy starts unproven and becomes fresh only after a new scan. Down migration drops the indexes and columns in reverse order.
+| `00020` | Records the recovery-queue indexes `idx_proxies_recovery_claim` and `idx_proxies_recovery_recent` (created by hand on production on 2026-10-12; `IF NOT EXISTS`) and drops the unused `idx_proxies_available` and `idx_proxies_scan_priority`. Runs `NO TRANSACTION` with `CONCURRENTLY` so it does not block writers on `proxies`. Down migration recreates the two legacy indexes and drops the recovery indexes.
 
 ### Aggregate read model
 
