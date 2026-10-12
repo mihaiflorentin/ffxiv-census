@@ -263,6 +263,49 @@ func (r *ProxyRepository) insertNewChunk(ctx context.Context, recs []contract.Pr
 	return out, nil
 }
 
+// LoadListValidators returns the stored provider list validators by URL.
+func (r *ProxyRepository) LoadListValidators(ctx context.Context) (map[string]contract.ListValidators, error) {
+	db, err := r.driver.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, `SELECT url, etag, last_modified FROM proxy_list_validators`)
+	if err != nil {
+		return nil, fmt.Errorf("proxy list validators load: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]contract.ListValidators{}
+	for rows.Next() {
+		var url string
+		var v contract.ListValidators
+		if err := rows.Scan(&url, &v.ETag, &v.LastModified); err != nil {
+			return nil, fmt.Errorf("proxy list validators scan: %w", err)
+		}
+		out[url] = v
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("proxy list validators rows: %w", err)
+	}
+	return out, nil
+}
+
+// SaveListValidators stores (replaces) the validators of one list URL.
+func (r *ProxyRepository) SaveListValidators(ctx context.Context, url string, v contract.ListValidators) error {
+	db, err := r.driver.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, `INSERT INTO proxy_list_validators (url, etag, last_modified, updated_at)
+		VALUES ($1, $2, $3, now())
+		ON CONFLICT (url) DO UPDATE
+		SET etag = EXCLUDED.etag, last_modified = EXCLUDED.last_modified, updated_at = EXCLUDED.updated_at`,
+		url, v.ETag, v.LastModified)
+	if err != nil {
+		return fmt.Errorf("proxy list validators save: %w", err)
+	}
+	return nil
+}
+
 const (
 	// listedRewriteInterval is the shortest time between two writes to the
 	// same row from MarkListed.
