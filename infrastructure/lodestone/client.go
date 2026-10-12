@@ -161,6 +161,22 @@ type CustomClient struct {
 	logger      contract.Logger
 	rateLimiter contract.ProviderRateLimiter
 	proxyURL    string
+	observer    contract.LodestoneRequestObserver
+}
+
+// WithRequestObserver reports each request attempt's outcome, tagged with the
+// client's proxy. A nil observer is ignored.
+func WithRequestObserver(o contract.LodestoneRequestObserver) CustomClientOption {
+	return func(c *CustomClient) {
+		c.observer = o
+	}
+}
+
+// observe reports one request outcome; it is a no-op without an observer.
+func (c *CustomClient) observe(outcome contract.LodestoneOutcome) {
+	if c.observer != nil {
+		c.observer.ObserveRequest(c.proxyURL, outcome)
+	}
 }
 
 // NewCustomClient builds a custom Lodestone HTTP client.
@@ -267,6 +283,7 @@ func (c *CustomClient) doRequest(ctx context.Context, url string) ([]byte, int, 
 		if err != nil {
 			// Proven proxy dial/negotiation failures are re-attributed as a
 			// typed conclusive error; ambiguous failures stay unclassified.
+			c.observe(contract.LodestoneOutcomeFailure)
 			lastErr = httpclient.WrapProxyDial(err)
 			// A conclusive proxy death cannot recover by retrying through the
 			// same proxy: return immediately so the worker rotates identities
@@ -312,11 +329,13 @@ func (c *CustomClient) doRequest(ctx context.Context, url string) ([]byte, int, 
 		body, err := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
 		if err != nil {
+			c.observe(contract.LodestoneOutcomeFailure)
 			lastErr = err
 			continue
 		}
 
 		if resp.StatusCode == http.StatusTooManyRequests {
+			c.observe(contract.LodestoneOutcomeRateLimited)
 			retryAfter := httpclient.ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
 			if c.rateLimiter != nil {
 				pause := retryAfter
@@ -343,6 +362,7 @@ func (c *CustomClient) doRequest(ctx context.Context, url string) ([]byte, int, 
 		}
 
 		if resp.StatusCode == http.StatusAccepted {
+			c.observe(contract.LodestoneOutcomeChallenge)
 			c.pauseForChallenge(resp)
 
 			lastErr = &contract.ProxyCheckError{
@@ -359,6 +379,7 @@ func (c *CustomClient) doRequest(ctx context.Context, url string) ([]byte, int, 
 		}
 
 		if resp.StatusCode == http.StatusForbidden && isCloudflareChallenge(resp, body) {
+			c.observe(contract.LodestoneOutcomeChallenge)
 			// Cloudflare also blocks identities with 403 interstitials.
 			// Treating that as the Lodestone "restricted" outcome would
 			// silently drop a real character forever, so it must surface
@@ -382,6 +403,11 @@ func (c *CustomClient) doRequest(ctx context.Context, url string) ([]byte, int, 
 			return nil, resp.StatusCode, fmt.Errorf("request %s: %w", url, lastErr)
 		}
 
+		if resp.StatusCode >= http.StatusInternalServerError {
+			c.observe(contract.LodestoneOutcomeFailure)
+		} else {
+			c.observe(contract.LodestoneOutcomeSuccess)
+		}
 		return body, resp.StatusCode, nil
 	}
 	if lastErr == nil {
