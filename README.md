@@ -188,7 +188,7 @@ publish character-census ──► consume (all queues) ────► achievem
 
 ### Provider Coordination
 
-- **All census events are Lodestone-only.** The Lodestone is both the data source and the sole authority for existence: a genuine 404 is terminal (the character is marked deleted on `character-census` and skipped on `id-sweep`), while any transient error (challenge, timeout, 429, 5xx, dial) fails the delivery into the queue's infinite retry ladder.
+- **All census events are Lodestone-only.** The Lodestone is both the data source and the sole authority for existence: a genuine 404 is terminal (the character is marked deleted on `character-census` and skipped on `id-sweep`), while any transient error (challenge, timeout, 429, 5xx, dial) fails the delivery into a delay tier (5 s, 30 s, 5 min, 1 h) of the queue's retry ladder; see [docs/queue.md](docs/queue.md).
 - **Rate-limit pauses:** a 429 pauses the Lodestone provider for the `Retry-After` hint (default 30s); workers wait out the pause before their next attempt without burning database transactions or CPU cycles.
 - **Achievement-census** chains only after a successful character store; it is a leaf job.
 ---

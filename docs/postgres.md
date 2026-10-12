@@ -47,7 +47,7 @@ These defaults stay at 10/5 because the web deployment (`www`), the cronjobs and
 | `workers.defaults` (`census-consumer`) | 3 / 2 | The batching writer runs one flush transaction at a time (1 connection). The rest covers short single-statement reads and writes. |
 | `proxy-id-sweep`, `proxy-character-census`, `proxy-achievement-census`, `proxy-new` | 3 / 2 | The writer flush (1) plus proxy lease and lock statements (`ClaimProxy`, `RefreshConsumerLock`, `RecordConsumerFailure`; each a short statement or transaction, issued from many handler goroutines and queued on the pool). |
 | `proxy-scan` | 2 / 1 | Short claim and complete transactions only; unchanged. |
-| `census-retry` | 2 / 1 | Republishes failed messages, no census writes. |
+| `census-retry` | 2 / 1 | Drains the legacy failed queues (transition only), no census writes. |
 
 Maximum worker backends: 3 x 3 (id-sweep) + 3 (character) + 2 x 3 (achievement) + 3 (proxy-new) + 5 x 2 (scan) + 3 (census-consumer) + 2 (retry) = 36, down from 135 with the previous 15/10 pools (baseline in production: 76 of 100 connections in use). Instance `env` lists replace `workers.defaults.env` wholesale, so every instance that declares its own env must repeat the pool variables. Handlers wait on the pool when all connections are busy; they never fail for it.
 

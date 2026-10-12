@@ -4,7 +4,7 @@ ffxiv-census runs its durable async work queue on **RabbitMQ**. The broker repla
 
 ## Topology
 
-The adapter declares the full topology idempotently on connection. All exchanges and queues are durable; messages are persistent.
+The adapter declares the full topology idempotently on connection and again on every reconnect. All exchanges and queues are durable; messages are persistent.
 
 ```
 census (exchange, direct)
@@ -13,16 +13,24 @@ census (exchange, direct)
   ├─ routing key "achievement-census" → census.achievement-census (queue)
   └─ routing key "new-proxy"          → census.new-proxy          (queue)
 
-census.<type>.failed (queue, per event type)
+census.<type>.delay.<tier> (queue, per event type and tier; unbound, published to
+                            through the default exchange)
+  └─ x-message-ttl = <tier delay in ms>
   └─ x-dead-letter-exchange = census
   └─ x-dead-letter-routing-key = <type>
 
 census.<type>.dead (queue, per event type)
-  └─ terminal park: poison payloads, no-handler deliveries, and
-     failed-queue ladder exhaustion; inspectable, never auto-consumed
+  └─ terminal park: poison payloads, no-handler deliveries and jobs that
+     exhausted their attempts; inspectable, never auto-consumed
+
+census.<type>.failed (queue, per event type) — LEGACY, kept for the transition
+  └─ x-dead-letter-exchange = census
+  └─ x-dead-letter-routing-key = <type>
 ```
 
-Each event type gets a **main queue** (`census.<type>`) bound to the `census` exchange with routing key equal to the event type, a **failed queue** (`census.<type>.failed`) that dead-letters back to the main exchange, and a **dead queue** (`census.<type>.dead`) for terminal parking. Retry messages in the failed queue have a TTL — when the TTL expires, RabbitMQ dead-letters them back to the main queue automatically. Nothing is ever silently dropped: deliveries the consumers cannot route are parked on the dead queue.
+The default tiers are **5 s, 30 s, 5 min and 1 h**, so each event type has `census.<type>.delay.5s`, `.delay.30s`, `.delay.5m` and `.delay.1h`. Queue names carry the delay: the arguments of an existing queue cannot change (RabbitMQ answers `PRECONDITION_FAILED`), so a different tier list creates new queues instead of redeclaring old ones. Old tier queues keep their TTL and dead-letter their messages back to the main queue on their own; delete them once empty.
+
+Each event type gets a **main queue** (`census.<type>`) bound to the `census` exchange with routing key equal to the event type, one **delay-tier queue** per tier, and a **dead queue**. The **failed queue** (`census.<type>.failed`) is no longer written to. It stays declared with its original arguments so messages parked there before the tiers existed can still drain (see [Legacy failed queues](#legacy-failed-queues)). Nothing is ever silently dropped: deliveries the consumers cannot route are parked on the dead queue.
 
 ## Message Flow
 
@@ -41,40 +49,65 @@ Publish(ctx, job)
                                 │
                                 │   handler(ctx, job)
                                 │     ├─ success            → Ack
-                                │     ├─ poison/no handler  → park on
+                                │     ├─ poison/no handler  → publish to
                                 │     │                        census.<type>.dead, Ack
+                                │     ├─ attempts reach     → publish to
+                                │     │   max_attempts         census.<type>.dead, Ack
                                 │     └─ other error        → publish to
-                                │           census.<type>.failed with TTL, Ack
+                                │           census.<type>.delay.<tier>, Ack
                                 │
-                              census.<type>.failed
-                                ├─ retry worker holds the delivery until its
-                                │   x-not-before-ms instant (the TTL ladder),
-                                │   then republishes → census.<type>
-                                │   (READY messages behind it expire via TTL
-                                │   and dead-letter to census.<type> instead)
-                                └─ attempts >= max_attempts → census.<type>.dead
+                              census.<type>.delay.<tier>
+                                └─ after <tier delay> the broker dead-letters
+                                   the message to the census exchange with
+                                   routing key <type> → census.<type>
 ```
+
+No consumer reads the delay queues. The broker alone moves a message out of a tier, so there is no sleeping consumer and a message with a long delay never holds back one with a short delay: each tier has a single TTL, so a tier is FIFO and its head is always the next to expire.
 
 ## Retry Mechanism
 
-When a handler returns an error, the adapter classifies it via `failureDecision` and the `x-attempts` header:
+When a handler returns an error, the adapter calls `contract.DecideRetry(err, attempts, max_attempts, tiers)`. `attempts` is the `x-attempts` header: the number of **job-attributable** failures the message already had.
 
-| Condition | Action | TTL | Result |
-|-----------|--------|-----|--------|
-| Error chain carries `contract.ErrPoisonPayload` (undecodable JSON, invalid range) or `contract.ErrNoHandler` (event type not registered in this process) | Publish to `census.<type>.dead` | None | Terminal park — inspectable and recoverable, never retried |
-| Any other error (Lodestone challenge, timeout, 429, 5xx, connection errors) | Publish to `census.<type>.failed` | `min(5 × 2^(attempts-1), 3600)` seconds | Auto-dead-letters back to the main queue after the TTL — retried forever until the handler succeeds or acks a terminal outcome (genuine Lodestone 404/403) |
+| Condition | Action | Result |
+|-----------|--------|--------|
+| Error chain carries `contract.ErrPoisonPayload` (undecodable JSON, invalid range) or `contract.ErrNoHandler` (event type not registered in this process) | Publish to `census.<type>.dead` | Terminal park, inspectable and recoverable, never retried |
+| `contract.IsProxyAttributable(err)` | Publish to the tier of the job's last failure; `x-attempts` unchanged, `x-proxy-failures` + 1 | Retried after that tier's delay. Never dead-parks by itself, never moves the job up the ladder |
+| Any other error, new `x-attempts` below `max_attempts` | `x-attempts` + 1, publish to tier `min(attempts, number of tiers)` (1-based) | 1st failure waits 5 s, 2nd 30 s, 3rd 5 min, 4th and later 1 h |
+| Any other error, new `x-attempts` reaches `max_attempts` | Publish to `census.<type>.dead` | Safety net for a job that keeps failing for its own reasons |
 
-Only the handler itself can end the retry ladder, by acking a terminal outcome: handlers mark characters deleted on genuine `contract.ErrCharacterNotFound` and treat private profiles as complete. There is no attempt-based dead-lettering for retryable failures.
+Only the handler itself can end the retry of a job that keeps failing for its own reasons before the cap, by acking a terminal outcome: handlers mark characters deleted on genuine `contract.ErrCharacterNotFound` and treat private profiles as complete.
 
-`max_attempts` comes from `[queue] max_attempts` (default **50** in the embedded `config.toml`, overridable via `QUEUE_MAX_ATTEMPTS`). It is the **failed-worker safety net**: a delivery that reaches `census.<type>.failed` with `attempts >= max_attempts` is dead-parked on `census.<type>.dead` instead of republished. The first backoff steps are **5, 10, 20, 40, 80** … capped at 3600s.
+### What counts as a job attempt
 
-The attempt count is tracked in the `x-attempts` message header and incremented on every republish. The original message is always acked after the replacement publish was broker-confirmed; a failed publish Nacks with requeue so no message is lost.
+A failure is **proxy-attributable** when the handler error carries, through `errors.As`:
 
-## Failed-Queue Retry Worker
+- a `*contract.ProxyCheckError` of kind `CheckProxy` (proxy dial or negotiation failure), `CheckTarget` (a destination challenge, 429 or 5xx) or `CheckDeadline` (timeout), or
+- a `*contract.ProxyFaultError`, the explicit wrapper for proxy trouble that has no `ProxyCheckError` of its own.
 
-`ConsumeFailed` runs the `census-retry` worker: it consumes the failed queues, normalizes each delivery's event type from the **consumer tag** (`census.id-sweep.failed` → `id-sweep`), and republishes to the `census` exchange under that canonical routing key. Legacy or misrouted deliveries that arrived with prefixed routing keys (`census.census.id-sweep.failed`) are therefore routed correctly instead of dying with `no handler registered`. The worker enables publisher confirms and Acks only after the broker confirms the republish. Unknown event types dead-park on `<failed queue>.dead`.
+Error text is never parsed. Everything else, including `CheckLocal`, is the job's. The worker already retries a proxy-caused failure in-process on up to three other proxies; only when those are exhausted does the error reach the queue, still typed, so the job waits in a tier without being blamed. A job failing only on proxies therefore cycles at the tier of its last real failure (5 s for a job that never failed on its own) instead of climbing to 1 h, and `x-proxy-failures` shows how often it happened. It is informational; only `x-attempts` drives the tier and the cap.
 
-Lifecycle logs (visible at `LOGGING_LEVEL=debug`, set on the `census-retry` deployment): `rabbitmq.failed.received` (debug), `rabbitmq.failed.republished` (info), `rabbitmq.failed.dead_letter` / `rabbitmq.failed.unknown_event` (error).
+`max_attempts` comes from `[queue] max_attempts` (default **50** in the embedded `config.toml`, overridable via `QUEUE_MAX_ATTEMPTS`). The ladder now has four steps and the 1 h tier repeats, so 50 job-attributable failures take roughly two days. Proxy-attributable failures do not count toward it, so a job that only meets bad proxies is not dead-parked by bad luck; it keeps retrying, bounded by the proxy cooldowns that already throttle it.
+
+The tiers come from `[queue] retry_tiers` (default `["5s", "30s", "5m", "1h"]`, override with `QUEUE_RETRY_TIERS=5s,30s,5m,1h`). They must be strictly ascending and at least 1 ms. A different list creates new `delay` queues (named after the delay); see Topology.
+
+The `x-attempts` and `x-proxy-failures` counters ride in message headers and are rewritten on every retry. RabbitMQ's own `x-death` bookkeeping is stripped on republish. The original message is always acked after the replacement publish was broker-confirmed (publisher confirms, mandatory publish); a failed publish nacks with requeue so no message is lost. Ack-after-commit of the batching writer is unchanged: the handler returns only after its batch committed, and only then does the queue ack or retry.
+
+## Legacy failed queues
+
+Before the tiers, a failure was published to `census.<type>.failed` with a per-message TTL and an `x-not-before-ms` header, and a single sleeping `census-retry` consumer republished it. Those queues still exist and may hold messages at deployment time. They are kept declared with unchanged arguments, and nothing publishes to them anymore.
+
+`ffxiv-census consume failed` (the `census-retry` deployment, `ConsumeFailed`) is now a **drain**. It never sleeps. For each message it decides with `contract.DecideLegacyDrain`, in this order:
+
+1. event type unknown: publish to `census.<unknown>.dead`, ack;
+2. `x-attempts >= max_attempts`: publish to `census.<type>.dead`, ack;
+3. `x-not-before-ms` already passed (or absent): republish to the `census` exchange under the canonical routing key (taken from the consumer tag, not from the delivery's routing key), ack;
+4. otherwise: publish to the smallest delay tier whose delay covers the remaining wait (the longest tier when none does), ack. The message is never retried earlier than the old ladder promised.
+
+`x-attempts` is carried over unchanged. Each move waits for broker confirmation before the ack. Messages that nothing drains still leave the legacy queue by themselves: the queue's dead-letter arguments send an expired per-message TTL back to the main queue, as before.
+
+Transition: deploy the new binary everywhere; keep one `census-retry` pod (concurrency can stay 1, it no longer blocks) until `rabbitmqctl list_queues -p ffxiv-census name messages | grep '\.failed'` shows 0 for every `census.<type>.failed`; then remove the `census-retry` deployment. The `consume` workers started with `--events ...,id-sweep.failed,...` also read the failed queues and process their messages directly; they can drop those names at the same point.
+
+Lifecycle logs: `rabbitmq.retry` (error, one per tier move, with `attempts`, `proxy_fault`, `proxy_failures`, `queue`), `rabbitmq.dead_park` (error), and for the drain `rabbitmq.failed.republished` (info), `rabbitmq.failed.moved_to_tier` (info), `rabbitmq.failed.dead_letter` and `rabbitmq.failed.unknown_event` (error).
 
 Slow acks are visible cluster-wide: any consumer whose claim→ack window exceeds 30s logs a `queue.slow_ack` warning with the event type, attempt count, and handler duration.
 
@@ -96,13 +129,13 @@ type Queue interface {
 **`Consume`** starts `concurrency` worker goroutines. Each worker opens a dedicated AMQP channel with `prefetch(1)`, consumes from all specified event type queues (including `.failed` queues — their deliveries are normalized to the canonical event type and dispatched normally), and dispatches messages to the handler. On handler return:
 - `nil` → message is acked
 - `ErrPoisonPayload` / `ErrNoHandler` in the error chain → message is dead-parked on `census.<type>.dead`
-- any other error → message is forwarded to `census.<type>.failed` with a retry TTL
+- any other error → message is published to the delay tier chosen by `contract.DecideRetry` (see Retry Mechanism)
 
 **Dual-context shutdown:** `Consume` creates two independent contexts:
 1. **`stopClaiming`** — derived from the caller's `ctx`. When `ctx` is cancelled (SIGTERM), `stopClaiming` cancels immediately. Workers stop claiming new deliveries; any unclaimed delivery is Nack'd with `requeue=true` so RabbitMQ redelivers it to another consumer.
 2. **`processCtx`** — an independent context cancelled only after all in-flight handlers have finished (`wg.Wait()`). Handlers that are already running continue to completion against `processCtx`, giving them time to finish gracefully.
 
-This two-phase shutdown ensures no message is lost: unclaimed messages are requeued, and in-flight handlers either succeed (ack) or fail (forward to dead-letter) before the worker exits.
+This two-phase shutdown ensures no message is lost: unclaimed messages are requeued, and in-flight handlers either succeed (ack) or fail (move to a delay tier or the dead queue) before the worker exits.
 
 **Worker usage:**
 
@@ -130,9 +163,9 @@ err := queue.Consume(ctx, eventTypes, concurrency, processJob)
 
 ### Batched writes and acks
 
-Handlers that store census data do not write directly. The ID sweep, character census and achievement census handlers hand their finished results (characters and jobs; or an achievement census's milestones and latest achievement) to the per-pod `contract.ResultWriter` (`infrastructure/postgres/writer`) and **block in `Write` until the batch containing them has committed**. Because the queue acks a delivery only when its handler returns `nil`, the ack always follows the commit, and a failed commit makes `Write` (and so the handler) return the error: the job is not acked and takes the normal retry path through the failed queue. Dependent jobs (achievement census) are chained only after the commit. A character census result carries the character and its jobs; an achievement census result carries the milestones and latest-achievement summary (or just the private flag), and both are stored with the rest of the batch in the same transaction.
+Handlers that store census data do not write directly. The ID sweep, character census and achievement census handlers hand their finished results (characters and jobs; or an achievement census's milestones and latest achievement) to the per-pod `contract.ResultWriter` (`infrastructure/postgres/writer`) and **block in `Write` until the batch containing them has committed**. Because the queue acks a delivery only when its handler returns `nil`, the ack always follows the commit, and a failed commit makes `Write` (and so the handler) return the error: the job is not acked and takes the normal retry path through a delay tier. Dependent jobs (achievement census) are chained only after the commit. A character census result carries the character and its jobs; an achievement census result carries the milestones and latest-achievement summary (or just the private flag), and both are stored with the rest of the batch in the same transaction.
 
-**Failure handling.** A failed commit makes `Write` (and so the handler) return the error: the job is not acked and takes the normal retry path through the failed queue. The writer decides per error class how widely a failure spreads:
+**Failure handling.** A failed commit makes `Write` (and so the handler) return the error: the job is not acked and takes the normal retry path through a delay tier. The writer decides per error class how widely a failure spreads:
 
 - *Data-level errors* (`contract.ErrInvalidData`, which `CharacterRepository.StoreResult` joins to Postgres SQLSTATE class 22 data exceptions and class 23 constraint violations): the transaction rolled back, but one result is to blame. The writer bisects the batch, retrying each half in its own transaction until the offending result is alone. Valid neighbours commit and are acked; only the offender's `Write` returns the error, so only its job retries. Cost is about `2*log2(N)` extra transactions per bad result.
 - *Everything else* (connection loss, timeouts, serialization failures, shutdown): not isolated. The batch's waiters all get the error from that one attempt, and if it happens in the middle of a bisection the remaining pieces fail immediately too, so a struggling database is never hit with N retries. All those jobs stay unacked and retry.
@@ -159,13 +192,15 @@ vhost    = "ffxiv-census"
 
 [queue]
 max_attempts = 50
+retry_tiers  = ["5s", "30s", "5m", "1h"]
 ```
 
 [queue]
 
 | Field | Purpose |
 |-------|---------|
-| `max_attempts` | Delivery attempt budget before a message parks permanently in its failed queue |
+| `max_attempts` | Job-attributable failures before a message parks on its dead queue |
+| `retry_tiers` | Delays of the retry tier queues, strictly ascending (default `["5s", "30s", "5m", "1h"]`; env `QUEUE_RETRY_TIERS=5s,30s,5m,1h`) |
 
 | Field | Purpose |
 |-------|---------|
@@ -217,6 +252,8 @@ workers:
     - name: census-retry
       command: [/app/ffxiv-census, consume, failed, --events, "id-sweep,character-census,achievement-census", -c, "1"]
 ```
+
+`census-retry` is the transition drain for the legacy failed queues (see [Legacy failed queues](#legacy-failed-queues)); it is not part of the normal retry path any more and can be removed once those queues are empty.
 
 Proxy scanning (`proxy scan`) is a separate lease-based worker that reads due rows directly from PostgreSQL and bypasses RabbitMQ entirely; see [docs/proxy.md](proxy.md). Concurrency is set per-deployment via the `-c` flag. The default is 4 if not specified. Each worker goroutine opens its own AMQP channel with `prefetch(1)`.
 
@@ -334,7 +371,21 @@ leaving an ID hole. Completion logs expose `from_id`, `to_id`, and `next_id`.
 
 ## Contract
 
-`port/contract.Queue` (see `port/contract/queue.go`) is implemented by `infrastructure/rabbitmq` and `mock/queue` (in-memory fake for tests). The interface has four methods: `Publish`, `Consume`, `ConsumeFailed`, and `Close`. All retry and dead-letter logic is internal to the adapter — callers only see success or error from the handler.
+`port/contract.Queue` (see `port/contract/queue.go`) is implemented by `infrastructure/rabbitmq` and `mock/queue` (in-memory fake for tests). The interface has four methods: `Publish`, `Consume`, `ConsumeFailed`, and `Close`. All retry and dead-letter logic is internal to the adapter — callers only see success or error from the handler. The tier and dead-queue decisions are pure functions in `port/contract/retry.go` (`DecideRetry`, `DecideLegacyDrain`, `IsProxyAttributable`, `ProxyFaultError`), shared by both adapters so they cannot diverge.
+
+The in-memory fake models the tiers: a failed job lands in the tier `DecideRetry` picks and becomes deliverable once the tier delay has passed on a clock injected with `mockqueue.WithClock`. `Retries()` reports the attempt count, tier and proxy-fault flag per failure, `Waiting(tier)` the jobs in a tier, `Dead()` the dead queue, and `PublishLegacyFailed` plus `ConsumeFailed` model the legacy drain. Worker tests assert tier selection and attempt counting against it.
+
+## Verifying the delay tiers on a real RabbitMQ
+
+The adapter's broker wiring (queue declarations, expiry out of a tier, the legacy drain, dead-parking) has no automated broker-backed test; the pure parts (tier selection, header handling, queue argument builders, topology list, legacy routing) are unit-tested. Run this by hand against a disposable RabbitMQ (never production first) after changing the topology code:
+
+1. **Declarations.** Start a worker or any command that calls `container.Load.Queue()`. Run `rabbitmqctl list_queues -p ffxiv-census name arguments messages`. Expect, per event type, `census.<type>`, `census.<type>.delay.5s|30s|5m|1h` with `x-message-ttl` 5000, 30000, 300000, 3600000 and `x-dead-letter-exchange=census`, `x-dead-letter-routing-key=<type>`, plus `.dead` and the legacy `.failed`. Start a second process and then restart one: no `PRECONDITION_FAILED` and no duplicate queues (idempotent declaration). Kill the broker connection (`rabbitmqctl close_all_connections "test"`) and publish again: the topology is re-declared without errors.
+2. **Expiry from tier 5 s back to main.** Stop all consumers of `census.id-sweep`. Publish a job whose handler fails (or move a message by hand with `rabbitmqadmin publish exchange= routing_key=census.id-sweep.delay.5s payload=...`). Expect it in `census.id-sweep.delay.5s` with message count 1, and 5 s later in `census.id-sweep` (count 1, delay queue 0) with the `x-death` header naming reason `expired`. A message published to the 30 s tier a moment later must not be delivered before its own 30 s (no head-of-line blocking across tiers).
+3. **Attempt counting.** Start a consumer whose handler returns a plain error. Expect `x-attempts` 1, 2, 3 on the successive deliveries and the message in tiers 5 s, 30 s, 5 min. Switch the handler to return a challenge error (`*contract.ProxyCheckError`, kind `CheckTarget`): `x-attempts` must stay constant, `x-proxy-failures` must rise, and the message must return to the tier of the last real failure.
+4. **Poison to dead.** Publish a payload the handler rejects with `contract.ErrPoisonPayload`. Expect it in `census.<type>.dead` at once, with no tier hop, and `rabbitmqctl list_queues` showing the main queue empty. Repeat with a handler error and `max_attempts` set to 2: the second plain failure lands in `.dead`.
+5. **Legacy drain.** Publish a message straight into `census.id-sweep.failed` with header `x-attempts=3` and `x-not-before-ms` 20 s ahead, one with the header in the past, one with `x-attempts` at `max_attempts`, and one into a failed queue of an unknown event type if you can declare one. Run `ffxiv-census consume failed`. Expect: the future one in `delay.30s`, the past one in `census.id-sweep`, the exhausted one in `.dead`, the failed queue empty, and the worker never blocking.
+
+Status of this verification for ticket #39: broker wiring is **unverified**. The implementation was built without access to a RabbitMQ binary or a usable Docker daemon, so none of the steps above has been run.
 
 ## Connection Resilience
 

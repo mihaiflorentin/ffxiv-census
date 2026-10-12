@@ -327,8 +327,8 @@ func (q *Queue) Consume(ctx context.Context, eventTypes []string, concurrency in
 	return nil
 }
 
-// ConsumeFailed consumes from per-event-type failed queues and re-publishes
-// messages back to the main exchange.
+// ConsumeFailed drains the legacy per-event-type failed queues without
+// sleeping; see failedWorker.
 func (q *Queue) ConsumeFailed(ctx context.Context, types []string, concurrency int) error {
 	if concurrency <= 0 {
 		concurrency = 4

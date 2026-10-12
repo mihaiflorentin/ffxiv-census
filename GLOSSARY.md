@@ -95,7 +95,7 @@ The per-worker component that event handlers hand a finished census result to in
 _Avoid_: batch writer, persister, store (as a noun)
 
 **Write batch**:
-The results the result writer has gathered, stored together in one database transaction. It closes when it holds a set number of results or about a second has passed. If the database rejects one result, that result is split off and retried alone so its neighbours still commit; if the batch fails for any other reason, every job in it stays unacknowledged and is retried through the failed queue.
+The results the result writer has gathered, stored together in one database transaction. It closes when it holds a set number of results or about a second has passed. If the database rejects one result, that result is split off and retried alone so its neighbours still commit; if the batch fails for any other reason, every job in it stays unacknowledged and is retried through a delay tier.
 _Avoid_: flush (as a noun for the unit), chunk
 
 **Chaining**:
@@ -106,8 +106,12 @@ _Avoid_: event cascading, downstream jobs, follow-up job
 An event type that chains nothing.
 _Avoid_: terminal event
 
+**Delay tier**:
+One of the retry queues a failed job waits in before it returns to the main queue: 5 seconds, 30 seconds, 5 minutes and 1 hour by default, each a separate queue whose expiry sends the job back on its own. The tier comes from the job's attempt count, which counts only failures the job itself caused; a failure caused by a proxy (dial failure, challenge, timeout, 429, 5xx) does not raise it.
+_Avoid_: backoff queue, retry ladder (as a place), failed queue (the legacy name)
+
 **Failed queue**:
-The per-event-type holding area for jobs awaiting retry. Retryable failures wait there with exponential backoff (5 seconds up to one hour) and return to the main queue on their own; they are retried until they succeed or the handler reaches a terminal outcome.
+The legacy per-event-type holding area where retries waited, with a per-message backoff, before delay tiers existed. Nothing is published to it any more; it stays declared only so jobs still parked there can drain, and it can be removed once empty.
 _Avoid_: dead-letter queue, DLQ, retry exchange (stale phrasing)
 
 **Dead queue**:
@@ -115,7 +119,7 @@ The per-event-type terminal parking area for jobs that cannot be routed or decod
 _Avoid_: dead-letter queue, DLQ
 
 **Retry worker**:
-The worker that consumes failed queues and republishes each job to the main exchange under its canonical event type, acknowledging only after the broker confirms.
+The transition worker that drains the legacy failed queues without sleeping, moving each job to the main exchange under its canonical event type, into the delay tier that covers its remaining wait, or to the dead queue, acknowledging only after the broker confirms. New failures do not pass through it.
 _Avoid_: failed worker, census-retry (that is the deployment name)
 
 **Push-based consumption**:
