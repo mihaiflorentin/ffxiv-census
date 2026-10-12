@@ -40,6 +40,27 @@ max_idle_conns = 5
 
 Set `max_open_conns` based on expected concurrency and the PostgreSQL server's `max_connections` setting. Keep `max_idle_conns` lower than `max_open_conns` to allow idle connections to be reclaimed.
 
+These defaults stay at 10/5 because the web deployment (`www`), the cronjobs and the CLI use them. Worker pods override them through `POSTGRES_MAX_OPEN_CONNS` / `POSTGRES_MAX_IDLE_CONNS` in `k8s/values.yaml`:
+
+| Pod | Open / idle | Why |
+|---|---|---|
+| `workers.defaults` (`census-consumer`) | 3 / 2 | The batching writer runs one flush transaction at a time (1 connection). The rest covers short single-statement reads and writes. |
+| `proxy-id-sweep`, `proxy-character-census`, `proxy-achievement-census`, `proxy-new` | 3 / 2 | The writer flush (1) plus proxy lease and lock statements (`ClaimProxy`, `RefreshConsumerLock`, `RecordConsumerFailure`; each a short statement or transaction, issued from many handler goroutines and queued on the pool). |
+| `proxy-scan` | 2 / 1 | Short claim and complete transactions only; unchanged. |
+| `census-retry` | 2 / 1 | Republishes failed messages, no census writes. |
+
+Maximum worker backends: 3 x 3 (id-sweep) + 3 (character) + 2 x 3 (achievement) + 3 (proxy-new) + 5 x 2 (scan) + 3 (census-consumer) + 2 (retry) = 36, down from 135 with the previous 15/10 pools (baseline in production: 76 of 100 connections in use). Instance `env` lists replace `workers.defaults.env` wholesale, so every instance that declares its own env must repeat the pool variables. Handlers wait on the pool when all connections are busy; they never fail for it.
+
+## Synchronous commit
+
+Postgres commits synchronously by default (`synchronous_commit = on`). Only census data writes relax this: `CharacterRepository.StoreResult` (the batch transaction behind the batching writer, and `Upsert` / `UpsertBatch`, which call it) runs `SET LOCAL synchronous_commit = off` as its first statement. `SET LOCAL` lasts for that transaction only, so the pooled connection is synchronous again afterwards. A server crash can lose the last few commits (up to about three `wal_writer_delay` periods, 600 ms by default) but never corrupts data, and the next census pass rewrites them.
+
+Everything else stays synchronous: UI statistics refresh, migrations (goose), proxy claims, leases, locks and scan results, cursors, and the direct not-found `MarkDeleted` update. Do not add `SET synchronous_commit` (session level) or set it in the DSN. `TestCharacterRepository_StoreResultCommitsAsynchronously` and `TestOtherWritePathsStaySynchronous` enforce this with a trigger that records `current_setting('synchronous_commit')` inside the writing transaction.
+
+## Lock ordering
+
+`StoreResult` writes a batch in ascending character ID order (characters with their jobs, then the achievement update for the same ID), regardless of the order results arrived in. Several pods store overlapping IDs concurrently; taking row locks in one global order makes them queue instead of deadlocking. `TestCharacterRepository_StoreResultWritesInAscendingIDOrder` holds a lock on a middle row and checks that no higher row was touched while the batch waits.
+
 ## Runtime Migrations (goose)
 
 Schema changes are managed with [goose](https://github.com/pressly/goose) using SQL migrations embedded into the binary at compile time.

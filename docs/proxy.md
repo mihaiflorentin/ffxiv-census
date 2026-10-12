@@ -181,7 +181,7 @@ Every field overrides through an environment variable named by upper-casing the 
     limits:   { memory: 1Gi,  cpu: 1000m }
 ```
 
-**Connection budgeting is bounded by design**: each scan replica opens at most 2 database connections (1 idle), so 5 replicas contribute at most 10 backends regardless of the 750-slot check capacity. Instance `env` lists replace the chart defaults; the required queue entries (`QUEUE_MAX_ATTEMPTS`, `RABBITMQ_URL`) stay in the list even though scanning bypasses RabbitMQ.
+**Connection budgeting is bounded by design**: each scan replica opens at most 2 database connections (1 idle), so 5 replicas contribute at most 10 backends regardless of the 750-slot check capacity. Consumer pods (`proxy-id-sweep`, `proxy-character-census`, `proxy-achievement-census`, `proxy-new`) use 3 open / 2 idle connections: one for the batching writer flush and two for the short proxy claim, lock-refresh and failure statements. Instance `env` lists replace the chart defaults; the required queue entries (`QUEUE_MAX_ATTEMPTS`, `RABBITMQ_URL`) stay in the list even though scanning bypasses RabbitMQ.
 
 ## Observability
 

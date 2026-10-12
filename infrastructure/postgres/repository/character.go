@@ -1,10 +1,12 @@
 package repository
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -52,17 +54,60 @@ func (r *CharacterRepository) StoreResult(ctx context.Context, result contract.C
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	for _, w := range result.Characters {
-		if err := upsertCharacterTx(ctx, tx, w.Record, w.Jobs); err != nil {
-			return markInvalidData(err)
-		}
+	// Census data may lose its last few commits in a Postgres crash (the next
+	// census pass rewrites them) in exchange for not waiting on a WAL flush.
+	// SET LOCAL scopes this to the transaction, so stats, leases and
+	// migrations on the same pooled connection stay synchronous.
+	if _, err := tx.ExecContext(ctx, `SET LOCAL synchronous_commit = off`); err != nil {
+		return fmt.Errorf("character upsert set async commit: %w", err)
 	}
-	for _, a := range result.Achievements {
-		if err := storeAchievementTx(ctx, tx, a); err != nil {
+
+	for _, step := range orderedSteps(result) {
+		if err := step(ctx, tx); err != nil {
 			return markInvalidData(err)
 		}
 	}
 	return markInvalidData(tx.Commit())
+}
+
+// orderedSteps turns result into write steps sorted by ascending character
+// ID, characters before achievements for the same ID (and input order for
+// equal keys). Two pods storing overlapping IDs then take row locks in the
+// same global order, so they queue instead of deadlocking.
+func orderedSteps(result contract.CensusResult) []func(context.Context, *sql.Tx) error {
+	type step struct {
+		id          uint32
+		achievement bool
+		run         func(context.Context, *sql.Tx) error
+	}
+	steps := make([]step, 0, len(result.Characters)+len(result.Achievements))
+	for _, w := range result.Characters {
+		steps = append(steps, step{id: w.Record.ID, run: func(ctx context.Context, tx *sql.Tx) error {
+			return upsertCharacterTx(ctx, tx, w.Record, w.Jobs)
+		}})
+	}
+	for _, a := range result.Achievements {
+		steps = append(steps, step{id: a.CharacterID, achievement: true, run: func(ctx context.Context, tx *sql.Tx) error {
+			return storeAchievementTx(ctx, tx, a)
+		}})
+	}
+	slices.SortStableFunc(steps, func(a, b step) int {
+		if c := cmp.Compare(a.id, b.id); c != 0 {
+			return c
+		}
+		switch {
+		case a.achievement == b.achievement:
+			return 0
+		case a.achievement:
+			return 1
+		}
+		return -1
+	})
+	out := make([]func(context.Context, *sql.Tx) error, len(steps))
+	for i, s := range steps {
+		out[i] = s.run
+	}
+	return out
 }
 
 // markInvalidData joins contract.ErrInvalidData to errors that Postgres

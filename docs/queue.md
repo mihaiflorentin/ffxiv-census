@@ -142,6 +142,8 @@ Handlers that store census data do not write directly. The ID sweep, character c
 
 The writer flushes when `[writer] batch_size` results (characters or achievement updates) are pending or `[writer] flush_interval` has passed since the first pending result, in ONE transaction (`CharacterRepository.StoreResult`); results count by rows of work (characters plus achievement updates). Env overrides: `WRITER_BATCH_SIZE`, `WRITER_FLUSH_INTERVAL`. Handlers wait for a flush, so the number of concurrent consumers bounds how many jobs can share a batch; small batches fall back to the interval. On shutdown the consumer closes the writer after `Consume` has returned (all in-flight handlers finished), which flushes anything still pending. Metrics: `result_writer_batch_size`, `result_writer_flush_duration_seconds`, `result_writer_flush_failures_total`. Only the not-found path (marking a character deleted) still writes directly.
 
+**Commit mode and ordering.** The batch transaction runs with `SET LOCAL synchronous_commit = off`, so `Write` returns once Postgres has the commit in memory, not on disk; a database crash can lose roughly the last 600 ms of acked census data, which the next census pass rewrites. Only this transaction does this; stats refresh, migrations and proxy leases stay synchronous. Rows are written in ascending character ID order so pods with overlapping IDs cannot deadlock. Because the writer flushes serially, a worker needs one connection for it: worker pods run with 2-3 open connections (see `docs/postgres.md`).
+
 Handler panics are caught with `defer/recover`, formatted with stack traces, and returned as errors — the worker goroutine does not crash.
 
 ## Configuration
