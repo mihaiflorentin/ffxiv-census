@@ -107,6 +107,9 @@ cooldown              = "60s"
 
 [census]
 activity_window_days = 30
+# Days a character found private is left alone before its achievement census
+# runs again.
+private_recheck_days = 30
 max_level = 100
 
 [census.ui_stats]

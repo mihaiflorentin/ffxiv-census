@@ -357,3 +357,143 @@ func TestAchievementCensus_DecodeErrorIsPoison(t *testing.T) {
 		t.Fatalf("undecodable payload must wrap contract.ErrPoisonPayload, got %v", err)
 	}
 }
+
+// seedPrivate stores a character whose achievement census found it private at
+// checkedAt, through the same write path production uses.
+func seedPrivate(t *testing.T, chars *mockrepo.CharacterRepository, id uint32, checkedAt time.Time) {
+	t.Helper()
+	err := chars.StoreResult(context.Background(), contract.CensusResult{
+		Characters:   []contract.CharacterWrite{{Record: contract.CharacterRecord{ID: id, Name: "Private", FirstSeenAt: time.Now()}}},
+		Achievements: []contract.AchievementWrite{{CharacterID: id, Private: true, CheckedAt: checkedAt}},
+	})
+	if err != nil {
+		t.Fatalf("seed private character: %v", err)
+	}
+}
+
+// countFetches makes the fake Lodestone answer every achievement request with
+// summary and returns a pointer to the number of requests it received.
+func countFetches(ls *mocklodestone.Fake, summary *contract.AchievementSummary) *int {
+	var n int
+	ls.FetchAchievementsFunc = func(context.Context, uint32, []uint32) (*contract.AchievementSummary, error) {
+		n++
+		return summary, nil
+	}
+	return &n
+}
+
+func TestAchievementCensus_PrivateCheckedWithinWindowMakesNoLodestoneRequest(t *testing.T) {
+	h, ls, chars, _ := newTestAchievementCensus(t)
+	seedPrivate(t, chars, 700, time.Now().Add(-29*24*time.Hour))
+	fetches := countFetches(ls, &contract.AchievementSummary{Private: true})
+
+	next, err := h.Handle(context.Background(), achievementPayload(700))
+	if err != nil {
+		t.Fatalf("a skipped job must succeed so the worker acks it, got %v", err)
+	}
+	if len(next) != 0 {
+		t.Fatalf("next jobs = %d, want 0", len(next))
+	}
+	if *fetches != 0 {
+		t.Fatalf("Lodestone requests = %d, want 0 for a private character checked 29 days ago", *fetches)
+	}
+}
+
+func TestAchievementCensus_PrivateCheckedBeforeWindowIsCheckedAgain(t *testing.T) {
+	h, ls, chars, _ := newTestAchievementCensus(t)
+	seedPrivate(t, chars, 701, time.Now().Add(-31*24*time.Hour))
+	fetches := countFetches(ls, &contract.AchievementSummary{Private: true})
+
+	if _, err := h.Handle(context.Background(), achievementPayload(701)); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if *fetches != 1 {
+		t.Fatalf("Lodestone requests = %d, want 1 once the 30-day window has passed", *fetches)
+	}
+	got, _ := chars.Get(context.Background(), 701)
+	if got.AchievementsCheckedAt == nil || time.Since(*got.AchievementsCheckedAt) > time.Minute {
+		t.Fatalf("achievements_checked_at = %v, want it refreshed to now", got.AchievementsCheckedAt)
+	}
+}
+
+func TestAchievementCensus_UnknownFlagIsCheckedOnceThenFollowsTheRule(t *testing.T) {
+	h, ls, chars, _ := newTestAchievementCensus(t)
+	_ = chars.Upsert(context.Background(), contract.CharacterRecord{ID: 702, Name: "New", FirstSeenAt: time.Now()}, nil)
+	fetches := countFetches(ls, &contract.AchievementSummary{Private: true})
+
+	for i := 0; i < 3; i++ {
+		if _, err := h.Handle(context.Background(), achievementPayload(702)); err != nil {
+			t.Fatalf("Handle #%d: %v", i+1, err)
+		}
+	}
+	if *fetches != 1 {
+		t.Fatalf("Lodestone requests = %d, want 1: checked once, then skipped", *fetches)
+	}
+}
+
+func TestAchievementCensus_PrivateFlagWithoutCheckTimeIsCheckedOnce(t *testing.T) {
+	h, ls, chars, _ := newTestAchievementCensus(t)
+	// A flag stored before checks were timestamped: private, never stamped.
+	_ = chars.Upsert(context.Background(), contract.CharacterRecord{ID: 703, Name: "Legacy", AchievementsPrivate: true, FirstSeenAt: time.Now()}, nil)
+	fetches := countFetches(ls, &contract.AchievementSummary{Private: true})
+
+	for i := 0; i < 2; i++ {
+		if _, err := h.Handle(context.Background(), achievementPayload(703)); err != nil {
+			t.Fatalf("Handle #%d: %v", i+1, err)
+		}
+	}
+	if *fetches != 1 {
+		t.Fatalf("Lodestone requests = %d, want 1", *fetches)
+	}
+}
+
+func TestAchievementCensus_NonPrivateCharactersAreCheckedEveryTime(t *testing.T) {
+	h, ls, chars, _ := newTestAchievementCensus(t)
+	_ = chars.Upsert(context.Background(), contract.CharacterRecord{ID: 704, Name: "Public", FirstSeenAt: time.Now()}, nil)
+	fetches := countFetches(ls, &contract.AchievementSummary{})
+
+	for i := 0; i < 3; i++ {
+		if _, err := h.Handle(context.Background(), achievementPayload(704)); err != nil {
+			t.Fatalf("Handle #%d: %v", i+1, err)
+		}
+	}
+	if *fetches != 3 {
+		t.Fatalf("Lodestone requests = %d, want 3: only private characters are skipped", *fetches)
+	}
+}
+
+func TestAchievementCensus_RecheckWindowIsConfigurable(t *testing.T) {
+	ls := mocklodestone.NewFake()
+	chars := mockrepo.NewCharacterFake()
+	ach := mockrepo.NewAchievementFake()
+	svc := census.NewService(chars, ach, mockrepo.NewCensusRunFake())
+	svc.SetPrivateRecheckWindow(7 * 24 * time.Hour)
+	if err := svc.SyncMilestones(context.Background()); err != nil {
+		t.Fatalf("SyncMilestones: %v", err)
+	}
+	h := NewAchievementCensus(ls, svc, nil).WithWriter(mockwriter.NewStoring(chars, ach))
+	seedPrivate(t, chars, 705, time.Now().Add(-8*24*time.Hour))
+	seedPrivate(t, chars, 706, time.Now().Add(-6*24*time.Hour))
+	fetches := countFetches(ls, &contract.AchievementSummary{Private: true})
+
+	for _, id := range []uint32{705, 706} {
+		if _, err := h.Handle(context.Background(), achievementPayload(id)); err != nil {
+			t.Fatalf("Handle %d: %v", id, err)
+		}
+	}
+	if *fetches != 1 {
+		t.Fatalf("Lodestone requests = %d, want 1 (only the character checked 8 days ago, window 7 days)", *fetches)
+	}
+}
+
+func TestAchievementCensus_UncensusedCharacterIsStillChecked(t *testing.T) {
+	h, ls, _, _ := newTestAchievementCensus(t)
+	fetches := countFetches(ls, &contract.AchievementSummary{})
+
+	if _, err := h.Handle(context.Background(), achievementPayload(799)); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if *fetches != 1 {
+		t.Fatalf("Lodestone requests = %d, want 1 for a character the census has no row for", *fetches)
+	}
+}

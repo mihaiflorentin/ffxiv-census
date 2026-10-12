@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -177,6 +178,84 @@ func TestAchievementCensus_AckedOnlyAfterCommitAndStoresMilestonesWithLatest(t *
 	if got == nil || got.LatestAchievementID == nil || *got.LatestAchievementID != 999 ||
 		got.LatestAchievementAt == nil || !got.LatestAchievementAt.Equal(latest) {
 		t.Fatalf("latest achievement = %+v", got)
+	}
+}
+
+// seedPrivate stores a character whose achievement census found it private at
+// checkedAt.
+func (r *censusRig) seedPrivate(t *testing.T, id uint32, checkedAt time.Time) {
+	t.Helper()
+	err := r.repo.StoreResult(context.Background(), contract.CensusResult{
+		Characters:   []contract.CharacterWrite{{Record: contract.CharacterRecord{ID: id, Name: "Private", World: "Ultros", FirstSeenAt: checkedAt}}},
+		Achievements: []contract.AchievementWrite{{CharacterID: id, Private: true, CheckedAt: checkedAt}},
+	})
+	if err != nil {
+		t.Fatalf("seed private: %v", err)
+	}
+}
+
+// countAchievementRequests answers every achievement request with a private
+// profile and counts the requests.
+func (r *censusRig) countAchievementRequests() *atomic.Int32 {
+	var n atomic.Int32
+	r.lodestone.FetchAchievementsFunc = func(context.Context, uint32, []uint32) (*contract.AchievementSummary, error) {
+		n.Add(1)
+		return &contract.AchievementSummary{Private: true}, nil
+	}
+	return &n
+}
+
+func TestAchievementCensus_PrivateCharacterCheckedWithinWindowIsAckedWithoutLodestoneRequest(t *testing.T) {
+	rig := newCensusRig(t)
+	rig.seedPrivate(t, 701, time.Now().Add(-10*24*time.Hour))
+	requests := rig.countAchievementRequests()
+	rig.publish(t, handler.EventAchievementCensus, handler.AchievementCensusPayload{CharacterID: 701})
+	rig.run()
+	defer rig.stop()
+
+	eventually(t, "the job to be acked", func() bool { return len(rig.queue.Acked()) == 1 })
+	if n := requests.Load(); n != 0 {
+		t.Fatalf("Lodestone requests = %d, want 0", n)
+	}
+	if n := len(rig.queue.Retried()); n != 0 {
+		t.Fatalf("retried %d jobs, want a skipped job acked as a success", n)
+	}
+}
+
+func TestAchievementCensus_PrivateCharacterIsCheckedAgainAfterWindowAndStampsTheCheck(t *testing.T) {
+	rig := newCensusRig(t)
+	old := time.Now().Add(-31 * 24 * time.Hour)
+	rig.seedPrivate(t, 702, old)
+	requests := rig.countAchievementRequests()
+	rig.publish(t, handler.EventAchievementCensus, handler.AchievementCensusPayload{CharacterID: 702})
+	rig.run()
+	defer rig.stop()
+
+	eventually(t, "the job to be acked", func() bool { return len(rig.queue.Acked()) == 1 })
+	if n := requests.Load(); n != 1 {
+		t.Fatalf("Lodestone requests = %d, want 1", n)
+	}
+	got, err := rig.repo.Get(context.Background(), 702)
+	if err != nil || got == nil || !got.AchievementsPrivate {
+		t.Fatalf("character = %+v, %v", got, err)
+	}
+	if got.AchievementsCheckedAt == nil || !got.AchievementsCheckedAt.After(old.Add(time.Hour)) {
+		t.Fatalf("achievements_checked_at = %v, want it moved past %v", got.AchievementsCheckedAt, old)
+	}
+}
+
+func TestAchievementCensus_UnknownFlagCharacterIsCheckedOnceThenSkipped(t *testing.T) {
+	rig := newCensusRig(t)
+	rig.seed(t, 703)
+	requests := rig.countAchievementRequests()
+	rig.publish(t, handler.EventAchievementCensus, handler.AchievementCensusPayload{CharacterID: 703})
+	rig.publish(t, handler.EventAchievementCensus, handler.AchievementCensusPayload{CharacterID: 703})
+	rig.run()
+	defer rig.stop()
+
+	eventually(t, "both jobs to be acked", func() bool { return len(rig.queue.Acked()) == 2 })
+	if n := requests.Load(); n != 1 {
+		t.Fatalf("Lodestone requests = %d, want 1 for two jobs of one never-checked character", n)
 	}
 }
 

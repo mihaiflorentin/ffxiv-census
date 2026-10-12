@@ -38,6 +38,7 @@ func cloneCharacter(rec contract.CharacterRecord) contract.CharacterRecord {
 	rec.FreeCompanyName = cloneString(rec.FreeCompanyName)
 	rec.LatestAchievementID = cloneUint32(rec.LatestAchievementID)
 	rec.LatestAchievementAt = cloneTime(rec.LatestAchievementAt)
+	rec.AchievementsCheckedAt = cloneTime(rec.AchievementsCheckedAt)
 	rec.LastCensusAt = cloneTime(rec.LastCensusAt)
 	rec.DeletedAt = cloneTime(rec.DeletedAt)
 	return rec

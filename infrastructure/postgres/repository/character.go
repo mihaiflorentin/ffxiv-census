@@ -25,7 +25,7 @@ func NewCharacterRepository(driver contract.DatabaseDriver) contract.CharacterRe
 
 const characterColumns = `id, name, world, datacenter, region, race, tribe, gender, grand_company,
 		        fc_id, fc_name, bio, active_job, item_level,
-		        achievements_private, latest_achievement_id, latest_achievement_at,
+		        achievements_private, achievements_checked_at, latest_achievement_id, latest_achievement_at,
 		        first_seen_at, last_census_at, deleted_at`
 
 // Upsert stores one character and its jobs through StoreResult, the only write
@@ -149,11 +149,20 @@ func markInvalidData(err error) error {
 
 // storeAchievementTx writes one achievement census inside tx, with the same
 // effect as AchievementRepository.UpsertCharacterMilestones followed by the
-// summary update (a private profile only flags the character private).
+// summary update (a private profile only flags the character private and
+// records when it was verified; a zero CheckedAt keeps the recorded time).
 func storeAchievementTx(ctx context.Context, tx *sql.Tx, a contract.AchievementWrite) error {
 	if a.Private {
+		var checkedAt *time.Time
+		if !a.CheckedAt.IsZero() {
+			checkedAt = &a.CheckedAt
+		}
 		if _, err := tx.ExecContext(ctx,
-			`UPDATE characters SET achievements_private = $1 WHERE id = $2`, boolInt(true), a.CharacterID); err != nil {
+			`UPDATE characters
+			    SET achievements_private = $1,
+			        achievements_checked_at = COALESCE($2::timestamptz, achievements_checked_at)
+			  WHERE id = $3`,
+			boolInt(true), nullableTime(checkedAt), a.CharacterID); err != nil {
 			return fmt.Errorf("character set achievements private: %w", err)
 		}
 		return nil
@@ -1038,14 +1047,14 @@ func scanCharacter(row rowScanner) (*contract.CharacterRecord, error) {
 	var itemLevel sql.NullInt64
 	var achievementsPrivate int
 	var latestAchievementID sql.NullInt64
-	var latestAchievementAt, lastCensusAt, deletedAt sql.NullTime
+	var latestAchievementAt, achievementsCheckedAt, lastCensusAt, deletedAt sql.NullTime
 	var firstSeenAt time.Time
 
 	err := row.Scan(
 		&c.ID, &c.Name, &c.World, &c.Datacenter, &c.Region,
 		&race, &tribe, &c.Gender, &grandCompany,
 		&fcID, &fcName, &bio, &activeJob, &itemLevel,
-		&achievementsPrivate, &latestAchievementID, &latestAchievementAt,
+		&achievementsPrivate, &achievementsCheckedAt, &latestAchievementID, &latestAchievementAt,
 		&firstSeenAt, &lastCensusAt, &deletedAt,
 	)
 	if err != nil {
@@ -1063,6 +1072,7 @@ func scanCharacter(row rowScanner) (*contract.CharacterRecord, error) {
 		c.ItemLevel = int(itemLevel.Int64)
 	}
 	c.AchievementsPrivate = achievementsPrivate == 1
+	c.AchievementsCheckedAt = sqlTimePtr(achievementsCheckedAt)
 	c.LatestAchievementID = sqlUint32Ptr(latestAchievementID)
 	c.LatestAchievementAt = sqlTimePtr(latestAchievementAt)
 	c.FirstSeenAt = firstSeenAt
