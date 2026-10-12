@@ -1,12 +1,16 @@
 package repository
 
 import (
+	"cmp"
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
@@ -24,7 +28,18 @@ const characterColumns = `id, name, world, datacenter, region, race, tribe, gend
 		        achievements_private, latest_achievement_id, latest_achievement_at,
 		        first_seen_at, last_census_at, deleted_at`
 
+// Upsert stores one character and its jobs through StoreResult, the only write
+// path for characters.
 func (r *CharacterRepository) Upsert(ctx context.Context, rec contract.CharacterRecord, jobs []contract.ClassJobRecord) error {
+	return r.StoreResult(ctx, contract.CensusResult{Characters: []contract.CharacterWrite{{Record: rec, Jobs: jobs}}})
+}
+
+// StoreResult stores the characters, jobs, milestones and achievement
+// summaries of result in ONE transaction. An empty result is a no-op.
+func (r *CharacterRepository) StoreResult(ctx context.Context, result contract.CensusResult) error {
+	if result.Size() == 0 {
+		return nil
+	}
 	db, err := r.driver.Acquire(ctx)
 	if err != nil {
 		return err
@@ -35,13 +50,202 @@ func (r *CharacterRepository) Upsert(ctx context.Context, rec contract.Character
 	}
 	defer func() { _ = tx.Rollback() }()
 
-	maxLevel := maxJobLevel(jobs)
-	query := `INSERT INTO characters (
+	// Census data may lose its last few commits in a Postgres crash (the next
+	// census pass rewrites them) in exchange for not waiting on a WAL flush.
+	// SET LOCAL scopes this to the transaction, so stats, leases and
+	// migrations on the same pooled connection stay synchronous.
+	if _, err := tx.ExecContext(ctx, `SET LOCAL synchronous_commit = off`); err != nil {
+		return fmt.Errorf("character upsert set async commit: %w", err)
+	}
+
+	if err := storeBatch(ctx, tx, result); err != nil {
+		return markInvalidData(err)
+	}
+	return markInvalidData(tx.Commit())
+}
+
+// storeBatch writes result inside tx with a fixed number of statements, however
+// many characters it holds: one multi-row characters upsert, one jobs delete
+// and one jobs upsert for all characters, then the achievements.
+//
+// Two pods storing overlapping IDs must take row locks in the same global
+// order, or they deadlock. The character statement inserts its rows in
+// ascending ID order; when achievements follow, the rows of every character
+// the batch touches are locked first, in ascending ID order.
+func storeBatch(ctx context.Context, tx *sql.Tx, result contract.CensusResult) error {
+	achievements := slices.Clone(result.Achievements)
+	slices.SortStableFunc(achievements, func(a, b contract.AchievementWrite) int {
+		return cmp.Compare(a.CharacterID, b.CharacterID)
+	})
+	writes := lastPerCharacter(result.Characters)
+
+	if len(achievements) > 0 {
+		if err := lockCharacters(ctx, tx, writes, achievements); err != nil {
+			return err
+		}
+	}
+	if len(writes) > 0 {
+		if err := upsertCharactersTx(ctx, tx, writes); err != nil {
+			return err
+		}
+		if err := replaceJobsTx(ctx, tx, writes); err != nil {
+			return err
+		}
+	}
+	for _, a := range achievements {
+		if err := storeAchievementTx(ctx, tx, a); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// lastPerCharacter returns the writes sorted by ascending character ID, with
+// only the last write of a repeated ID: one INSERT ... ON CONFLICT statement
+// cannot update the same row twice.
+func lastPerCharacter(writes []contract.CharacterWrite) []contract.CharacterWrite {
+	byID := make(map[uint32]contract.CharacterWrite, len(writes))
+	for _, w := range writes {
+		byID[w.Record.ID] = w
+	}
+	out := make([]contract.CharacterWrite, 0, len(byID))
+	for _, w := range byID {
+		out = append(out, w)
+	}
+	slices.SortFunc(out, func(a, b contract.CharacterWrite) int { return cmp.Compare(a.Record.ID, b.Record.ID) })
+	return out
+}
+
+// lockCharacters locks the existing rows of every character the batch touches,
+// in ascending ID order.
+func lockCharacters(ctx context.Context, tx *sql.Tx, writes []contract.CharacterWrite, achievements []contract.AchievementWrite) error {
+	ids := make([]int64, 0, len(writes)+len(achievements))
+	for _, w := range writes {
+		ids = append(ids, int64(w.Record.ID))
+	}
+	for _, a := range achievements {
+		ids = append(ids, int64(a.CharacterID))
+	}
+	if _, err := tx.ExecContext(ctx,
+		`SELECT id FROM characters WHERE id = ANY($1::bigint[]) ORDER BY id FOR UPDATE`, ids); err != nil {
+		return fmt.Errorf("character lock rows: %w", err)
+	}
+	return nil
+}
+
+// markInvalidData joins contract.ErrInvalidData to errors that Postgres
+// raised because of the written values: SQLSTATE class 22 (data exception,
+// e.g. invalid byte sequence, value too long, out of range) and class 23
+// (integrity constraint violation). Everything else (connection loss,
+// cancelled or timed-out context, serialization failure, shutdown) is left
+// untouched so batch writers treat it as transient.
+func markInvalidData(err error) error {
+	var pgErr *pgconn.PgError
+	if errors.As(err, &pgErr) && (strings.HasPrefix(pgErr.Code, "22") || strings.HasPrefix(pgErr.Code, "23")) {
+		return errors.Join(contract.ErrInvalidData, err)
+	}
+	return err
+}
+
+// storeAchievementTx writes one achievement census inside tx, with the same
+// effect as AchievementRepository.UpsertCharacterMilestones followed by the
+// summary update (a private profile only flags the character private).
+func storeAchievementTx(ctx context.Context, tx *sql.Tx, a contract.AchievementWrite) error {
+	if a.Private {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE characters SET achievements_private = $1 WHERE id = $2`, boolInt(true), a.CharacterID); err != nil {
+			return fmt.Errorf("character set achievements private: %w", err)
+		}
+		return nil
+	}
+	if query, args := milestoneUpsert(a.Milestones); query != "" {
+		if _, err := tx.ExecContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("milestones batch upsert: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx,
+		`UPDATE characters
+		    SET achievements_private = $1,
+		        latest_achievement_id = $2,
+		        latest_achievement_at = $3
+		  WHERE id = $4`,
+		boolInt(false), nullableUint32(a.LatestID), nullableTime(a.LatestAt), a.CharacterID); err != nil {
+		return fmt.Errorf("character update achievement summary: %w", err)
+	}
+	return nil
+}
+
+// characterColumnArrays holds the character rows of a batch as parallel column
+// arrays, the shape unnest turns back into rows. Nullable columns are pointer
+// slices so a nil element binds as SQL NULL.
+type characterColumnArrays struct {
+	ids, itemLevels                                    []int64
+	genders, private, maxLevels                        []int32
+	names, worlds, datacenters, regions, races, tribes []string
+	companies, bios, activeJobs                        []string
+	fcIDs, fcNames                                     []*string
+	latestIDs                                          []*int64
+	latestAts, lastCensuses, deleteds                  []*time.Time
+	firstSeens                                         []time.Time
+}
+
+func toCharacterColumns(writes []contract.CharacterWrite) characterColumnArrays {
+	var c characterColumnArrays
+	for _, w := range writes {
+		rec := w.Record
+		c.ids = append(c.ids, int64(rec.ID))
+		c.names = append(c.names, rec.Name)
+		c.worlds = append(c.worlds, rec.World)
+		c.datacenters = append(c.datacenters, rec.Datacenter)
+		c.regions = append(c.regions, rec.Region)
+		c.races = append(c.races, rec.Race)
+		c.tribes = append(c.tribes, rec.Tribe)
+		c.genders = append(c.genders, int32(rec.Gender))
+		c.companies = append(c.companies, rec.GrandCompany)
+		c.fcIDs = append(c.fcIDs, rec.FreeCompanyID)
+		c.fcNames = append(c.fcNames, rec.FreeCompanyName)
+		c.bios = append(c.bios, rec.Bio)
+		c.activeJobs = append(c.activeJobs, rec.ActiveJob)
+		c.itemLevels = append(c.itemLevels, int64(rec.ItemLevel))
+		c.private = append(c.private, int32(boolInt(rec.AchievementsPrivate)))
+		var latestID *int64
+		if rec.LatestAchievementID != nil {
+			v := int64(*rec.LatestAchievementID)
+			latestID = &v
+		}
+		c.latestIDs = append(c.latestIDs, latestID)
+		c.latestAts = append(c.latestAts, rec.LatestAchievementAt)
+		c.firstSeens = append(c.firstSeens, rec.FirstSeenAt)
+		c.lastCensuses = append(c.lastCensuses, rec.LastCensusAt)
+		c.deleteds = append(c.deleteds, rec.DeletedAt)
+		c.maxLevels = append(c.maxLevels, int32(maxJobLevel(w.Jobs)))
+	}
+	return c
+}
+
+// upsertCharactersTx writes the character rows of writes (unique IDs) as one
+// multi-row upsert, inserted in the order given.
+func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.CharacterWrite) error {
+	c := toCharacterColumns(writes)
+	const query = `INSERT INTO characters (
 			id, name, world, datacenter, region, race, tribe, gender, grand_company,
 			fc_id, fc_name, bio, active_job, item_level,
 			achievements_private, latest_achievement_id, latest_achievement_at,
 			first_seen_at, last_census_at, deleted_at, max_job_level
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+		)
+		SELECT id, name, world, datacenter, region, race, tribe, gender, grand_company,
+			fc_id, fc_name, bio, active_job, item_level,
+			achievements_private, latest_achievement_id, latest_achievement_at,
+			first_seen_at, last_census_at, deleted_at, max_job_level
+		  FROM unnest($1::bigint[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[],
+			$8::smallint[], $9::text[], $10::text[], $11::text[], $12::text[], $13::text[], $14::integer[],
+			$15::smallint[], $16::integer[], $17::timestamptz[], $18::timestamptz[], $19::timestamptz[],
+			$20::timestamptz[], $21::smallint[])
+		       AS t(id, name, world, datacenter, region, race, tribe, gender, grand_company,
+			fc_id, fc_name, bio, active_job, item_level,
+			achievements_private, latest_achievement_id, latest_achievement_at,
+			first_seen_at, last_census_at, deleted_at, max_job_level)
+		 ORDER BY id
 		ON CONFLICT (id) DO UPDATE SET
 			name = excluded.name,
 			world = excluded.world,
@@ -64,31 +268,81 @@ func (r *CharacterRepository) Upsert(ctx context.Context, rec contract.Character
 			max_job_level = excluded.max_job_level`
 
 	if _, err := tx.ExecContext(ctx, query,
-		rec.ID, rec.Name, rec.World, rec.Datacenter, rec.Region, rec.Race, rec.Tribe,
-		rec.Gender, rec.GrandCompany, nullableString(rec.FreeCompanyID), nullableString(rec.FreeCompanyName),
-		rec.Bio, rec.ActiveJob, rec.ItemLevel,
-		boolInt(rec.AchievementsPrivate), nullableUint32(rec.LatestAchievementID), nullableTime(rec.LatestAchievementAt),
-		rec.FirstSeenAt, nullableTime(rec.LastCensusAt), nullableTime(rec.DeletedAt), maxLevel); err != nil {
+		c.ids, c.names, c.worlds, c.datacenters, c.regions, c.races, c.tribes, c.genders, c.companies,
+		c.fcIDs, c.fcNames, c.bios, c.activeJobs, c.itemLevels,
+		c.private, c.latestIDs, c.latestAts, c.firstSeens, c.lastCensuses, c.deleteds, c.maxLevels); err != nil {
 		return fmt.Errorf("character upsert: %w", err)
 	}
+	return nil
+}
 
+// replaceJobsTx makes the stored jobs of every character in writes (unique
+// IDs) match its job list: one statement removes the jobs a character no
+// longer has, one upserts the rest in place.
+func replaceJobsTx(ctx context.Context, tx *sql.Tx, writes []contract.CharacterWrite) error {
+	// Empty, not nil: a nil slice binds as SQL NULL, which matches nothing.
+	charIDs, jobChars := make([]int64, 0, len(writes)), []int64{}
+	jobIDs, levels, names, exps := []int32{}, []int32{}, []string{}, []int64{}
+	for _, w := range writes {
+		charIDs = append(charIDs, int64(w.Record.ID))
+		ids, ns, ls, es := jobColumns(w.Jobs)
+		for range ids {
+			jobChars = append(jobChars, int64(w.Record.ID))
+		}
+		jobIDs, names, levels, exps = append(jobIDs, ids...), append(names, ns...), append(levels, ls...), append(exps, es...)
+	}
+
+	// Remove only the jobs a character no longer has; the rest are updated in place below.
 	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM character_jobs WHERE character_id = $1`, rec.ID); err != nil {
+		`DELETE FROM character_jobs cj
+		  WHERE cj.character_id = ANY($1::bigint[])
+		    AND NOT EXISTS (SELECT 1 FROM unnest($2::bigint[], $3::integer[]) AS k(character_id, class_job_id)
+		                     WHERE k.character_id = cj.character_id AND k.class_job_id = cj.class_job_id)`,
+		charIDs, jobChars, jobIDs); err != nil {
 		return fmt.Errorf("character upsert delete jobs: %w", err)
 	}
-	for _, j := range jobs {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO character_jobs (character_id, class_job_id, name, level, exp_level)
-			 VALUES ($1, $2, $3, $4, $5)
-			 ON CONFLICT (character_id, class_job_id) DO UPDATE SET
-				name = excluded.name,
-				level = excluded.level,
-				exp_level = excluded.exp_level`,
-			j.CharacterID, j.ClassJobID, j.Name, j.Level, j.ExpLevel); err != nil {
-			return fmt.Errorf("character upsert insert job: %w", err)
-		}
+	if len(jobChars) == 0 {
+		return nil
 	}
-	return tx.Commit()
+	if _, err := tx.ExecContext(ctx,
+		`INSERT INTO character_jobs (character_id, class_job_id, name, level, exp_level)
+		 SELECT t.character_id, t.class_job_id, t.name, t.level, t.exp_level
+		   FROM unnest($1::bigint[], $2::integer[], $3::text[], $4::integer[], $5::bigint[])
+		        AS t(character_id, class_job_id, name, level, exp_level)
+		  ORDER BY t.character_id, t.class_job_id
+		 ON CONFLICT (character_id, class_job_id) DO UPDATE SET
+			name = excluded.name,
+			level = excluded.level,
+			exp_level = excluded.exp_level`,
+		jobChars, jobIDs, names, levels, exps); err != nil {
+		return fmt.Errorf("character upsert insert jobs: %w", err)
+	}
+	return nil
+}
+
+// jobColumns splits jobs into parallel column arrays for unnest. A repeated
+// class job ID keeps its last entry, because one INSERT ... ON CONFLICT
+// statement cannot update the same row twice. The slices are never nil: a nil
+// slice binds as SQL NULL, and "<> ALL(NULL)" would delete nothing.
+func jobColumns(jobs []contract.ClassJobRecord) (ids []int32, names []string, levels []int32, exps []int64) {
+	ids, names = make([]int32, 0, len(jobs)), make([]string, 0, len(jobs))
+	levels, exps = make([]int32, 0, len(jobs)), make([]int64, 0, len(jobs))
+	pos := make(map[uint8]int, len(jobs))
+	for _, j := range jobs {
+		i, seen := pos[j.ClassJobID]
+		if !seen {
+			i = len(ids)
+			pos[j.ClassJobID] = i
+			ids = append(ids, int32(j.ClassJobID))
+			names = append(names, "")
+			levels = append(levels, 0)
+			exps = append(exps, 0)
+		}
+		names[i] = j.Name
+		levels[i] = int32(j.Level)
+		exps[i] = int64(j.ExpLevel)
+	}
+	return ids, names, levels, exps
 }
 
 func maxJobLevel(jobs []contract.ClassJobRecord) uint8 {
@@ -310,29 +564,6 @@ func (r *CharacterRepository) MarkDeleted(ctx context.Context, id uint32, at tim
 		`UPDATE characters SET deleted_at = $1 WHERE id = $2`, at, id)
 	if err != nil {
 		return fmt.Errorf("character mark deleted: %w", err)
-	}
-	return nil
-}
-
-func (r *CharacterRepository) UpdateAchievementSummary(ctx context.Context, id uint32, private bool, latestID *uint32, latestAt *time.Time) error {
-	_, err := r.driver.Execute(ctx,
-		`UPDATE characters
-		    SET achievements_private = $1,
-		        latest_achievement_id = $2,
-		        latest_achievement_at = $3
-		  WHERE id = $4`,
-		boolInt(private), nullableUint32(latestID), nullableTime(latestAt), id)
-	if err != nil {
-		return fmt.Errorf("character update achievement summary: %w", err)
-	}
-	return nil
-}
-
-func (r *CharacterRepository) SetAchievementsPrivate(ctx context.Context, id uint32, private bool) error {
-	_, err := r.driver.Execute(ctx,
-		`UPDATE characters SET achievements_private = $1 WHERE id = $2`, boolInt(private), id)
-	if err != nil {
-		return fmt.Errorf("character set achievements private: %w", err)
 	}
 	return nil
 }

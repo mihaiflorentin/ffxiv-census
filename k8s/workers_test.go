@@ -19,8 +19,8 @@ func TestProxyWorkersPostgresPoolOverrides(t *testing.T) {
 	consumers := []string{"proxy-id-sweep", "proxy-character-census", "proxy-achievement-census", "proxy-new"}
 	for _, name := range consumers {
 		section := workerSection(t, src, name)
-		assertWorkerEnvValue(t, name, section, "POSTGRES_MAX_OPEN_CONNS", "15")
-		assertWorkerEnvValue(t, name, section, "POSTGRES_MAX_IDLE_CONNS", "10")
+		assertWorkerEnvValue(t, name, section, "POSTGRES_MAX_OPEN_CONNS", "3")
+		assertWorkerEnvValue(t, name, section, "POSTGRES_MAX_IDLE_CONNS", "2")
 		assertWorkerKeepsQueueEnv(t, name, section)
 	}
 
@@ -28,6 +28,35 @@ func TestProxyWorkersPostgresPoolOverrides(t *testing.T) {
 	assertWorkerEnvValue(t, "proxy-scan", scan, "POSTGRES_MAX_OPEN_CONNS", "2")
 	assertWorkerEnvValue(t, "proxy-scan", scan, "POSTGRES_MAX_IDLE_CONNS", "1")
 	assertWorkerKeepsQueueEnv(t, "proxy-scan", scan)
+
+	// census-retry only republishes failed messages: it needs no more than
+	// the scan pool. Its env replaces the defaults, so it must carry its own.
+	retry := workerSection(t, src, "census-retry")
+	assertWorkerEnvValue(t, "census-retry", retry, "POSTGRES_MAX_OPEN_CONNS", "2")
+	assertWorkerEnvValue(t, "census-retry", retry, "POSTGRES_MAX_IDLE_CONNS", "1")
+	assertWorkerKeepsQueueEnv(t, "census-retry", retry)
+}
+
+// TestWorkerDefaultsPostgresPool guards the pool inherited by every worker
+// instance that declares no env of its own (census-consumer).
+func TestWorkerDefaultsPostgresPool(t *testing.T) {
+	values, err := os.ReadFile("values.yaml")
+	if err != nil {
+		t.Fatalf("read Helm values: %v", err)
+	}
+	src := string(values)
+	start := strings.Index(src, "\nworkers:\n  defaults:\n")
+	end := strings.Index(src, "\n  instances:\n")
+	if start < 0 || end < start {
+		t.Fatal("workers.defaults block not found in values.yaml")
+	}
+	defaults := src[start:end]
+	assertWorkerEnvValue(t, "workers.defaults", defaults, "POSTGRES_MAX_OPEN_CONNS", "3")
+	assertWorkerEnvValue(t, "workers.defaults", defaults, "POSTGRES_MAX_IDLE_CONNS", "2")
+
+	if strings.Contains(workerSection(t, src, "census-consumer"), "    env:") {
+		t.Fatal("census-consumer declares its own env and would not inherit the default pool")
+	}
 }
 
 // TestProxyScanResourcesOverride guards the resource requests/limits nesting:
@@ -77,7 +106,7 @@ func assertWorkerEnvValue(t *testing.T, worker, section, envName, wantValue stri
 		t.Fatalf("worker %s: missing env %s", worker, envName)
 	}
 	rest := section[idx+len(marker):]
-	if !strings.HasPrefix(rest, "\n          value: \""+wantValue+"\"") {
+	if !strings.HasPrefix(strings.TrimLeft(rest, "\n "), "value: \""+wantValue+"\"") {
 		t.Fatalf("worker %s: env %s value != %q, got %.40q", worker, envName, wantValue, strings.TrimSpace(rest))
 	}
 }

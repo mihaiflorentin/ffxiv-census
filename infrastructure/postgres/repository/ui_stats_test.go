@@ -102,7 +102,7 @@ func TestUIStatsRepositoryRefreshAndLoadCurrent(t *testing.T) {
 		if err := chars.Upsert(ctx, item.rec, item.jobs); err != nil {
 			t.Fatal(err)
 		}
-		if err := chars.UpdateAchievementSummary(ctx, item.rec.ID, false, nil, item.latest); err != nil {
+		if err := setLatestAchievement(ctx, chars, item.rec.ID, item.latest); err != nil {
 			t.Fatal(err)
 		}
 	}

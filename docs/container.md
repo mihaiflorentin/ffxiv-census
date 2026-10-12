@@ -21,6 +21,8 @@ container.Load = serviceContainer
 3. Infrastructure accessors are lazy singletons, so the first call constructs the adapter and subsequent calls reuse it.
 4. When adding a new service, update `DomainContainer` and document it here.
 
+`container.Load.ResultWriter()` returns the per-process batching writer (a lazy singleton built from `[writer]` config over `CharacterRepository()`), or nil when the database is unavailable. `Handlers()` and `ProxyCensusHandlers()` register the ID sweep, character census and achievement census handlers with `.WithWriter(s.ResultWriter())`; a handler without a writer fails its jobs with `handler.ErrNoWriter`. `consume` closes the writer after the consumer has stopped, which flushes pending results. See [docs/queue.md](queue.md#batched-writes-and-acks).
+
 Aggregate routes resolve `container.Load.UIStatsService()`. Its repository is a lazy singleton from `UIStatsRepository()`, and its in-process cache settings come from `[census.ui_stats]`. The service is shared by UI controllers, aggregate REST handlers, and the `refresh ui-stats` command.
 
 ## Removed Accessors

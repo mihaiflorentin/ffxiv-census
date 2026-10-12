@@ -71,7 +71,8 @@ func (r *AchievementRepository) ListMilestones(ctx context.Context) ([]contract.
 // UpsertCharacterMilestones additively inserts or updates a character's earned
 // milestones in one batch. The ON CONFLICT clause makes it idempotent.
 func (r *AchievementRepository) UpsertCharacterMilestones(ctx context.Context, characterID uint32, milestones []contract.CharacterMilestone) error {
-	if len(milestones) == 0 {
+	query, args := milestoneUpsert(milestones)
+	if query == "" {
 		return nil
 	}
 
@@ -79,8 +80,19 @@ func (r *AchievementRepository) UpsertCharacterMilestones(ctx context.Context, c
 	if err != nil {
 		return err
 	}
+	if _, err := db.ExecContext(ctx, query, args...); err != nil {
+		return fmt.Errorf("milestones batch upsert: %w", err)
+	}
+	return nil
+}
 
-	// Build a single multi-row INSERT with parameterized values.
+// milestoneUpsert builds the single multi-row INSERT that additively stores
+// milestones; the ON CONFLICT clause makes it idempotent. It returns an empty
+// query when there is nothing to store.
+func milestoneUpsert(milestones []contract.CharacterMilestone) (string, []any) {
+	if len(milestones) == 0 {
+		return "", nil
+	}
 	var buf strings.Builder
 	buf.WriteString(`INSERT INTO character_milestones (character_id, achievement_id, achieved_at) VALUES `)
 	args := make([]any, 0, len(milestones)*3)
@@ -92,11 +104,7 @@ func (r *AchievementRepository) UpsertCharacterMilestones(ctx context.Context, c
 		args = append(args, m.CharacterID, m.AchievementID, m.AchievedAt)
 	}
 	buf.WriteString(` ON CONFLICT (character_id, achievement_id) DO UPDATE SET achieved_at = excluded.achieved_at`)
-
-	if _, err := db.ExecContext(ctx, buf.String(), args...); err != nil {
-		return fmt.Errorf("milestones batch upsert: %w", err)
-	}
-	return nil
+	return buf.String(), args
 }
 
 func (r *AchievementRepository) ListCharacterMilestones(ctx context.Context, characterID uint32) ([]contract.CharacterMilestone, error) {

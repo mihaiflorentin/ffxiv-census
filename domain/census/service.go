@@ -45,7 +45,7 @@ func NewService(
 	}
 }
 
-// ErrProfileHidden is returned by the upsert entry points when a character
+// ErrProfileHidden is returned by PrepareCharacter when a character
 // carries no usable race data. On Lodestone this happens for private profiles
 // (no race block at all), access-restricted profiles (HTTP 403), and
 // suppressed demographics (race/clan rendered as "----"). Such characters
@@ -159,23 +159,21 @@ func (s *Service) GetCharacter(ctx context.Context, charID uint32) (*contract.Ch
 	return s.characters.Get(ctx, charID)
 }
 
-// UpsertCharacter converts a Lodestone character into a CharacterRecord and
-// persists it (profile + jobs) atomically. Region is derived from the
-// datacenter. A profile without usable race data returns ErrProfileHidden and
-// is not persisted; an existing row keeps its last known good data.
-func (s *Service) UpsertCharacter(ctx context.Context, char *contract.CharacterProfile) error {
+// PrepareCharacter validates a Lodestone character and converts it into the
+// write that stores it, without storing anything. Handlers hand the result to
+// a contract.ResultWriter. It returns ErrProfileHidden for a profile without
+// usable race data.
+func (s *Service) PrepareCharacter(char *contract.CharacterProfile) (contract.CharacterWrite, error) {
 	if char == nil {
-		return errors.New("cannot upsert nil character")
+		return contract.CharacterWrite{}, errors.New("cannot upsert nil character")
 	}
 	if hiddenRace(char.Race) {
-		return ErrProfileHidden
+		return contract.CharacterWrite{}, ErrProfileHidden
 	}
 	if strings.TrimSpace(char.Name) == "" {
-		return fmt.Errorf("cannot upsert character %d: name is empty", char.ID)
+		return contract.CharacterWrite{}, fmt.Errorf("cannot upsert character %d: name is empty", char.ID)
 	}
-	rec := profileToRecord(char)
-	jobs := profileToJobs(char)
-	return s.characters.Upsert(ctx, rec, jobs)
+	return contract.CharacterWrite{Record: profileToRecord(char), Jobs: profileToJobs(char)}, nil
 }
 
 // MaxCharacterID returns the maximum character ID known to the census.
@@ -225,69 +223,51 @@ func profileToJobs(char *contract.CharacterProfile) []contract.ClassJobRecord {
 
 const defaultActivityWindow = 30 * 24 * time.Hour
 
-// ProcessAchievements filters earned achievements against the registry, persists
-// only the matching milestones, and updates the character's achievement summary
-// (private flag + latest achievement, which may be any achievement). Returns the
-// milestones that matched the registry.
-// ProcessMilestoneResults persists milestone achievements from the custom client's
-// summary and updates the character's achievement summary (private flag + latest
-// achievement). Returns the milestones that were persisted.
-func (s *Service) ProcessMilestoneResults(ctx context.Context, charID uint32, summary *contract.AchievementSummary) ([]contract.CharacterMilestone, error) {
+// PrepareMilestoneResults filters a fetched achievement summary against the
+// milestone registry and returns the write that stores it, without storing
+// anything. Handlers hand the result to a contract.ResultWriter. A private
+// profile hides its achievements, so its write only flags the character
+// private and preserves any prior milestones and latest achievement.
+func (s *Service) PrepareMilestoneResults(ctx context.Context, charID uint32, summary *contract.AchievementSummary) (contract.AchievementWrite, error) {
 	if summary == nil {
-		return nil, errors.New("nil achievement summary")
+		return contract.AchievementWrite{}, errors.New("nil achievement summary")
 	}
-
-	// A private profile hides its achievements: preserve any prior milestones and
-	// latest achievement, only mark the profile private.
 	if summary.Private {
-		if err := s.characters.SetAchievementsPrivate(ctx, charID, true); err != nil {
-			return nil, err
-		}
-		return nil, nil
+		return contract.AchievementWrite{CharacterID: charID, Private: true}, nil
 	}
 
 	registry, err := s.cachedMilestones(ctx)
 	if err != nil {
-		return nil, err
+		return contract.AchievementWrite{}, err
 	}
 	if len(registry) == 0 {
-		return nil, errors.New("milestone registry is empty; run SyncMilestones before processing achievements")
+		return contract.AchievementWrite{}, errors.New("milestone registry is empty; run SyncMilestones before processing achievements")
 	}
 	byID := make(map[uint32]contract.MilestoneAchievement, len(registry))
 	for _, m := range registry {
 		byID[m.AchievementID] = m
 	}
 
-	var milestones []contract.CharacterMilestone
+	w := contract.AchievementWrite{CharacterID: charID}
 	for _, r := range summary.Milestones {
 		if !r.Earned {
 			continue
 		}
 		if _, ok := byID[r.AchievementID]; ok {
-			milestones = append(milestones, contract.CharacterMilestone{
+			w.Milestones = append(w.Milestones, contract.CharacterMilestone{
 				CharacterID:   charID,
 				AchievementID: r.AchievementID,
 				AchievedAt:    r.EarnedAt,
 			})
 		}
 	}
-
-	if err := s.achievements.UpsertCharacterMilestones(ctx, charID, milestones); err != nil {
-		return nil, err
-	}
-
-	var latestID *uint32
-	var latestAt *time.Time
 	if summary.LatestAchievement != nil {
 		id := summary.LatestAchievement.AchievementID
 		at := summary.LatestAchievement.EarnedAt
-		latestID = &id
-		latestAt = &at
+		w.LatestID = &id
+		w.LatestAt = &at
 	}
-	if err := s.characters.UpdateAchievementSummary(ctx, charID, false, latestID, latestAt); err != nil {
-		return nil, err
-	}
-	return milestones, nil
+	return w, nil
 }
 
 // IsActive reports whether a latest-achievement timestamp falls within the

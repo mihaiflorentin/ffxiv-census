@@ -11,6 +11,7 @@ import (
 	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
 	mocklodestone "github.com/mihaiflorentin88/ffxiv-census/mock/lodestone"
 	mockrepo "github.com/mihaiflorentin88/ffxiv-census/mock/repository"
+	mockwriter "github.com/mihaiflorentin88/ffxiv-census/mock/writer"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
@@ -19,7 +20,7 @@ func newTestCharacterCensus(t *testing.T) (*CharacterCensus, *mocklodestone.Fake
 	ls := mocklodestone.NewFake()
 	chars := mockrepo.NewCharacterFake()
 	svc := census.NewService(chars, mockrepo.NewAchievementFake(), mockrepo.NewCensusRunFake())
-	return NewCharacterCensus(ls, svc, nil), ls, chars
+	return NewCharacterCensus(ls, svc, nil).WithWriter(mockwriter.NewStoring(chars, nil)), ls, chars
 }
 
 func characterPayload(id uint32) []byte {
@@ -96,7 +97,7 @@ func TestCharacterCensus_ReturnsDownstreamJobsInNext(t *testing.T) {
 		}, nil
 	}
 
-	h := NewCharacterCensus(ls, svc, nil)
+	h := NewCharacterCensus(ls, svc, nil).WithWriter(mockwriter.NewStoring(chars, nil))
 
 	next, err := h.Handle(context.Background(), characterPayload(42))
 	if err != nil {

@@ -61,11 +61,13 @@ High-level modules (application/domain) depend on abstractions, never concrete i
 
 Durable async work is managed by RabbitMQ (see [docs/queue.md](queue.md) and [docs/events.md](events.md)). Messages are published to the `census` exchange and routed to per-event-type queues. Failed messages are retried with exponential backoff via a dedicated retry exchange; permanently failed messages land in a dead-letter queue. The ingest pipeline consists of three core events:
 
-1. **`id-sweep`**: Probes character ID ranges across The Lodestone. Discovered characters are upserted and chain downstream `achievement-census` jobs.
+1. **`id-sweep`**: Probes character ID ranges across The Lodestone. Discovered characters are stored through the batching writer and chain downstream `achievement-census` jobs once their batch has committed.
 2. **`character-census`**: Re-censuses known character profiles. A genuine Lodestone 404 marks the character deleted; successful fetches chain `achievement-census`.
 3. **`achievement-census`**: Fetches character achievements from The Lodestone and tracks expansion/milestone progression (*leaf job*).
 
 The queue adapter is resolved via `container.Load.Queue()`.
+
+**Write path:** handlers never write census data themselves. They build a `contract.CensusResult` (`Service.PrepareCharacter` / `PrepareMilestoneResults`) and hand it to the per-pod `contract.ResultWriter` (`container.Load.ResultWriter()`), which stores batches in one transaction via `CharacterRepository.StoreResult` and returns to each waiting handler only after the commit. The queue acks a job when its handler returns, so an ack always follows the commit. A result the database rejects is isolated from its batch neighbours, and census batches commit with `synchronous_commit = off`. Details: [docs/queue.md](queue.md#batched-writes-and-acks), [docs/postgres.md](postgres.md).
 
 **Proxy Mode:** The `consume --proxy` flag activates per-goroutine proxy isolation. Each worker goroutine acquires its own proxy from the `ProxyHub`, creates a proxy-aware Lodestone client, and routes ALL requests through the proxy. Only fresh, evidence-backed rows are handed out (claim, destination check, and freshness/ownership revalidation against the database). A typed conclusive proxy failure is persisted as a version-fenced observation via `Proxy.MarkFailed()` before a replacement is acquired; destination rejections such as 429 raise only a destination cooldown and never mark the proxy unhealthy. See [docs/proxy.md](proxy.md) for the full design.
 

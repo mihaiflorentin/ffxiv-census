@@ -13,6 +13,7 @@ import (
 	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
 	mocklodestone "github.com/mihaiflorentin88/ffxiv-census/mock/lodestone"
 	mockrepo "github.com/mihaiflorentin88/ffxiv-census/mock/repository"
+	mockwriter "github.com/mihaiflorentin88/ffxiv-census/mock/writer"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
@@ -28,7 +29,7 @@ func TestCharacterCensus_LogsFetchAndStore(t *testing.T) {
 	}
 	svc := census.NewService(mockrepo.NewCharacterFake(), mockrepo.NewAchievementFake(), mockrepo.NewCensusRunFake())
 	var buf bytes.Buffer
-	h := NewCharacterCensus(ls, svc, newBufLogger(&buf))
+	h := NewCharacterCensus(ls, svc, newBufLogger(&buf)).WithWriter(mockwriter.NewFake())
 
 	if _, err := h.Handle(context.Background(), characterPayload(42)); err != nil {
 		t.Fatalf("Handle: %v", err)
@@ -48,7 +49,7 @@ func TestCharacterCensus_LogsFetchError(t *testing.T) {
 	}
 	svc := census.NewService(mockrepo.NewCharacterFake(), mockrepo.NewAchievementFake(), mockrepo.NewCensusRunFake())
 	var buf bytes.Buffer
-	h := NewCharacterCensus(ls, svc, newBufLogger(&buf))
+	h := NewCharacterCensus(ls, svc, newBufLogger(&buf)).WithWriter(mockwriter.NewFake())
 
 	if _, err := h.Handle(context.Background(), characterPayload(1)); err == nil {
 		t.Fatal("expected error on fetch failure")
@@ -78,7 +79,7 @@ func TestAchievementCensus_LogsFetchedLatest(t *testing.T) {
 		t.Fatalf("SyncMilestones: %v", err)
 	}
 	var buf bytes.Buffer
-	h := NewAchievementCensus(ls, svc, newBufLogger(&buf))
+	h := NewAchievementCensus(ls, svc, newBufLogger(&buf)).WithWriter(mockwriter.NewFake())
 
 	if _, err := h.Handle(context.Background(), achievementPayload(123)); err != nil {
 		t.Fatalf("Handle: %v", err)
@@ -101,7 +102,7 @@ func TestIDSweep_LogsRealTimeProbesAndDiscoveries(t *testing.T) {
 	}
 	svc := census.NewService(mockrepo.NewCharacterFake(), mockrepo.NewAchievementFake(), mockrepo.NewCensusRunFake())
 	var buf bytes.Buffer
-	h := NewIDSweep(ls, svc, newBufLogger(&buf))
+	h := NewIDSweep(ls, svc, newBufLogger(&buf)).WithWriter(mockwriter.NewFake())
 
 	payload, _ := json.Marshal(IDSweepPayload{From: 9, To: 11})
 	if _, err := h.Handle(context.Background(), payload); err != nil {
@@ -141,7 +142,7 @@ func TestSuccessfulHandlersTraceAtInfo(t *testing.T) {
 
 	var buf bytes.Buffer
 	infoLogger := slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	h := NewIDSweep(ls, svc, infoLogger)
+	h := NewIDSweep(ls, svc, infoLogger).WithWriter(mockwriter.NewFake())
 
 	payload, _ := json.Marshal(IDSweepPayload{From: 1, To: 1})
 	if _, err := h.Handle(context.Background(), payload); err != nil {
