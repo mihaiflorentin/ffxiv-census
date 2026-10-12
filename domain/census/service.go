@@ -20,8 +20,10 @@ type Service struct {
 	censusRuns     contract.CensusRunRepository
 	mu             sync.RWMutex
 	activityWindow time.Duration
-	maxLevel       uint32
-	expansions     []ExpansionConfig
+	// privateRecheckWindow is how long a private flag counts as verified.
+	privateRecheckWindow time.Duration
+	maxLevel             uint32
+	expansions           []ExpansionConfig
 	// milestoneCache holds the last-fetched milestone registry to avoid
 	// re-querying the DB on every ProcessAchievements call.
 	milestoneCache    []contract.MilestoneAchievement
@@ -35,13 +37,14 @@ func NewService(
 	censusRuns contract.CensusRunRepository,
 ) *Service {
 	return &Service{
-		characters:        characters,
-		achievements:      achievements,
-		censusRuns:        censusRuns,
-		activityWindow:    defaultActivityWindow,
-		maxLevel:          100,
-		expansions:        DefaultExpansions,
-		milestoneCacheTTL: 5 * time.Minute,
+		characters:           characters,
+		achievements:         achievements,
+		censusRuns:           censusRuns,
+		activityWindow:       defaultActivityWindow,
+		privateRecheckWindow: defaultPrivateRecheckWindow,
+		maxLevel:             100,
+		expansions:           DefaultExpansions,
+		milestoneCacheTTL:    5 * time.Minute,
 	}
 }
 
@@ -223,17 +226,43 @@ func profileToJobs(char *contract.CharacterProfile) []contract.ClassJobRecord {
 
 const defaultActivityWindow = 30 * 24 * time.Hour
 
+// defaultPrivateRecheckWindow is how long a character found private is left
+// alone before its achievement census runs again.
+const defaultPrivateRecheckWindow = 30 * 24 * time.Hour
+
+// AchievementCensusDue reports whether a character's achievement census should
+// ask the Lodestone. It is not due only for a character flagged private whose
+// flag was verified within the private recheck window. Anything else is due: a
+// character that is not private, whose flag was never verified (including a
+// flag stored before verification times were recorded), or that the census has
+// no row for. On a lookup error it returns true with the error, so a failing
+// read never hides a character from the census.
+func (s *Service) AchievementCensusDue(ctx context.Context, charID uint32) (bool, error) {
+	rec, err := s.characters.Get(ctx, charID)
+	if err != nil {
+		return true, err
+	}
+	if rec == nil || !rec.AchievementsPrivate || rec.AchievementsCheckedAt == nil {
+		return true, nil
+	}
+	s.mu.RLock()
+	window := s.privateRecheckWindow
+	s.mu.RUnlock()
+	return time.Since(*rec.AchievementsCheckedAt) >= window, nil
+}
+
 // PrepareMilestoneResults filters a fetched achievement summary against the
 // milestone registry and returns the write that stores it, without storing
 // anything. Handlers hand the result to a contract.ResultWriter. A private
 // profile hides its achievements, so its write only flags the character
-// private and preserves any prior milestones and latest achievement.
+// private, records when that was verified and preserves any prior milestones
+// and latest achievement.
 func (s *Service) PrepareMilestoneResults(ctx context.Context, charID uint32, summary *contract.AchievementSummary) (contract.AchievementWrite, error) {
 	if summary == nil {
 		return contract.AchievementWrite{}, errors.New("nil achievement summary")
 	}
 	if summary.Private {
-		return contract.AchievementWrite{CharacterID: charID, Private: true}, nil
+		return contract.AchievementWrite{CharacterID: charID, Private: true, CheckedAt: time.Now().UTC()}, nil
 	}
 
 	registry, err := s.cachedMilestones(ctx)
@@ -286,6 +315,17 @@ func (s *Service) SetActivityWindow(d time.Duration) {
 	if d > 0 {
 		s.mu.Lock()
 		s.activityWindow = d
+		s.mu.Unlock()
+	}
+}
+
+// SetPrivateRecheckWindow overrides how long a character found private is left
+// alone before its achievement census runs again. Non-positive durations are
+// ignored, keeping the current window.
+func (s *Service) SetPrivateRecheckWindow(d time.Duration) {
+	if d > 0 {
+		s.mu.Lock()
+		s.privateRecheckWindow = d
 		s.mu.Unlock()
 	}
 }

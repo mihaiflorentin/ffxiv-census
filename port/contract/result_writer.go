@@ -34,7 +34,11 @@ type AchievementWrite struct {
 	// Private marks a profile that hides its achievements. The store only
 	// flags the character private and keeps its earlier milestones and latest
 	// achievement; Milestones, LatestID and LatestAt are ignored.
-	Private    bool
+	Private bool
+	// CheckedAt is when the Lodestone was asked. A Private write stores it as
+	// the character's achievements_checked_at, the time the private flag was
+	// last verified; the zero value leaves the stored time unchanged.
+	CheckedAt  time.Time
 	Milestones []CharacterMilestone
 	// LatestID and LatestAt are the character's latest achievement, nil when
 	// it has none.

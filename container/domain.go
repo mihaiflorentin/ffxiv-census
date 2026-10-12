@@ -40,6 +40,9 @@ func (s *ServiceContainer) CensusService() *census.Service {
 		if c.ActivityWindowDays > 0 {
 			svc.SetActivityWindow(time.Duration(c.ActivityWindowDays) * 24 * time.Hour)
 		}
+		if c.PrivateRecheckDays > 0 {
+			svc.SetPrivateRecheckWindow(time.Duration(c.PrivateRecheckDays) * 24 * time.Hour)
+		}
 		var expansions []census.ExpansionConfig
 		for _, exp := range c.Expansions {
 			expansions = append(expansions, census.ExpansionConfig{

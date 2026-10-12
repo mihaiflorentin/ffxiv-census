@@ -36,6 +36,18 @@ The `result_writer_*` metrics observe every batch transaction attempt, including
 
 `ui_stats_refresh_total` and `ui_stats_refresh_duration_seconds` are emitted by the process that executes a refresh. In the default short-lived Kubernetes CronJob, the completion log is the durable refresh outcome; the web Grafana dashboard therefore uses snapshot age, last refresh duration, and `ui_stats_cache_total`, which are continuously scrapeable from web pods.
 
+### Worker endpoint
+
+Worker processes serve the same `/metrics` handler and registry, so counters recorded outside the web server (`lodestone_requests_total`, `result_writer_*`) can be scraped. Pass `--metrics-port <port>` to `consume` (normal and `--proxy` mode) or `consume failed`; `0`, the default, disables the endpoint. A port that cannot be bound stops the worker at startup.
+
+```bash
+./bin/ffxiv-census consume --proxy character-census --metrics-port 9090
+```
+
+The endpoint is independent of graceful shutdown. On SIGTERM workers stop claiming, in-flight handlers finish and the result writer flushes, exactly as without the endpoint. The metrics server is stopped last, with a 5 second bound, so scrapes keep working during the drain and never delay it.
+
+In the Helm chart, a worker instance with `metricsPort` in `k8s/values.yaml` gets the `--metrics-port` argument and a named `metrics` container port. Workers have no Service, so `k8s/templates/podmonitor.yaml` renders a `PodMonitor` for them (enabled by `serviceMonitor.workers.enabled`, using the same path, interval and `release` label as the web `ServiceMonitor`). `proxy consume` and `proxy scan` do not support the flag.
+
 ---
 
 ## StatsD / Graphite Metrics

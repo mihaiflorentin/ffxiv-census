@@ -70,12 +70,22 @@ type CharacterRepository interface {
 	GetJobs(ctx context.Context, id uint32) ([]ClassJobRecord, error)
 	// MarkDeleted records that the character no longer exists on Lodestone.
 	MarkDeleted(ctx context.Context, id uint32, at time.Time) error
-	// ListStale returns up to limit characters ordered by last_census_at ASC
-	// NULLS FIRST, id ASC. When cutoff is the zero time.Time the age predicate
-	// is disabled and all non-deleted characters are eligible; a positive
-	// cutoff filters to rows whose last_census_at is before the cutoff (NULL
-	// last_census_at counts as stale in both modes).
-	ListStale(ctx context.Context, cutoff time.Time, limit int) ([]CharacterRecord, error)
+	// ListStaleIDs returns the IDs of up to limit live (not deleted)
+	// characters ordered by last_census_at ASC NULLS FIRST, id ASC. When cutoff
+	// is the zero time.Time the age predicate is disabled and every live
+	// character is eligible; a positive cutoff filters to rows whose
+	// last_census_at is before the cutoff (NULL last_census_at counts as stale
+	// in both modes). Deleted characters are never returned; see
+	// ListDeletedIDs for their re-probe selection.
+	ListStaleIDs(ctx context.Context, cutoff time.Time, limit int) ([]uint32, error)
+	// ListDeletedIDs returns the IDs of up to limit deleted characters whose
+	// deleted_at is before deletedBefore, longest-deleted first (deleted_at ASC,
+	// id ASC). It is the deleted-character re-probe selection: a re-probe that
+	// confirms the character is still missing stamps a fresh deleted_at, which
+	// pushes it out of the selection until deletedBefore passes it again, while
+	// a re-probe that finds it clears deleted_at (resurrection). A limit of
+	// zero or less selects nothing.
+	ListDeletedIDs(ctx context.Context, deletedBefore time.Time, limit int) ([]uint32, error)
 	// List returns up to limit non-deleted characters matching filter,
 	// ordered by id, starting at offset (pagination for the REST API).
 	List(ctx context.Context, filter CharacterFilter, limit, offset int) ([]CharacterRecord, error)
