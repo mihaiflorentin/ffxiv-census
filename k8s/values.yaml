@@ -351,8 +351,11 @@ cronjobs:
         - --limit
         - "400"
 
-    - name: refresh-ui-stats
-      schedule: "17 * * * *"
+    # Nightly full rebuild; the 30-minute incremental pass adjusts the previous
+    # snapshot (change its schedule here to change the refresh interval). The
+    # advisory lock in the refresh keeps the two from overlapping.
+    - name: refresh-ui-stats-full
+      schedule: "0 1 * * *"
       concurrencyPolicy: Forbid
       successfulJobsHistoryLimit: 2
       failedJobsHistoryLimit: 3
@@ -361,3 +364,16 @@ cronjobs:
         - /app/ffxiv-census
         - refresh
         - ui-stats
+        - --mode=full
+
+    - name: refresh-ui-stats-incremental
+      schedule: "*/30 * * * *"
+      concurrencyPolicy: Forbid
+      successfulJobsHistoryLimit: 2
+      failedJobsHistoryLimit: 3
+      activeDeadlineSeconds: 1500
+      command:
+        - /app/ffxiv-census
+        - refresh
+        - ui-stats
+        - --mode=incremental

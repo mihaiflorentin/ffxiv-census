@@ -36,3 +36,26 @@ func TestRunRefreshUIStatsWithService(t *testing.T) {
 		t.Fatalf("refresh calls/options = %d %#v", fake.RefreshCalls, fake.LastRefreshOptions)
 	}
 }
+
+func TestRefreshUIStatsModeFlag(t *testing.T) {
+	flag := refreshUIStatsCmd.Flags().Lookup("mode")
+	if flag == nil || flag.DefValue != "full" {
+		t.Fatalf("--mode flag = %#v, want default full", flag)
+	}
+}
+
+func TestParseRefreshMode(t *testing.T) {
+	for in, want := range map[string]contract.UIStatsRefreshMode{
+		"":            contract.UIStatsRefreshFull,
+		"full":        contract.UIStatsRefreshFull,
+		"incremental": contract.UIStatsRefreshIncremental,
+	} {
+		got, err := parseRefreshMode(in)
+		if err != nil || got != want {
+			t.Fatalf("parseRefreshMode(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	if _, err := parseRefreshMode("sometimes"); err == nil {
+		t.Fatal("parseRefreshMode(sometimes) succeeded, want error")
+	}
+}

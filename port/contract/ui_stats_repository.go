@@ -56,16 +56,34 @@ type UIStatsSnapshot struct {
 	Summary          StatsSummary           `json:"summary"`
 }
 
+// UIStatsRefreshMode selects how a refresh builds the snapshot.
+type UIStatsRefreshMode string
+
+const (
+	// UIStatsRefreshFull rebuilds every figure from the characters table.
+	UIStatsRefreshFull UIStatsRefreshMode = "full"
+	// UIStatsRefreshIncremental adjusts the previous snapshot's group totals by
+	// the characters first seen or soft-deleted since its watermark, and
+	// recomputes the active and max-level counts exactly.
+	UIStatsRefreshIncremental UIStatsRefreshMode = "incremental"
+)
+
 type UIStatsRefreshOptions struct {
 	ActivitySince time.Time
 	MaxLevel      uint32
 	Timeout       time.Duration
+	// Mode defaults to UIStatsRefreshFull. An incremental request falls back
+	// to a full rebuild when there is no usable previous snapshot or the
+	// incremental result fails validation.
+	Mode UIStatsRefreshMode
 }
 
 type UIStatsRefreshResult struct {
 	Snapshot     *UIStatsSnapshot
 	Skipped      bool
 	PayloadBytes int64
+	// Mode is the mode actually used (full after a fallback).
+	Mode UIStatsRefreshMode
 }
 
 // UIStatsRepository persists and refreshes the bounded analytics read model.

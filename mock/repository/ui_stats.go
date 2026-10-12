@@ -38,7 +38,11 @@ func (f *UIStatsRepository) Refresh(_ context.Context, opts contract.UIStatsRefr
 	if f.RefreshErr != nil {
 		return nil, f.RefreshErr
 	}
-	return &contract.UIStatsRefreshResult{Snapshot: cloneStatsSnapshot(f.Snapshot), Skipped: f.Skipped}, nil
+	mode := opts.Mode
+	if mode == "" {
+		mode = contract.UIStatsRefreshFull
+	}
+	return &contract.UIStatsRefreshResult{Snapshot: cloneStatsSnapshot(f.Snapshot), Skipped: f.Skipped, Mode: mode}, nil
 }
 
 func cloneStatsSnapshot(snapshot *contract.UIStatsSnapshot) *contract.UIStatsSnapshot {

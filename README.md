@@ -132,7 +132,7 @@ Exports census data for characters or achievements directly to disk.
 
 ### 5. `refresh ui-stats` — Rebuild Aggregate Read Model
 
-Builds and atomically publishes the bounded statistics snapshot consumed by all aggregate UI pages and statistics APIs. Run it after the initial migration and whenever an immediate refresh is needed; Kubernetes also schedules it hourly at minute 17.
+Builds and atomically publishes the bounded statistics snapshot consumed by all aggregate UI pages and statistics APIs. Run it after the initial migration and whenever an immediate refresh is needed; Kubernetes schedules a full rebuild nightly at 01:00 (Europe/Bucharest) and an incremental refresh every 30 minutes. `--mode=full` (the default) rebuilds every figure; `--mode=incremental` adjusts the previous snapshot (see [docs/ui.md](docs/ui.md)).
 
 ```bash
 ./bin/ffxiv-census refresh ui-stats
@@ -273,7 +273,7 @@ make -C k8s post-deploy-check
 After a release that introduces the snapshot table, or whenever an immediate data refresh is required, create a one-off refresh from the scheduled CronJob and wait for it before validating aggregate routes:
 
 ```bash
-kubectl create job --from=cronjob/ffxiv-census-cron-refresh-ui-stats ffxiv-census-refresh-ui-stats-manual
+kubectl create job --from=cronjob/ffxiv-census-cron-refresh-ui-stats-full ffxiv-census-refresh-ui-stats-manual
 kubectl wait --for=condition=complete --timeout=2h job/ffxiv-census-refresh-ui-stats-manual
 curl -fsS https://census.ffxivbard.com/ui/dashboard >/dev/null
 ```
