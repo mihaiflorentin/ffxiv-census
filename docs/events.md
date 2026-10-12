@@ -48,7 +48,7 @@ Handlers are idempotent (`CharacterRepository.StoreResult` is a conflict-upsert)
 1. Handlers query **The Lodestone** as the sole source of truth.
 2. A genuine Lodestone 404 marks the character deleted immediately — no second
    provider is consulted for confirmation.
-3. A transient error fails the delivery for retry with backoff.
+3. A transient error fails the delivery into a delay tier (5 s, 30 s, 5 min, 1 h; see [queue.md](queue.md)). Proxy-caused failures do not count as job attempts.
 
 **Shared rules:**
 - Downstream `achievement-census` jobs are uniformly chained using
@@ -64,7 +64,7 @@ Achievement checks always request the achievement list once to refresh global la
 
 `achievement-census` waits for the Lodestone cooldown in-handler: when Lodestone is rate-limited or paused, the handler calls `WaitUntilAvailable(ctx, ProviderLodestone)` to block until the cooldown expires, then retries the fetch inline. This is more efficient than returning an error immediately (which triggers queue retry + backoff).
 
-`WaitUntilAvailable` blocks exactly once per rate-limit cooldown. If the subsequent fetch fails again (new 429), the handler returns an error and the queue's exponential backoff kicks in. The handler does NOT loop on `WaitUntilAvailable`.
+`WaitUntilAvailable` blocks exactly once per rate-limit cooldown. If the subsequent fetch fails again (new 429), the handler returns an error and the delivery goes to a delay tier. The handler does NOT loop on `WaitUntilAvailable`.
 
 One worker goroutine blocks during the wait. With the default `concurrency=4`, the other 3 goroutines continue processing. Kubernetes' 180s termination grace period covers extended Lodestone cooldowns.
 

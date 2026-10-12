@@ -2,7 +2,36 @@ package config
 
 import (
 	"testing"
+	"time"
 )
+
+func TestQueueConfig_DefaultRetryTiers(t *testing.T) {
+	cfg, err := NewConfig()
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	want := []time.Duration{5 * time.Second, 30 * time.Second, 5 * time.Minute, time.Hour}
+	if len(cfg.Queue.RetryTiers) != len(want) {
+		t.Fatalf("default queue.retry_tiers = %v, want %v", cfg.Queue.RetryTiers, want)
+	}
+	for i, d := range want {
+		if cfg.Queue.RetryTiers[i] != d {
+			t.Fatalf("default queue.retry_tiers = %v, want %v", cfg.Queue.RetryTiers, want)
+		}
+	}
+}
+
+func TestQueueConfig_RetryTiersEnvOverride(t *testing.T) {
+	t.Setenv("QUEUE_RETRY_TIERS", "1s,10s")
+	cfg, err := NewConfig()
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	got := cfg.Queue.RetryTiers
+	if len(got) != 2 || got[0] != time.Second || got[1] != 10*time.Second {
+		t.Fatalf("QUEUE_RETRY_TIERS override: got %v", got)
+	}
+}
 
 func TestQueueConfig_DefaultMaxAttempts(t *testing.T) {
 	cfg, err := NewConfig()

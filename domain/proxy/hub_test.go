@@ -10,13 +10,6 @@ import (
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
-// fakeChecker adapts a function to contract.ProxyChecker.
-type fakeChecker func(ctx context.Context, protocol, ip string, port int) (int, error)
-
-func (f fakeChecker) Check(ctx context.Context, protocol, ip string, port int) (int, error) {
-	return f(ctx, protocol, ip, port)
-}
-
 // seedFreshProxy inserts a proxy row and drives a scanner success through the
 // store pipeline so the row carries fresh general evidence.
 func seedFreshProxy(t *testing.T, repo *repository.FakeProxyRepository, ip string) int64 {
@@ -37,7 +30,7 @@ func TestProxyHub_NewProxy_Success(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(consumerPolicy)
 	seedFreshProxy(t, repo, "1.2.3.4")
 
-	hub := NewProxyHub(repo, 5*time.Minute, nil, 0, consumerPolicy)
+	hub := NewProxyHub(repo, 5*time.Minute, 0, consumerPolicy)
 	p, err := hub.NewProxy(context.Background(), "test-g1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -57,9 +50,7 @@ func TestProxyHub_NewProxy_SuccessRevalidatesOwnershipAndFreshness(t *testing.T)
 	repo := repository.NewFakeProxyRepository(consumerPolicy)
 	seedFreshProxy(t, repo, "1.2.3.4")
 
-	hub := NewProxyHub(repo, 5*time.Minute, fakeChecker(func(context.Context, string, string, int) (int, error) {
-		return 42, nil
-	}), 0, consumerPolicy)
+	hub := NewProxyHub(repo, 5*time.Minute, 0, consumerPolicy)
 
 	p, err := hub.NewProxy(context.Background(), "test-g1")
 	if err != nil {
@@ -68,9 +59,8 @@ func TestProxyHub_NewProxy_SuccessRevalidatesOwnershipAndFreshness(t *testing.T)
 	if p == nil {
 		t.Fatal("expected proxy, got nil")
 	}
-	// The handed-out record is the current database record: the destination
-	// check's latency (42) never touched general evidence (still the seeded
-	// 50) and the lock was extended by the revalidation.
+	// The handed-out record is the current database record: general evidence
+	// is still the seeded 50 and the lock was extended by the revalidation.
 	if p.Record().LatencyMS == nil || *p.Record().LatencyMS != 50 {
 		t.Fatalf("expected the database record latency 50, got %v", p.Record().LatencyMS)
 	}
@@ -85,15 +75,16 @@ func TestProxyHub_NewProxy_SuccessRevalidatesOwnershipAndFreshness(t *testing.T)
 		t.Fatal("expected proxy to be locked by test-g1 after revalidation")
 	}
 	if !current.GeneralHealthy {
-		t.Fatal("expected general evidence preserved by the destination check")
+		t.Fatal("expected general evidence preserved by the hand-out")
 	}
 }
 
-// TestNewProxy_Destination429CooldownsRowWithoutGeneralFailure is the
-// successful-general-check + destination-429 scenario: no proxy is returned,
-// general evidence and counts are preserved, and no other Lodestone consumer
-// can claim the row until the destination cooldown expires.
-func TestNewProxy_Destination429CooldownsRowWithoutGeneralFailure(t *testing.T) {
+// TestNewProxy_FirstRequestRejectionCooldownsRowWithoutGeneralFailure is the
+// successful-scan + destination-429-on-first-request scenario: the hand-out
+// itself contacts nothing, the consumer's cooldown call keeps general evidence
+// and counts, and no other Lodestone consumer can claim the row until the
+// destination cooldown expires.
+func TestNewProxy_FirstRequestRejectionCooldownsRowWithoutGeneralFailure(t *testing.T) {
 	repo, clock := newClockRepo()
 	id := seedFreshProxy(t, repo, "1.2.3.4")
 	before, err := repo.Get(context.Background(), id)
@@ -101,21 +92,15 @@ func TestNewProxy_Destination429CooldownsRowWithoutGeneralFailure(t *testing.T) 
 		t.Fatalf("repo.Get: %v", err)
 	}
 
-	hub := NewProxyHub(repo, 5*time.Minute, fakeChecker(func(context.Context, string, string, int) (int, error) {
-		return 0, &contract.ProxyCheckError{
-			Kind:       contract.CheckTarget,
-			Reason:     "status 429",
-			RetryAfter: 90 * time.Second,
-			Err:        errors.New("Too Many Requests"),
-		}
-	}), time.Minute, consumerPolicy)
-
+	hub := NewProxyHub(repo, 5*time.Minute, time.Minute, consumerPolicy)
 	p, err := hub.NewProxy(context.Background(), "test-g1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err != nil || p == nil {
+		t.Fatalf("expected the fresh proxy to be handed out, got %v, %v", p, err)
 	}
-	if p != nil {
-		t.Fatal("expected no proxy after destination 429")
+
+	// The first real request is answered 429 with Retry-After 90s.
+	if err := p.CooldownDestination(context.Background(), "test-g1", hub.LockTTL(), hub.CooldownFor(p, 90*time.Second)); err != nil {
+		t.Fatalf("CooldownDestination: %v", err)
 	}
 
 	after, err := repo.Get(context.Background(), id)
@@ -131,6 +116,9 @@ func TestNewProxy_Destination429CooldownsRowWithoutGeneralFailure(t *testing.T) 
 	}
 	if !after.GeneralHealthy {
 		t.Error("expected general health preserved")
+	}
+	if after.LockedBy != nil {
+		t.Errorf("expected the claim released, still locked by %q", *after.LockedBy)
 	}
 	// The destination cooldown uses the Retry-After (90s > 60s floor).
 	if after.DestinationCooldownUntil == nil || !after.DestinationCooldownUntil.Equal(clock.Add(90*time.Second)) {
@@ -169,11 +157,11 @@ func TestNewProxy_Destination429CooldownsRowWithoutGeneralFailure(t *testing.T) 
 	}
 }
 
-// TestNewProxy_TransportRefusalRemovesAvailabilityAndFencesOlderScan is the
-// typed conclusive-failure scenario: the refusal removes general availability,
-// persists the failure transition, and rejects a scanner completion captured
-// before the consumer observation.
-func TestNewProxy_TransportRefusalRemovesAvailabilityAndFencesOlderScan(t *testing.T) {
+// TestNewProxy_FirstRequestTransportRefusalRemovesAvailabilityAndFencesOlderScan
+// is the typed conclusive-failure scenario: a dial failure on the first real
+// request removes general availability, persists the failure transition, and
+// rejects a scanner completion captured before the consumer observation.
+func TestNewProxy_FirstRequestTransportRefusalRemovesAvailabilityAndFencesOlderScan(t *testing.T) {
 	repo, _ := newClockRepo()
 	id := seedFreshProxy(t, repo, "1.2.3.4")
 
@@ -186,20 +174,17 @@ func TestNewProxy_TransportRefusalRemovesAvailabilityAndFencesOlderScan(t *testi
 		t.Fatalf("expected a lease for the seeded row, got %d leases", len(leases))
 	}
 
-	hub := NewProxyHub(repo, 5*time.Minute, fakeChecker(func(context.Context, string, string, int) (int, error) {
-		return 0, &contract.ProxyCheckError{
-			Kind:   contract.CheckProxy,
-			Reason: "connection refused",
-			Err:    errors.New("dial tcp: connection refused"),
-		}
-	}), time.Minute, consumerPolicy)
-
+	hub := NewProxyHub(repo, 5*time.Minute, time.Minute, consumerPolicy)
 	p, err := hub.NewProxy(context.Background(), "test-g1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if err != nil || p == nil {
+		t.Fatalf("expected the fresh proxy to be handed out, got %v, %v", p, err)
 	}
-	if p != nil {
-		t.Fatal("expected no proxy after transport refusal")
+	// The first real request fails to dial the proxy.
+	if ok, err := p.MarkFailed(context.Background(), "test-g1", hub.LockTTL()); err != nil || !ok {
+		t.Fatalf("MarkFailed = %v, %v, want an accepted failure", ok, err)
+	}
+	if err := p.Release(context.Background(), "test-g1"); err != nil {
+		t.Fatalf("Release: %v", err)
 	}
 
 	after, err := repo.Get(context.Background(), id)
@@ -243,32 +228,76 @@ func TestNewProxy_TransportRefusalRemovesAvailabilityAndFencesOlderScan(t *testi
 	}
 }
 
-// TestNewProxy_ExpiredFreshnessNotHandedOutDespiteDestinationSuccess proves an
-// expired general success can never be handed out even when the destination
-// checker succeeds.
-func TestNewProxy_ExpiredFreshnessNotHandedOutDespiteDestinationSuccess(t *testing.T) {
+// TestNewProxy_FreshnessOlderThanTheWindowIsNotHandedOut proves scan freshness
+// is the only gate: a row whose last general verification is older than the
+// freshness window is never handed out, and is back as soon as a scanner
+// verifies it again.
+func TestNewProxy_FreshnessOlderThanTheWindowIsNotHandedOut(t *testing.T) {
 	repo, clock := newClockRepo()
 	id := seedFreshProxy(t, repo, "1.2.3.4")
-	before, err := repo.Get(context.Background(), id)
-	if err != nil {
-		t.Fatalf("repo.Get: %v", err)
-	}
+	hub := NewProxyHub(repo, 5*time.Minute, time.Minute, consumerPolicy)
 
-	hub := NewProxyHub(repo, 5*time.Minute, fakeChecker(func(context.Context, string, string, int) (int, error) {
-		// The check is slow: general freshness expires while it runs.
-		*clock = clock.Add(3 * time.Minute)
-		return 42, nil
-	}), time.Minute, consumerPolicy)
-
+	*clock = clock.Add(consumerPolicy.FreshnessTTL + time.Second)
 	p, err := hub.NewProxy(context.Background(), "test-g1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if p != nil {
-		t.Fatal("expected no proxy after general freshness expired during the check")
+		t.Fatal("expected no proxy once freshness is older than the window")
+	}
+	stale, err := repo.Get(context.Background(), id)
+	if err != nil {
+		t.Fatalf("repo.Get: %v", err)
+	}
+	if stale.LockedBy != nil {
+		t.Errorf("expected the row to stay unlocked, locked by %q", *stale.LockedBy)
 	}
 
-	after, err := repo.Get(context.Background(), id)
+	if !seedVerificationSuccess(t, repo, id) {
+		t.Fatal("failed to re-verify the row")
+	}
+	if p, err = hub.NewProxy(context.Background(), "test-g1"); err != nil || p == nil {
+		t.Fatalf("expected the re-verified proxy to be handed out, got %v, %v", p, err)
+	}
+}
+
+// postClaimRepo runs a hook right after a successful ClaimProxy, standing in
+// for whatever happens to the row between the claim and the revalidation.
+type postClaimRepo struct {
+	*repository.FakeProxyRepository
+	afterClaim func()
+}
+
+func (r *postClaimRepo) ClaimProxy(ctx context.Context, owner string, ttl time.Duration) (*contract.ProxyRecord, error) {
+	rec, err := r.FakeProxyRepository.ClaimProxy(ctx, owner, ttl)
+	if rec != nil && r.afterClaim != nil {
+		r.afterClaim()
+	}
+	return rec, err
+}
+
+// TestNewProxy_PostClaimRevalidationRejectsLostFreshness proves general
+// freshness that expires between the claim and the hand-out still rejects the
+// row, releases the claim and leaves the evidence untouched.
+func TestNewProxy_PostClaimRevalidationRejectsLostFreshness(t *testing.T) {
+	base, clock := newClockRepo()
+	id := seedFreshProxy(t, base, "1.2.3.4")
+	before, err := base.Get(context.Background(), id)
+	if err != nil {
+		t.Fatalf("repo.Get: %v", err)
+	}
+	repo := &postClaimRepo{FakeProxyRepository: base, afterClaim: func() { *clock = clock.Add(3 * time.Minute) }}
+
+	hub := NewProxyHub(repo, 5*time.Minute, time.Minute, consumerPolicy)
+	p, err := hub.NewProxy(context.Background(), "test-g1")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if p != nil {
+		t.Fatal("expected no proxy after general freshness expired after the claim")
+	}
+
+	after, err := base.Get(context.Background(), id)
 	if err != nil {
 		t.Fatalf("repo.Get: %v", err)
 	}
@@ -280,151 +309,77 @@ func TestNewProxy_ExpiredFreshnessNotHandedOutDespiteDestinationSuccess(t *testi
 	}
 }
 
-func TestNewProxy_LocalCheckErrorReleasesWithoutFailure(t *testing.T) {
-	repo, _ := newClockRepo()
-	id := seedFreshProxy(t, repo, "1.2.3.4")
-	before, err := repo.Get(context.Background(), id)
-	if err != nil {
-		t.Fatalf("repo.Get: %v", err)
+// TestNewProxy_PostClaimRevalidationRejectsLostOwnership proves a claim taken
+// over by another owner before the hand-out is not returned, and the new
+// owner's lock is left alone.
+func TestNewProxy_PostClaimRevalidationRejectsLostOwnership(t *testing.T) {
+	base, clock := newClockRepo()
+	id := seedFreshProxy(t, base, "1.2.3.4")
+	repo := &postClaimRepo{FakeProxyRepository: base}
+	repo.afterClaim = func() {
+		// The lock lapses and another consumer claims the row.
+		*clock = clock.Add(6 * time.Minute)
+		seedVerificationSuccess(t, base, id)
+		repo.afterClaim = nil
+		if rec, err := base.ClaimProxy(context.Background(), "thief", 5*time.Minute); err != nil || rec == nil {
+			t.Fatalf("takeover claim: %v, %v", rec, err)
+		}
 	}
 
-	hub := NewProxyHub(repo, 5*time.Minute, fakeChecker(func(context.Context, string, string, int) (int, error) {
-		return 0, &contract.ProxyCheckError{Kind: contract.CheckLocal, Reason: "build transport", Err: errors.New("unsupported protocol")}
-	}), time.Minute, consumerPolicy)
-
+	hub := NewProxyHub(repo, 5*time.Minute, time.Minute, consumerPolicy)
 	p, err := hub.NewProxy(context.Background(), "test-g1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if p != nil {
-		t.Fatal("expected no proxy after a local checker error")
+		t.Fatal("expected no proxy once another owner holds the lock")
 	}
-	after, err := repo.Get(context.Background(), id)
+	after, err := base.Get(context.Background(), id)
 	if err != nil {
 		t.Fatalf("repo.Get: %v", err)
 	}
-	if after.FailCount != before.FailCount || after.ObservationVersion != before.ObservationVersion || !after.GeneralHealthy {
-		t.Error("expected evidence untouched by a local checker error")
-	}
-	if after.DestinationCooldownUntil != nil {
-		t.Error("expected no destination cooldown from a local checker error")
-	}
-	if after.LockedBy != nil {
-		t.Errorf("expected claim released, still locked by %v", *after.LockedBy)
-	}
-}
-
-// failingRefreshRepo injects a RefreshConsumerLock database failure.
-type failingRefreshRepo struct {
-	*repository.FakeProxyRepository
-	err error
-}
-
-func (r *failingRefreshRepo) RefreshConsumerLock(context.Context, int64, string, time.Duration) (*contract.ProxyRecord, error) {
-	return nil, r.err
-}
-
-func TestNewProxy_RepositoryErrorPropagates(t *testing.T) {
-	repo, _ := newClockRepo()
-	seedFreshProxy(t, repo, "1.2.3.4")
-
-	hub := NewProxyHub(&failingRefreshRepo{FakeProxyRepository: repo, err: errors.New("db down")},
-		5*time.Minute, fakeChecker(func(context.Context, string, string, int) (int, error) { return 1, nil }),
-		time.Minute, consumerPolicy)
-
-	p, err := hub.NewProxy(context.Background(), "test-g1")
-	if err == nil {
-		t.Fatal("expected database failure to propagate")
-	}
-	if p != nil {
-		t.Fatal("expected no proxy when the revalidation write fails")
+	if after.LockedBy == nil || *after.LockedBy != "thief" {
+		t.Errorf("expected the other owner's lock to survive, got %v", after.LockedBy)
 	}
 }
 
 var errDBDown = errors.New("db down")
 
-// failingWriteRepo injects database failures on the writes NewProxy performs
-// after a claim, so each acquisition error path can be exercised.
-type failingWriteRepo struct {
+// failingRefreshRepo injects a RefreshConsumerLock database failure.
+type failingRefreshRepo struct {
 	*repository.FakeProxyRepository
-	failRefresh  bool
-	failFailure  bool
-	failCooldown bool
 }
 
-func (r *failingWriteRepo) RefreshConsumerLock(ctx context.Context, id int64, owner string, ttl time.Duration) (*contract.ProxyRecord, error) {
-	if r.failRefresh {
-		return nil, errDBDown
-	}
-	return r.FakeProxyRepository.RefreshConsumerLock(ctx, id, owner, ttl)
+func (r *failingRefreshRepo) RefreshConsumerLock(context.Context, int64, string, time.Duration) (*contract.ProxyRecord, error) {
+	return nil, errDBDown
 }
 
-func (r *failingWriteRepo) RecordConsumerFailure(ctx context.Context, rec contract.ProxyRecord, owner string, ttl time.Duration, update contract.ScanUpdate) (bool, error) {
-	if r.failFailure {
-		return false, errDBDown
-	}
-	return r.FakeProxyRepository.RecordConsumerFailure(ctx, rec, owner, ttl, update)
-}
+// TestNewProxy_RevalidationErrorPropagatesAndLeavesProxyUnlocked proves a row
+// whose state cannot be validated is never handed out and never stays locked.
+func TestNewProxy_RevalidationErrorPropagatesAndLeavesProxyUnlocked(t *testing.T) {
+	base, _ := newClockRepo()
+	id := seedFreshProxy(t, base, "1.2.3.4")
 
-func (r *failingWriteRepo) CooldownDestination(ctx context.Context, id int64, owner string, ttl, delay time.Duration) error {
-	if r.failCooldown {
-		return errDBDown
+	hub := NewProxyHub(&failingRefreshRepo{FakeProxyRepository: base}, 5*time.Minute, time.Minute, consumerPolicy)
+	p, err := hub.NewProxy(context.Background(), "test-g1")
+	if !errors.Is(err, errDBDown) {
+		t.Fatalf("expected the database error to propagate, got %v", err)
 	}
-	return r.FakeProxyRepository.CooldownDestination(ctx, id, owner, ttl, delay)
-}
-
-func TestNewProxy_ErrorPathsLeaveProxyUnlocked(t *testing.T) {
-	tests := []struct {
-		name     string
-		inject   func(*failingWriteRepo)
-		checkErr error
-	}{
-		{
-			name:   "revalidation write fails after a successful check",
-			inject: func(r *failingWriteRepo) { r.failRefresh = true },
-		},
-		{
-			name:     "failure persistence fails after a conclusive proxy error",
-			inject:   func(r *failingWriteRepo) { r.failFailure = true },
-			checkErr: &contract.ProxyCheckError{Kind: contract.CheckProxy, Reason: "refused", Err: errors.New("refused")},
-		},
-		{
-			name:     "cooldown write fails after a destination rejection",
-			inject:   func(r *failingWriteRepo) { r.failCooldown = true },
-			checkErr: &contract.ProxyCheckError{Kind: contract.CheckTarget, Reason: "429", Err: errors.New("429")},
-		},
+	if p != nil {
+		t.Fatal("expected no proxy when the revalidation write fails")
 	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			base, _ := newClockRepo()
-			id := seedFreshProxy(t, base, "1.2.3.4")
-			repo := &failingWriteRepo{FakeProxyRepository: base}
-			tc.inject(repo)
-			hub := NewProxyHub(repo, 5*time.Minute, fakeChecker(func(context.Context, string, string, int) (int, error) {
-				return 1, tc.checkErr
-			}), time.Minute, consumerPolicy)
-
-			p, err := hub.NewProxy(context.Background(), "test-g1")
-			if !errors.Is(err, errDBDown) {
-				t.Fatalf("expected the database error to propagate, got %v", err)
-			}
-			if p != nil {
-				t.Fatal("expected no proxy on an error path")
-			}
-			after, err := base.Get(context.Background(), id)
-			if err != nil {
-				t.Fatalf("repo.Get: %v", err)
-			}
-			if after.LockedBy != nil {
-				t.Errorf("expected claim released, still locked by %q", *after.LockedBy)
-			}
-		})
+	after, err := base.Get(context.Background(), id)
+	if err != nil {
+		t.Fatalf("repo.Get: %v", err)
+	}
+	if after.LockedBy != nil {
+		t.Errorf("expected claim released, still locked by %q", *after.LockedBy)
 	}
 }
 
 func TestProxyHub_NewProxy_NoAvailable(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(consumerPolicy)
-	hub := NewProxyHub(repo, 5*time.Minute, nil, 0, consumerPolicy)
+	hub := NewProxyHub(repo, 5*time.Minute, 0, consumerPolicy)
 	p, err := hub.NewProxy(context.Background(), "test-g1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -443,7 +398,7 @@ func TestProxyHub_NewProxy_AllLocked(t *testing.T) {
 		t.Fatalf("ClaimProxy: %v", err)
 	}
 
-	hub := NewProxyHub(repo, 5*time.Minute, nil, 0, consumerPolicy)
+	hub := NewProxyHub(repo, 5*time.Minute, 0, consumerPolicy)
 	p, err := hub.NewProxy(context.Background(), "test-g1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -456,7 +411,7 @@ func TestProxyHub_NewProxy_AllLocked(t *testing.T) {
 func TestProxyHub_LockTTL(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(consumerPolicy)
 	ttl := 10 * time.Minute
-	hub := NewProxyHub(repo, ttl, nil, 0, consumerPolicy)
+	hub := NewProxyHub(repo, ttl, 0, consumerPolicy)
 	if hub.LockTTL() != ttl {
 		t.Fatalf("expected lock TTL %v, got %v", ttl, hub.LockTTL())
 	}
@@ -464,7 +419,7 @@ func TestProxyHub_LockTTL(t *testing.T) {
 
 func TestProxyHub_DestinationCooldown(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(consumerPolicy)
-	hub := NewProxyHub(repo, 5*time.Minute, nil, 90*time.Second, consumerPolicy)
+	hub := NewProxyHub(repo, 5*time.Minute, 90*time.Second, consumerPolicy)
 	if hub.DestinationCooldown() != 90*time.Second {
 		t.Fatalf("expected destination cooldown 90s, got %v", hub.DestinationCooldown())
 	}
@@ -474,7 +429,7 @@ func TestProxyHub_RandomActive_ReturnsProxy(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(consumerPolicy)
 	seedFreshProxy(t, repo, "1.2.3.4")
 
-	hub := NewProxyHub(repo, 5*time.Minute, nil, 0, consumerPolicy)
+	hub := NewProxyHub(repo, 5*time.Minute, 0, consumerPolicy)
 	p, err := hub.RandomActive(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -486,7 +441,7 @@ func TestProxyHub_RandomActive_ReturnsProxy(t *testing.T) {
 
 func TestProxyHub_RandomActive_NoAvailable(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(consumerPolicy)
-	hub := NewProxyHub(repo, 5*time.Minute, nil, 0, consumerPolicy)
+	hub := NewProxyHub(repo, 5*time.Minute, 0, consumerPolicy)
 	p, err := hub.RandomActive(context.Background())
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -505,7 +460,7 @@ func TestProxyHub_RandomActive_SkipsInactiveAndLocked(t *testing.T) {
 		Protocol: "http", IP: "5.6.7.8", Port: 8080, Source: "test",
 	})
 
-	hub := NewProxyHub(repo, 5*time.Minute, nil, 0, consumerPolicy)
+	hub := NewProxyHub(repo, 5*time.Minute, 0, consumerPolicy)
 	for range 10 {
 		p, err := hub.RandomActive(context.Background())
 		if err != nil {
@@ -525,7 +480,7 @@ func TestProxyHub_SwapActive_DifferentProxy(t *testing.T) {
 	seedFreshProxy(t, repo, "1.2.3.4")
 	seedFreshProxy(t, repo, "1.2.3.5")
 
-	hub := NewProxyHub(repo, 5*time.Minute, nil, 0, consumerPolicy)
+	hub := NewProxyHub(repo, 5*time.Minute, 0, consumerPolicy)
 	// Get initial proxy.
 	initial, err := hub.RandomActive(context.Background())
 	if err != nil || initial == nil {
@@ -552,7 +507,7 @@ func TestProxyHub_SwapActive_NilCurrent(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(consumerPolicy)
 	seedFreshProxy(t, repo, "1.2.3.4")
 
-	hub := NewProxyHub(repo, 5*time.Minute, nil, 0, consumerPolicy)
+	hub := NewProxyHub(repo, 5*time.Minute, 0, consumerPolicy)
 	p, err := hub.SwapActive(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -565,7 +520,7 @@ func TestProxyHub_SwapActive_NilCurrent(t *testing.T) {
 func TestProxyHub_LockRefreshInterval(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(consumerPolicy)
 	newHub := func(ttl time.Duration) *ProxyHub {
-		return NewProxyHub(repo, ttl, nil, 0, consumerPolicy)
+		return NewProxyHub(repo, ttl, 0, consumerPolicy)
 	}
 	cases := []struct {
 		name string

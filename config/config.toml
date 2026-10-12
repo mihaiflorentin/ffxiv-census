@@ -45,6 +45,7 @@ vhost    = "ffxiv-census"
 
 [queue]
 max_attempts = 50
+retry_tiers  = ["5s", "30s", "5m", "1h"]
 
 [writer]
 batch_size     = 100
@@ -113,8 +114,6 @@ ercindedeoglu    = true
 lock_ttl              = "5m"
 lodestone_rate_limit  = 1.0
 request_timeout       = "30s"
-test_url              = "https://na.finalfantasyxiv.com/lodestone/"
-test_timeout          = "10s"
 cooldown              = "60s"
 cooldown_max          = "15m"
 job_attempts          = 3

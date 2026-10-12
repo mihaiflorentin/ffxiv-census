@@ -112,8 +112,8 @@ func assertWorkerEnvValue(t *testing.T, worker, section, envName, wantValue stri
 }
 
 // TestMetricsPortOnlyOnConsumeWorkers guards the worker metrics endpoint: only
-// the `consume` commands accept --metrics-port, so `proxy consume` and
-// `proxy scan` workers must not declare one.
+// the `consume` commands accept --metrics-port, so `proxy scan` workers must
+// not declare one.
 func TestMetricsPortOnlyOnConsumeWorkers(t *testing.T) {
 	values, err := os.ReadFile("values.yaml")
 	if err != nil {

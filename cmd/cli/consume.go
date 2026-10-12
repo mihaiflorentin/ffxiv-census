@@ -182,10 +182,15 @@ func runProxyConsumer(ctx context.Context, q contract.Queue, eventTypes []string
 
 var consumeFailedCmd = &cobra.Command{
 	Use:   "failed",
-	Short: "Consume from failed queues and re-publish to main queues",
-	Long: `Run a long-running consumer that reads from per-event-type failed queues
-and re-publishes messages back to the main queues for retry. Messages that have
-exceeded 100 failure attempts are permanently discarded.
+	Short: "Drain the legacy failed queues into the main queues and delay tiers",
+	Long: `Run a long-running consumer that drains the per-event-type legacy failed
+queues (census.<type>.failed). New failures no longer go there: they wait in
+delay-tier queues that expire back to the main queue on their own. This worker
+only moves messages left over from before the tiers existed, without sleeping:
+straight to the main queue when their old backoff has elapsed, into the tier
+covering the remaining wait otherwise, or to the dead queue when their attempts
+are exhausted. Nothing is discarded. It can be stopped once the failed queues
+are empty.
 
 Use --events to filter which failed queues to consume from (e.g. --events "id-sweep,character-census").`,
 	RunE: func(cmd *cobra.Command, args []string) error {

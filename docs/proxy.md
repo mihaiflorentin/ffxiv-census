@@ -14,12 +14,11 @@ The proxy feature is a separate bounded context (`domain/proxy/`) with its own C
 | Domain objects | `domain/proxy/proxy.go` | `Proxy` — consumer lifecycle over `RefreshConsumerLock`, fenced `MarkFailed`, `CooldownDestination`, `ResetDestinationFailures` |
 | Domain cooldown | `domain/proxy/cooldown.go` | `DestinationBackoff` — floor doubled per consecutive failure, capped, never below `Retry-After` |
 | Domain scheduling | `domain/proxy/scheduling.go` | `ClassifyCheck`, `MakeScanUpdate`, `MakeConsumerFailureUpdate`, `RecoveryDelay` |
-| Domain hub | `domain/proxy/hub.go` | `ProxyHub` — tested, fenced, owner-locked handout (`NewProxy`) |
+| Domain hub | `domain/proxy/hub.go` | `ProxyHub` — freshness-validated, owner-locked handout (`NewProxy`) |
 | Domain scanner | `domain/proxy/worker/scan.go` | Single-dispatcher lease-based scan worker |
 | Domain admission | `domain/proxy/worker/admission.go` | Persistent round-robin admission state |
 | Domain retirement | `domain/proxy/worker/retire.go` | `RetirementSweep` — paced, batched retirement of rows already over the thresholds |
 | Infrastructure | `infrastructure/proxy/health.go` | General checker: complete-response GET through the proxy to the health target (default The Lodestone) |
-| Infrastructure | `infrastructure/proxy/checker.go` | Destination checker: complete-response GET to The Lodestone with `Retry-After` parsing |
 | Infrastructure | `infrastructure/proxy/guard.go` | `EndpointGuard` — per-replica egress circuit breaker |
 | Infrastructure | `infrastructure/proxyscrape/`, `infrastructure/geonode/`, `infrastructure/textproxy/`, … | Discovery providers (streaming; `textproxy` is a `ConditionalProvider`) |
 | Infrastructure | `infrastructure/httpclient/list_client.go` | Direct HTTP client for provider lists: User-Agent, timeout, body size limit |
@@ -149,15 +148,16 @@ Persistence: `destination_failures integer NOT NULL DEFAULT 0` on `proxies` (mig
 
 ## Consumer integration (`consume --proxy`)
 
-`ProxyHub.NewProxy(ctx, owner)` hands out a proxy only after three steps, and returns `nil` (caller retries with backoff) when any step fails:
+`ProxyHub.NewProxy(ctx, owner)` hands out a proxy after two steps, and returns `nil` (caller retries with backoff) when either fails:
 
-1. `ClaimProxy` — fresh, uncooldowned, unlocked, protocol-supported row (`FOR UPDATE SKIP LOCKED`), ordered by recency of proof, uptime, latency, failure count.
-2. Destination check — the `DestinationChecker` (`proxy.consumer.test_url`, default The Lodestone) must return 200 with a complete body.
-3. `RefreshConsumerLock` — revalidates freshness, ownership, lock validity and cooldown, extends the lock, and returns the record with the **live observation version** the consumer must present later.
+1. `ClaimProxy` — fresh, uncooldowned, unlocked, protocol-supported row (`FOR UPDATE SKIP LOCKED`), ordered by destination failures, uptime, latency, failure count.
+2. `RefreshConsumerLock` — revalidates freshness, ownership, lock validity and cooldown, extends the lock, and returns the record with the **live observation version** the consumer must present later.
+
+A hand-out sends no request to The Lodestone (freshness-only handout). Scan freshness, general health verified within `freshness_ttl` (120 s), is trusted, and the **first real request of the job is the destination check**. A proxy The Lodestone rejects there (challenge, 429, timeout, 5xx) or that fails to dial is handled by the outcome table below: released and put on the growing destination cooldown (or failed conclusively on a dial failure), and the job retries in-process on another proxy, except after a 429, where the delivery returns to the queue. A dead or blocked proxy therefore costs one failed real request instead of an extra full Lodestone page fetch and tunnel on every hand-out.
 
 Every goroutine owns exactly one proxy (`census-consume-<host>-p<pid>-w<workerID>`). Per job:
 
-- `Proxy.CanUse` revalidates through `RefreshConsumerLock` — the historical local-status shortcut is gone; a lock lost or a freshness lapse is detected against the database. The refresh is throttled: a worker revalidates and extends the lock of its held proxy at most once per `proxy.consumer.lock_refresh_interval` (default 100 s), not on every job, because refreshing on every job was about 95% of the consumer-side writes on the proxies table. A lost lock, a lapsed freshness or a destination cooldown is therefore noticed within that interval, and the first job on a newly acquired proxy refreshes. A proxy-caused failure (dial failure, destination rejection or timeout) forces a refresh before the next job. The interval must stay below half of `lock_ttl` (checked at startup), so the lock always has at least half its lifetime left when the next refresh is due.
+- `Proxy.CanUse` revalidates through `RefreshConsumerLock` — the historical local-status shortcut is gone; a lock lost or a freshness lapse is detected against the database. The refresh is throttled: a worker revalidates and extends the lock of its held proxy at most once per `proxy.consumer.lock_refresh_interval` (default 100 s), not on every job, because refreshing on every job was about 95% of the consumer-side writes on the proxies table. A lost lock, a lapsed freshness or a destination cooldown is therefore noticed within that interval, and a newly acquired proxy counts as refreshed by its hand-out (`NewProxy` ends with `RefreshConsumerLock`), so the first job does not refresh again. A proxy-caused failure (dial failure, destination rejection or timeout) forces a refresh before the next job. The interval must stay below half of `lock_ttl` (checked at startup), so the lock always has at least half its lifetime left when the next refresh is due.
 - A typed conclusive proxy failure is persisted by `Proxy.MarkFailed` → `RecordConsumerFailure` under a CAS on the version captured **before** the job's I/O, the owner, and a still-valid lock; a stale observation is rejected and only its own lock is released. The failure transition mirrors the scanner's (recovery delay, common-cooldown move, dead thresholds) and invalidates any older scan lease.
 - A failed job attempt is classified from the typed `*contract.ProxyCheckError` (never from error text) and retried in-process on a different proxy, up to `proxy.consumer.job_attempts` proxies per job (default 3, first attempt included). When the attempts are exhausted the error is returned and the job takes the normal queue error path. The table lists what each outcome does:
 
@@ -216,8 +216,6 @@ sweep_batch    = 5000    # rows examined per statement
 lock_ttl             = "5m"                                    # consumer lock TTL
 lodestone_rate_limit = 1.0                                     # req/s override in proxy mode
 request_timeout      = "30s"                                   # proxy-aware client timeout
-test_url             = "https://na.finalfantasyxiv.com/lodestone/"  # destination check
-test_timeout         = "10s"
 cooldown             = "60s"                                   # destination cooldown floor (first failure)
 cooldown_max         = "15m"                                   # ceiling of the per-failure doubling
 job_attempts         = 3                                       # proxies one job may try in-process
@@ -274,7 +272,7 @@ Every run: zero fencing discards, zero claim/persistence errors. Throughput scal
 
 Kill test: one of three replicas was `SIGKILL`ed holding 26 in-flight leases. All 26 rows were reclaimed lazily by the two survivors after the 30 s lease expiry and completed successfully; a captured pre-kill lease token replayed through `CompleteScan` was rejected (`accepted=false`, no error) by the version/token fence.
 
-Smoke: valid bodies activated rows on all four protocols (~105 ms latency recorded); a malformed target body caused the guard to pause claiming with no failure history written (inconclusive, fail closed); refusal proxies failed conclusively in ~1.4 ms; stalls ended at the 10 s deadline (10.00–10.01 s observed); stopping all scanners decayed fresh lists, counts and acquisitions to zero across a single `freshness_ttl` window (staggered per row); hub handout required claim + destination check + freshness revalidation; three destination 429s raised only destination cooldowns (Retry-After honored) while all 20 rows' general health and verification timestamps stayed intact, and no proxy was handed out while the destination rejected.
+Smoke: valid bodies activated rows on all four protocols (~105 ms latency recorded); a malformed target body caused the guard to pause claiming with no failure history written (inconclusive, fail closed); refusal proxies failed conclusively in ~1.4 ms; stalls ended at the 10 s deadline (10.00–10.01 s observed); stopping all scanners decayed fresh lists, counts and acquisitions to zero across a single `freshness_ttl` window (staggered per row); hub handout then required claim + destination check + freshness revalidation (the destination check was later removed from hand-out: the first real request of the job is the check); three destination 429s raised only destination cooldowns (Retry-After honored) while all 20 rows' general health and verification timestamps stayed intact, and no proxy was handed out while the destination rejected.
 
 ## Coordinated rollout procedure
 

@@ -31,12 +31,11 @@ Previous versions used MySQL, then SQLite. The project now runs on PostgreSQL. T
 
 **Proxy accessors:**
 - `ProxyRepository()` — proxy persistence layer; the returned adapter serves both `contract.ProxyRepository` and the scan-store contract (`contract.ProxyScanStore`) used by the scanner
-- `ProxyHub()` — creates a proxy acquisition hub from `[proxy.consumer].lock_ttl`, the destination checker, the destination cooldown floor, `[proxy.consumer].lock_refresh_interval` and the shared scan policy. The owner is constructed by the CLI command (e.g. `census-consume-<hostname>-p<pid>-w<workerID>`) and passed to `RunEventsWithProxy`, not to the hub accessor
+- `ProxyHub()` — creates a proxy acquisition hub from `[proxy.consumer].lock_ttl`, the destination cooldown floor, `[proxy.consumer].lock_refresh_interval` and the shared scan policy. The owner is constructed by the CLI command (e.g. `census-consume-<hostname>-p<pid>-w<workerID>`) and passed to `RunEventsWithProxy`, not to the hub accessor
 - `ProxyCensusHandlers(lodestone, rateLimiter)` — handler registry wired to a proxy-aware Lodestone client. Used by `consume --proxy` — each goroutine creates its own handlers with its own proxy-aware client
 - `ProxyDiscoverer()` — the proxy discovery use case (`domain/proxy.Discoverer`) over the enabled providers and the proxy repository; when the repository also implements `contract.ProxyListCache` (it does) unchanged lists are skipped. Used by `proxy discover`
 - `ProxyScrapeProvider()` / `GeonodeProvider()` / `PubProxyProvider()` / the plain-text list providers — proxy discovery providers, all built on the direct list client
 - `ProxyChecker()` — general availability checker: proxied GET against the configured health target (`[proxy].test_url`, default The Lodestone) requiring HTTP 200 and a complete non-empty body; used by the scan worker for every general check, so an active proxy is proven usable for Lodestone traffic
-- `DestinationChecker()` — Lodestone destination checker (`[proxy.consumer].test_url`); used only for consumer handout validation
 - `ProxyScanPolicy()` / `ProxyScanWeights()` — the single parsed scheduler policy and queue capacity shares shared by the repository and the scan worker (the policy carries the `RetirementRule`)
 - `ProxyRetirementRule()` / `ProxyRetirementSweepSettings()` — the `[proxy.retire]` thresholds and the sweep cadence used by `proxy scan` and `proxy retire`
 - The providers share one direct HTTP client (`httpclient.NewListClient`: User-Agent, 30 s timeout, 64 MiB body limit). It never goes through the proxy pool and must not be used for Lodestone API traffic. The former `DiscoveryHTTPClient()` accessor and its rotating-proxy client were removed

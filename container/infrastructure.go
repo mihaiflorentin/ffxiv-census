@@ -42,7 +42,6 @@ type InfrastructureContainer struct {
 	providerRateLimiter   contract.ProviderRateLimiter
 	proxyRepository       contract.ProxyRepository
 	proxyChecker          contract.ProxyChecker
-	destinationChecker    *proxyinfra.Checker
 	proxyScrapeProvider   contract.ProxyProvider
 	geonodeProvider       contract.ProxyProvider
 	pubProxyProvider      contract.ProxyProvider
@@ -196,7 +195,11 @@ func (s *ServiceContainer) Queue() contract.Queue {
 	if full.Queue != nil && full.Queue.MaxAttempts > 0 {
 		maxAttempts = full.Queue.MaxAttempts
 	}
-	q, err := rabbitmq.New(cfg.GetURL(), s.Logger(), maxAttempts)
+	var opts []rabbitmq.Option
+	if full.Queue != nil && len(full.Queue.RetryTiers) > 0 {
+		opts = append(opts, rabbitmq.WithRetryTiers(full.Queue.RetryTiers))
+	}
+	q, err := rabbitmq.New(cfg.GetURL(), s.Logger(), maxAttempts, opts...)
 	if err != nil {
 		logging.Error("container.queue", fmt.Sprintf("failed to create rabbitmq queue: %v", err))
 		return nil
@@ -345,25 +348,6 @@ func (s *ServiceContainer) ProxyChecker() contract.ProxyChecker {
 	cfg := s.configUnlocked().Proxy
 	checker := proxyinfra.NewHealthChecker(cfg.TestURL, cfg.TestTimeout, s.Logger())
 	s.infrastructure.proxyChecker = checker
-	return checker
-}
-
-// DestinationChecker returns the Lodestone destination checker built from the
-// [proxy.consumer] settings. It is used for handout-time validation only;
-// random provider discovery never invokes it.
-func (s *ServiceContainer) DestinationChecker() contract.ProxyChecker {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.destinationCheckerUnlocked()
-}
-
-func (s *ServiceContainer) destinationCheckerUnlocked() *proxyinfra.Checker {
-	if s.infrastructure.destinationChecker != nil {
-		return s.infrastructure.destinationChecker
-	}
-	cfg := s.configUnlocked().Proxy
-	checker := proxyinfra.NewChecker(cfg.Consumer.TestURL, cfg.Consumer.TestTimeout, s.Logger())
-	s.infrastructure.destinationChecker = checker
 	return checker
 }
 
@@ -618,9 +602,9 @@ func (s *ServiceContainer) ErcinDedeogluProvider() contract.ProxyProvider {
 }
 
 // ProxyHub creates a ProxyHub for consumer handout. The lock TTL and the
-// destination cooldown floor are read from [proxy.consumer] config and
-// handouts are validated with the destination checker; random provider
-// discovery paths on the hub never invoke that checker.
+// destination cooldown floor are read from [proxy.consumer] config. A handout
+// trusts scan freshness and issues no request of its own; the first real
+// request of the job is the destination check.
 func (s *ServiceContainer) ProxyHub() *proxydomain.ProxyHub {
 	repo := s.ProxyRepository()
 	if repo == nil {
@@ -633,8 +617,7 @@ func (s *ServiceContainer) ProxyHub() *proxydomain.ProxyHub {
 			lockTTL = d
 		}
 	}
-	hub := proxydomain.NewProxyHub(repo, lockTTL, s.destinationCheckerUnlocked(),
-		s.proxyConsumerCooldownUnlocked(), s.proxyScanPolicyUnlocked()).
+	hub := proxydomain.NewProxyHub(repo, lockTTL, s.proxyConsumerCooldownUnlocked(), s.proxyScanPolicyUnlocked()).
 		WithDestinationCooldownCap(s.proxyConsumerCooldownMaxUnlocked())
 	if cfg := s.configUnlocked().Proxy; cfg != nil {
 		hub.WithLockRefreshInterval(cfg.Consumer.LockRefreshInterval)

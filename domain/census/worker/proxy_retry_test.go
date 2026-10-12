@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -23,8 +24,9 @@ const (
 
 // retryRun records one in-process retry scenario.
 type retryRun struct {
-	err   error
-	addrs []string // proxy address used by each handler call, in order
+	err      error
+	addrs    []string // proxy address used by each handler call, in order
+	requests int64    // requests that reached the Lodestone, hand-outs included
 }
 
 // runRetryJob drives one job through a single proxy-mode goroutine. script
@@ -32,7 +34,7 @@ type retryRun struct {
 // through. attempts <= 0 keeps the worker default.
 func runRetryJob(t *testing.T, repo *repository.FakeProxyRepository, attempts int, script func(call int, addr string) error) retryRun {
 	t.Helper()
-	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, nil, retryFloor, workerPolicy).
+	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, retryFloor, workerPolicy).
 		WithDestinationCooldownCap(retryCap)
 	q := &fakeProxyQueue{}
 	w := newTestCensusWorker(q, slog.New(slog.NewTextHandler(io.Discard, nil)))
@@ -45,12 +47,16 @@ func runRetryJob(t *testing.T, repo *repository.FakeProxyRepository, attempts in
 
 	var mu sync.Mutex
 	var run retryRun
+	var requests atomic.Int64
 	calls := 0
 	done := make(chan struct{})
 	handlers := func(client contract.LodestoneClient, _ contract.ProviderRateLimiter) *censushandler.Registry {
 		addr := client.(*addrClient).addr
 		reg := censushandler.NewRegistry()
 		reg.Register(censushandler.EventIDSweep, handlerFunc(func() error {
+			// The job's one real request; whatever the script returns stands
+			// for the Lodestone's answer to it.
+			_, _ = client.FetchCharacter(context.Background(), 1)
 			mu.Lock()
 			calls++
 			n := calls
@@ -65,7 +71,7 @@ func runRetryJob(t *testing.T, repo *repository.FakeProxyRepository, attempts in
 		return reg
 	}
 	newClient := func(addr string, _ contract.ProviderRateLimiter) (contract.LodestoneClient, error) {
-		return &addrClient{addr: addr}, nil
+		return &addrClient{addr: addr, requests: &requests}, nil
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -89,6 +95,7 @@ func runRetryJob(t *testing.T, repo *repository.FakeProxyRepository, attempts in
 	mu.Lock()
 	defer mu.Unlock()
 	out := run
+	out.requests = requests.Load()
 	out.addrs = append([]string(nil), run.addrs...)
 	return out
 }
@@ -335,5 +342,117 @@ func TestProxyRetry_SuccessResetsTheFailureStreak(t *testing.T) {
 	}
 	if got := mustGet(t, repo, 1).DestinationFailures; got != 0 {
 		t.Errorf("failures %d after a successful job, want 0", got)
+	}
+}
+
+func TestProxyHandout_IssuesNoRequestBeyondTheJobsOwn(t *testing.T) {
+	repo := repository.NewFakeProxyRepository(workerPolicy)
+	seedFreshProxies(t, repo, 1)
+
+	run := runRetryJob(t, repo, 0, func(int, string) error { return nil })
+	if run.err != nil {
+		t.Fatalf("job: %v", run.err)
+	}
+	if run.requests != 1 {
+		t.Fatalf("%d Lodestone requests for one job, want exactly the job's own", run.requests)
+	}
+}
+
+func TestProxyHandout_FirstRealRequestIsTheDestinationCheck(t *testing.T) {
+	repo := repository.NewFakeProxyRepository(workerPolicy)
+	seedFreshProxies(t, repo, 2)
+
+	// Proxy 1 is rejected on its first real request, the job completes on
+	// proxy 2 with one request per proxy and no hand-out check in between.
+	run := runRetryJob(t, repo, 0, func(call int, _ string) error {
+		if call == 1 {
+			return challengeErr()
+		}
+		return nil
+	})
+	if run.err != nil {
+		t.Fatalf("job: %v", run.err)
+	}
+	if len(run.addrs) != 2 || run.addrs[0] == run.addrs[1] {
+		t.Fatalf("expected the job to move to a second proxy, got %v", run.addrs)
+	}
+	if run.requests != 2 {
+		t.Fatalf("%d Lodestone requests, want one per proxy tried (2)", run.requests)
+	}
+	rejected := mustGet(t, repo, 1)
+	if rejected.DestinationFailures != 1 || rejected.DestinationCooldownUntil == nil || rejected.LockedBy != nil {
+		t.Errorf("rejected proxy: failures=%d cooldown=%v lockedBy=%v, want 1 failure, a cooldown and released",
+			rejected.DestinationFailures, rejected.DestinationCooldownUntil, rejected.LockedBy)
+	}
+}
+
+func TestProxyHandout_FirstRequestRejectionGrowsTheCooldown(t *testing.T) {
+	// A long freshness window keeps the seeded evidence valid while the fake
+	// clock jumps over the earlier cooldown.
+	policy := workerPolicy
+	policy.FreshnessTTL = 24 * time.Hour
+	repo := repository.NewFakeProxyRepository(policy)
+	clock := time.Now().UTC().Truncate(time.Second)
+	repo.Now = func() time.Time { return clock }
+	seedFreshProxies(t, repo, 1)
+	// One earlier destination failure, its cooldown long over.
+	rec, err := repo.ClaimProxy(context.Background(), "seed", time.Minute)
+	if err != nil || rec == nil {
+		t.Fatalf("ClaimProxy: %v, %v", rec, err)
+	}
+	if err := repo.CooldownDestination(context.Background(), 1, "seed", time.Minute, time.Nanosecond); err != nil {
+		t.Fatalf("CooldownDestination: %v", err)
+	}
+	clock = clock.Add(time.Second)
+
+	run := runRetryJob(t, repo, 1, func(int, string) error { return challengeErr() })
+	if run.err == nil || run.requests != 1 {
+		t.Fatalf("expected the rejection to surface after one request, got err=%v requests=%d", run.err, run.requests)
+	}
+	rejected := mustGet(t, repo, 1)
+	if rejected.DestinationFailures != 2 {
+		t.Fatalf("failures %d, want 2 consecutive", rejected.DestinationFailures)
+	}
+	if got := rejected.DestinationCooldownUntil.Sub(clock); got != 2*retryFloor {
+		t.Errorf("second consecutive rejection cools for %s, want %s", got, 2*retryFloor)
+	}
+}
+
+func TestProxyHandout_ProxyOlderThanTheFreshnessWindowIsNotUsed(t *testing.T) {
+	repo := repository.NewFakeProxyRepository(workerPolicy)
+	clock := time.Now().UTC().Truncate(time.Second)
+	repo.Now = func() time.Time { return clock }
+	seedFreshProxies(t, repo, 2)
+	// Proxy 1 is the better one but its last verification is stale; proxy 2
+	// is re-verified just now.
+	clock = clock.Add(workerPolicy.FreshnessTTL + 10*time.Second)
+	leases, err := repo.ClaimScans(context.Background(), contract.ScanVerification, 10)
+	if err != nil {
+		t.Fatalf("ClaimScans: %v", err)
+	}
+	verified := false
+	for _, lease := range leases {
+		if lease.Record.ID != 2 {
+			_ = repo.ReleaseScan(context.Background(), lease)
+			continue
+		}
+		verified, err = repo.CompleteScan(context.Background(), lease, contract.ScanUpdate{Outcome: contract.ScanSuccess, LatencyMS: 100})
+		if err != nil {
+			t.Fatalf("CompleteScan: %v", err)
+		}
+	}
+	if !verified {
+		t.Fatal("failed to re-verify proxy 2")
+	}
+
+	run := runRetryJob(t, repo, 0, func(int, string) error { return nil })
+	if run.err != nil {
+		t.Fatalf("job: %v", run.err)
+	}
+	if len(run.addrs) != 1 || run.addrs[0] != "http://9.9.9.2:8080" {
+		t.Fatalf("expected the job on the freshly verified proxy 2, got %v", run.addrs)
+	}
+	if run.requests != 1 {
+		t.Fatalf("%d Lodestone requests, want 1", run.requests)
 	}
 }
