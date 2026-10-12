@@ -28,7 +28,7 @@ import (
 
 type InfrastructureContainer struct {
 	httpClient            contract.HTTPClient
-	discoveryHTTPClient   contract.HTTPClient
+	providerHTTPClient    contract.HTTPClient
 	statsd                contract.StatsdClient
 	prometheusRegistry    *metrics.Registry
 	databaseDriver        contract.DatabaseDriver
@@ -71,46 +71,25 @@ func (s *ServiceContainer) HTTPClient() contract.HTTPClient {
 	return client
 }
 
-// DiscoveryHTTPClient returns an HTTPClient that routes requests through a
-// rotating pool of active proxies for public proxy-list providers. Falls back
-// to the direct client when no proxy is available. Must not be used for
-// Lodestone APIs.
-func (s *ServiceContainer) DiscoveryHTTPClient() contract.HTTPClient {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.discoveryHTTPClientUnlocked()
-}
+// Limits of the direct client that fetches proxy provider lists and APIs.
+const (
+	providerHTTPTimeout  = 30 * time.Second
+	providerMaxBodyBytes = 64 << 20
+	// providerUserAgent names the project and where to reach it, so a provider
+	// that dislikes the traffic can tell who is behind it.
+	providerUserAgent = "ffxiv-census/1.0 (+https://github.com/mihaiflorentin88/ffxiv-census)"
+)
 
-// discoveryHTTPClientUnlocked returns the discovery HTTP client without acquiring
-// the mutex. Callers that already hold s.mu MUST use this method to avoid deadlock.
-func (s *ServiceContainer) discoveryHTTPClientUnlocked() contract.HTTPClient {
-	if s.infrastructure.discoveryHTTPClient != nil {
-		return s.infrastructure.discoveryHTTPClient
+// providerHTTPClientUnlocked returns the HTTP client for proxy provider lists
+// and APIs without acquiring the mutex; callers that already hold s.mu use it.
+// It goes straight out from the cluster, never through the proxy pool: list
+// downloads must not spend the Lodestone proxies' bandwidth and request
+// budget. It must not be used for Lodestone requests.
+func (s *ServiceContainer) providerHTTPClientUnlocked() contract.HTTPClient {
+	if s.infrastructure.providerHTTPClient == nil {
+		s.infrastructure.providerHTTPClient = httpclient.NewListClient(providerUserAgent, providerHTTPTimeout, providerMaxBodyBytes)
 	}
-	// Build the proxy hub using unlocked accessors since we already hold the lock.
-	driver := s.databaseUnlocked()
-	if driver == nil {
-		return s.HTTPClient()
-	}
-	repo := s.infrastructure.proxyRepository
-	if repo == nil {
-		repo = repository.NewProxyRepository(driver, s.proxyScanPolicyUnlocked())
-		s.infrastructure.proxyRepository = repo
-	}
-	lockTTL := 5 * time.Minute
-	if cfg := s.configUnlocked().Proxy; cfg != nil && cfg.Consumer.LockTTL != "" {
-		if d, err := time.ParseDuration(cfg.Consumer.LockTTL); err == nil && d > 0 {
-			lockTTL = d
-		}
-	}
-	checker := s.destinationCheckerUnlocked()
-	hub := proxydomain.NewProxyHub(repo, lockTTL, checker, s.proxyConsumerCooldownUnlocked(), s.proxyScanPolicyUnlocked()).
-		WithDestinationCooldownCap(s.proxyConsumerCooldownMaxUnlocked())
-	if hub == nil {
-		return s.HTTPClient()
-	}
-	s.infrastructure.discoveryHTTPClient = httpclient.NewRotatingProxyClient(hub, s.HTTPClient(), 30*time.Second)
-	return s.infrastructure.discoveryHTTPClient
+	return s.infrastructure.providerHTTPClient
 }
 
 func (s *ServiceContainer) Statsd() contract.StatsdClient {
@@ -457,7 +436,7 @@ func (s *ServiceContainer) ProxyScrapeProvider() contract.ProxyProvider {
 	if cfg == nil || !cfg.Providers.ProxyScrape {
 		return nil
 	}
-	s.infrastructure.proxyScrapeProvider = proxyscrape.New(s.discoveryHTTPClientUnlocked(), cfg.Providers.ProxyScrapeURL)
+	s.infrastructure.proxyScrapeProvider = proxyscrape.New(s.providerHTTPClientUnlocked(), cfg.Providers.ProxyScrapeURL)
 	return s.infrastructure.proxyScrapeProvider
 }
 
@@ -471,7 +450,7 @@ func (s *ServiceContainer) GeonodeProvider() contract.ProxyProvider {
 	if cfg == nil || !cfg.Providers.Geonode {
 		return nil
 	}
-	s.infrastructure.geonodeProvider = geonode.New(s.discoveryHTTPClientUnlocked(), cfg.Providers.GeonodeURL)
+	s.infrastructure.geonodeProvider = geonode.New(s.providerHTTPClientUnlocked(), cfg.Providers.GeonodeURL)
 	return s.infrastructure.geonodeProvider
 }
 
@@ -485,7 +464,7 @@ func (s *ServiceContainer) PubProxyProvider() contract.ProxyProvider {
 	if cfg == nil || !cfg.Providers.PubProxy {
 		return nil
 	}
-	s.infrastructure.pubProxyProvider = pubproxy.New(s.discoveryHTTPClientUnlocked(), cfg.Providers.PubProxyURL)
+	s.infrastructure.pubProxyProvider = pubproxy.New(s.providerHTTPClientUnlocked(), cfg.Providers.PubProxyURL)
 	return s.infrastructure.pubProxyProvider
 }
 
@@ -500,7 +479,7 @@ func (s *ServiceContainer) ProxiflyProvider() contract.ProxyProvider {
 		return nil
 	}
 	base := strings.TrimRight(cfg.Providers.ProxiflyURL, "/")
-	s.infrastructure.proxiflyProvider = textproxy.New(s.discoveryHTTPClientUnlocked(), "proxifly", map[string]string{
+	s.infrastructure.proxiflyProvider = textproxy.New(s.providerHTTPClientUnlocked(), "proxifly", map[string]string{
 		"http":   base + "/http/data.txt",
 		"socks4": base + "/socks4/data.txt",
 		"socks5": base + "/socks5/data.txt",
@@ -519,7 +498,7 @@ func (s *ServiceContainer) TheSpeedXProvider() contract.ProxyProvider {
 		return nil
 	}
 	base := strings.TrimRight(cfg.Providers.TheSpeedXURL, "/")
-	s.infrastructure.theSpeedXProvider = textproxy.New(s.discoveryHTTPClientUnlocked(), "thespeedx", map[string]string{
+	s.infrastructure.theSpeedXProvider = textproxy.New(s.providerHTTPClientUnlocked(), "thespeedx", map[string]string{
 		"http":   base + "/http.txt",
 		"socks4": base + "/socks4.txt",
 		"socks5": base + "/socks5.txt",
@@ -538,7 +517,7 @@ func (s *ServiceContainer) MonosansProvider() contract.ProxyProvider {
 		return nil
 	}
 	base := strings.TrimRight(cfg.Providers.MonosansURL, "/")
-	s.infrastructure.monosansProvider = textproxy.New(s.discoveryHTTPClientUnlocked(), "monosans", map[string]string{
+	s.infrastructure.monosansProvider = textproxy.New(s.providerHTTPClientUnlocked(), "monosans", map[string]string{
 		"http":   base + "/http.txt",
 		"socks4": base + "/socks4.txt",
 		"socks5": base + "/socks5.txt",
@@ -557,7 +536,7 @@ func (s *ServiceContainer) GfpcomProvider() contract.ProxyProvider {
 		return nil
 	}
 	base := strings.TrimRight(cfg.Providers.GfpcomURL, "/")
-	s.infrastructure.gfpcomProvider = textproxy.New(s.discoveryHTTPClientUnlocked(), "gfpcom", map[string]string{
+	s.infrastructure.gfpcomProvider = textproxy.New(s.providerHTTPClientUnlocked(), "gfpcom", map[string]string{
 		"http":   base + "/http.txt",
 		"socks4": base + "/socks4.txt",
 		"socks5": base + "/socks5.txt",
@@ -576,7 +555,7 @@ func (s *ServiceContainer) ThordataProvider() contract.ProxyProvider {
 		return nil
 	}
 	base := strings.TrimRight(cfg.Providers.ThordataURL, "/")
-	s.infrastructure.thordataProvider = textproxy.New(s.discoveryHTTPClientUnlocked(), "thordata", map[string]string{
+	s.infrastructure.thordataProvider = textproxy.New(s.providerHTTPClientUnlocked(), "thordata", map[string]string{
 		"http": base + "/http.txt",
 	})
 	return s.infrastructure.thordataProvider
@@ -593,7 +572,7 @@ func (s *ServiceContainer) HproxyProvider() contract.ProxyProvider {
 		return nil
 	}
 	base := strings.TrimRight(cfg.Providers.HproxyURL, "/")
-	s.infrastructure.hproxyProvider = textproxy.New(s.discoveryHTTPClientUnlocked(), "hproxy", map[string]string{
+	s.infrastructure.hproxyProvider = textproxy.New(s.providerHTTPClientUnlocked(), "hproxy", map[string]string{
 		"http":   base + "/http.txt",
 		"socks4": base + "/socks4.txt",
 		"socks5": base + "/socks5.txt",
@@ -612,7 +591,7 @@ func (s *ServiceContainer) Sage520Provider() contract.ProxyProvider {
 		return nil
 	}
 	base := strings.TrimRight(cfg.Providers.Sage520URL, "/")
-	s.infrastructure.sage520Provider = textproxy.New(s.discoveryHTTPClientUnlocked(), "sage520", map[string]string{
+	s.infrastructure.sage520Provider = textproxy.New(s.providerHTTPClientUnlocked(), "sage520", map[string]string{
 		"http":   base + "/http.txt",
 		"socks4": base + "/socks4.txt",
 		"socks5": base + "/socks5.txt",
@@ -631,7 +610,7 @@ func (s *ServiceContainer) ErcinDedeogluProvider() contract.ProxyProvider {
 		return nil
 	}
 	base := strings.TrimRight(cfg.Providers.ErcinDedeogluURL, "/")
-	s.infrastructure.ercindedeogluProvider = textproxy.New(s.discoveryHTTPClientUnlocked(), "ercindedeoglu", map[string]string{
+	s.infrastructure.ercindedeogluProvider = textproxy.New(s.providerHTTPClientUnlocked(), "ercindedeoglu", map[string]string{
 		"http":   base + "/http.txt",
 		"socks5": base + "/socks5.txt",
 	})

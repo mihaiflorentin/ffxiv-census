@@ -118,6 +118,20 @@ func (c *client) GetStream(
 	if consume == nil {
 		return fmt.Errorf("stream response consumer is required")
 	}
+	return c.GetStreamHeaders(ctx, rawURL, queryParams, headers, func(status int, _ map[string][]string, body io.Reader) error {
+		return consume(status, body)
+	})
+}
+
+func (c *client) GetStreamHeaders(
+	ctx context.Context,
+	rawURL string,
+	queryParams, headers map[string]string,
+	consume func(int, map[string][]string, io.Reader) error,
+) error {
+	if consume == nil {
+		return fmt.Errorf("stream response consumer is required")
+	}
 	req, cancel, err := c.buildRequest(ctx, requestdto.HTTPRequest{
 		Method:      http.MethodGet,
 		URL:         rawURL,
@@ -131,14 +145,11 @@ func (c *client) GetStream(
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return &transportError{err: fmt.Errorf("execute request %s %s: %w", req.Method, req.URL.String(), err)}
+		return fmt.Errorf("execute request %s %s: %w", req.Method, req.URL.String(), err)
 	}
 	defer resp.Body.Close()
 
-	if consume == nil {
-		return fmt.Errorf("stream response consumer is required")
-	}
-	return consume(resp.StatusCode, resp.Body)
+	return consume(resp.StatusCode, resp.Header, resp.Body)
 }
 
 func (c *client) Get(ctx context.Context, url string, queryParams, headers map[string]string) (responsedto.HTTPResponse, error) {

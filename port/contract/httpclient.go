@@ -19,4 +19,7 @@ type HTTPClient interface {
 	// The body is closed after consume returns. The callback receives every HTTP
 	// status code — the caller decides what constitutes a retryable or fatal status.
 	GetStream(ctx context.Context, url string, queryParams, headers map[string]string, consume func(statusCode int, body io.Reader) error) error
+	// GetStreamHeaders is GetStream that also passes the response headers to
+	// consume, for callers that need ETag or Last-Modified (conditional GET).
+	GetStreamHeaders(ctx context.Context, url string, queryParams, headers map[string]string, consume func(statusCode int, header map[string][]string, body io.Reader) error) error
 }
