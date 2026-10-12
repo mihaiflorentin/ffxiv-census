@@ -31,11 +31,25 @@ type DemographicCounts struct {
 	RaceGenders []GroupCount // Key format: "Race|Gender"
 }
 
+// CharacterWrite is one finished character result: the profile row and the
+// full set of jobs the character currently has.
+type CharacterWrite struct {
+	Record CharacterRecord
+	Jobs   []ClassJobRecord
+}
+
 // CharacterRepository persists character snapshots and their job levels.
 type CharacterRepository interface {
 	// Upsert replaces the character row and its jobs in one transaction.
 	// first_seen_at is preserved on conflict; deleted_at is cleared.
 	Upsert(ctx context.Context, rec CharacterRecord, jobs []ClassJobRecord) error
+	// StoreResult stores a whole census result in ONE transaction: every
+	// character and its jobs (each as Upsert does), then each achievement write
+	// (milestones upserted additively, then the character's achievement
+	// summary updated; a Private write only flags the character private).
+	// Atomic: on error nothing in the result is committed. An empty result is
+	// a no-op.
+	StoreResult(ctx context.Context, result CensusResult) error
 	// UpsertGear replaces all gear slots for a character in one transaction.
 	UpsertGear(ctx context.Context, charID uint32, gear []CharacterGearRecord) error
 	// GetGear returns the character's equipped gear slots (empty if none).
@@ -56,12 +70,6 @@ type CharacterRepository interface {
 	GetJobs(ctx context.Context, id uint32) ([]ClassJobRecord, error)
 	// MarkDeleted records that the character no longer exists on Lodestone.
 	MarkDeleted(ctx context.Context, id uint32, at time.Time) error
-	// UpdateAchievementSummary sets achievements_private, latest_achievement_id,
-	// and latest_achievement_at for a character (after an achievement census).
-	UpdateAchievementSummary(ctx context.Context, id uint32, private bool, latestID *uint32, latestAt *time.Time) error
-	// SetAchievementsPrivate marks a character's achievement visibility without
-	// touching milestones or the latest-achievement fields.
-	SetAchievementsPrivate(ctx context.Context, id uint32, private bool) error
 	// ListStale returns up to limit characters ordered by last_census_at ASC
 	// NULLS FIRST, id ASC. When cutoff is the zero time.Time the age predicate
 	// is disabled and all non-deleted characters are eligible; a positive

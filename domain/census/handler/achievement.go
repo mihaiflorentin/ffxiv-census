@@ -20,6 +20,13 @@ type AchievementCensus struct {
 	census      *census.Service
 	logger      contract.Logger
 	rateLimiter contract.ProviderRateLimiter
+	writerSlot
+}
+
+// WithWriter routes this handler's storage through w and returns the handler.
+func (h *AchievementCensus) WithWriter(w contract.ResultWriter) *AchievementCensus {
+	h.set(w)
+	return h
 }
 
 func NewAchievementCensus(lodestone contract.LodestoneClient, svc *census.Service, logger contract.Logger, rateLimiter ...contract.ProviderRateLimiter) *AchievementCensus {
@@ -36,6 +43,10 @@ func (h *AchievementCensus) Handle(ctx context.Context, payload []byte) ([]contr
 		return nil, errors.Join(contract.ErrPoisonPayload, fmt.Errorf("achievement-census payload: %w", err))
 	}
 	h.logger.DebugContext(ctx, "handler.achievement_census", slog.Uint64("character_id", uint64(p.CharacterID)))
+
+	if err := h.require(); err != nil {
+		return nil, err
+	}
 
 	// Wait for Lodestone if rate-limited (blocks until cooldown expires).
 	if h.rateLimiter != nil && !h.rateLimiter.IsAvailable(contract.ProviderLodestone) {
@@ -90,7 +101,7 @@ func (h *AchievementCensus) Handle(ctx context.Context, payload []byte) ([]contr
 			slog.Bool("has_latest", summary.LatestAchievement != nil))
 	}
 
-	milestones, err := h.census.ProcessMilestoneResults(ctx, p.CharacterID, summary)
+	milestones, err := h.process(ctx, p.CharacterID, summary)
 	if err != nil {
 		h.logger.ErrorContext(ctx, "handler.achievement_census.process_error", slog.Uint64("character_id", uint64(p.CharacterID)), slog.Any("error", err))
 		return nil, fmt.Errorf("achievement-census process %d: %w", p.CharacterID, err)
@@ -104,6 +115,19 @@ func (h *AchievementCensus) Handle(ctx context.Context, payload []byte) ([]contr
 		slog.Bool("private", private),
 		slog.Duration("duration", duration))
 	return nil, nil
+}
+
+// process hands the summary to the writer and waits for its batch to commit.
+// It returns the persisted milestones.
+func (h *AchievementCensus) process(ctx context.Context, charID uint32, summary *contract.AchievementSummary) ([]contract.CharacterMilestone, error) {
+	w, err := h.census.PrepareMilestoneResults(ctx, charID, summary)
+	if err != nil {
+		return nil, err
+	}
+	if err := h.writer.Write(ctx, contract.CensusResult{Achievements: []contract.AchievementWrite{w}}); err != nil {
+		return nil, err
+	}
+	return w.Milestones, nil
 }
 
 // missingMilestoneIDs returns only absent tracked milestones in canonical order.

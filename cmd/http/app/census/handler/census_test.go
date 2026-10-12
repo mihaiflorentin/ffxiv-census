@@ -39,8 +39,12 @@ func newRig(t *testing.T) *testRig {
 
 func (r *testRig) seed(t *testing.T, char *contract.CharacterProfile) {
 	t.Helper()
-	if err := r.svc.UpsertCharacter(context.Background(), char); err != nil {
-		t.Fatalf("UpsertCharacter(%d): %v", char.ID, err)
+	w, err := r.svc.PrepareCharacter(char)
+	if err != nil {
+		t.Fatalf("PrepareCharacter(%d): %v", char.ID, err)
+	}
+	if err := r.chars.StoreResult(context.Background(), contract.CensusResult{Characters: []contract.CharacterWrite{w}}); err != nil {
+		t.Fatalf("StoreResult(%d): %v", char.ID, err)
 	}
 }
 

@@ -169,6 +169,13 @@ workers:
         value: "50"
       - name: RABBITMQ_URL
         value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASSWORD)@rabbitmq.default.svc.cluster.local:5672/ffxiv-census"
+      # Workers write census data through the per-pod batching writer (one
+      # serial flush transaction at a time) plus short proxy lease statements,
+      # so 3 connections suffice. Instance env replaces this list wholesale.
+      - name: POSTGRES_MAX_OPEN_CONNS
+        value: "3"
+      - name: POSTGRES_MAX_IDLE_CONNS
+        value: "2"
     volumeMounts: []
     volumes: []
   instances:
@@ -198,9 +205,9 @@ workers:
         - name: RABBITMQ_URL
           value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASSWORD)@rabbitmq.default.svc.cluster.local:5672/ffxiv-census"
         - name: POSTGRES_MAX_OPEN_CONNS
-          value: "15"
+          value: "3"
         - name: POSTGRES_MAX_IDLE_CONNS
-          value: "10"
+          value: "2"
     - name: proxy-character-census
       replicaCount: 1
       command:
@@ -216,9 +223,9 @@ workers:
         - name: RABBITMQ_URL
           value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASSWORD)@rabbitmq.default.svc.cluster.local:5672/ffxiv-census"
         - name: POSTGRES_MAX_OPEN_CONNS
-          value: "15"
+          value: "3"
         - name: POSTGRES_MAX_IDLE_CONNS
-          value: "10"
+          value: "2"
     - name: proxy-achievement-census
       replicaCount: 2
       command:
@@ -234,9 +241,9 @@ workers:
         - name: RABBITMQ_URL
           value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASSWORD)@rabbitmq.default.svc.cluster.local:5672/ffxiv-census"
         - name: POSTGRES_MAX_OPEN_CONNS
-          value: "15"
+          value: "3"
         - name: POSTGRES_MAX_IDLE_CONNS
-          value: "10"
+          value: "2"
 
     # --- Proxy discovery/scanning ---
     - name: proxy-new
@@ -253,9 +260,9 @@ workers:
         - name: RABBITMQ_URL
           value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASSWORD)@rabbitmq.default.svc.cluster.local:5672/ffxiv-census"
         - name: POSTGRES_MAX_OPEN_CONNS
-          value: "15"
+          value: "3"
         - name: POSTGRES_MAX_IDLE_CONNS
-          value: "10"
+          value: "2"
     - name: proxy-scan
       replicaCount: 5
       command:
@@ -302,6 +309,11 @@ workers:
           value: "50"
         - name: RABBITMQ_URL
           value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASSWORD)@rabbitmq.default.svc.cluster.local:5672/ffxiv-census"
+        # Republishes failed messages only; no census writes.
+        - name: POSTGRES_MAX_OPEN_CONNS
+          value: "2"
+        - name: POSTGRES_MAX_IDLE_CONNS
+          value: "1"
 
 cronjobs:
   defaults:
@@ -323,6 +335,13 @@ cronjobs:
         value: "50"
       - name: RABBITMQ_URL
         value: "amqp://$(RABBITMQ_USER):$(RABBITMQ_PASSWORD)@rabbitmq.default.svc.cluster.local:5672/ffxiv-census"
+      # Workers write census data through the per-pod batching writer (one
+      # serial flush transaction at a time) plus short proxy lease statements,
+      # so 3 connections suffice. Instance env replaces this list wholesale.
+      - name: POSTGRES_MAX_OPEN_CONNS
+        value: "3"
+      - name: POSTGRES_MAX_IDLE_CONNS
+        value: "2"
     volumeMounts: []
     volumes: []
   instances:

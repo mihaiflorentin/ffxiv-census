@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -72,6 +73,10 @@ pause affected provider queues while letting others continue.`,
 			}
 		}()
 
+		// Registered after the queue close so it runs first: the worker has
+		// stopped by then, and the writer flushes any pending results.
+		defer closeResultWriter(ctx, logger)
+
 		if proxyMode {
 			return runProxyConsumer(ctx, q, eventTypes, concurrency)
 		}
@@ -89,6 +94,20 @@ func init() {
 	consumeCmd.Flags().Bool("proxy", false, "run in proxy mode: each goroutine acquires its own proxy from the pool")
 	consumeFailedCmd.Flags().IntP("concurrency", "c", 4, "number of concurrent worker routines")
 	consumeFailedCmd.Flags().StringP("events", "e", "all", "comma-separated event types for failed queues (e.g. id-sweep,character-census or 'all')")
+}
+
+// closeResultWriter flushes the batching writer's pending results. The signal
+// context is already cancelled during shutdown, so the flush gets its own.
+func closeResultWriter(ctx context.Context, logger contract.Logger) {
+	w := container.Load.ResultWriter()
+	if w == nil {
+		return
+	}
+	closeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 30*time.Second)
+	defer cancel()
+	if err := w.Close(closeCtx); err != nil {
+		logger.ErrorContext(closeCtx, "writer.close_error", slog.Any("error", err))
+	}
 }
 
 // runProxyConsumer starts the census consumer in proxy mode. Each worker goroutine

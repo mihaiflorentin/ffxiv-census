@@ -10,6 +10,7 @@ import (
 	"time"
 
 	mockrepo "github.com/mihaiflorentin88/ffxiv-census/mock/repository"
+	mockwriter "github.com/mihaiflorentin88/ffxiv-census/mock/writer"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
@@ -30,7 +31,36 @@ func newTestServiceAll(t *testing.T) (*Service, *mockrepo.CharacterRepository, *
 	return svc, chars, ach
 }
 
-func TestService_UpsertCharacter(t *testing.T) {
+// storeProfile stores a Lodestone profile the way a census handler does:
+// PrepareCharacter, then one committed write.
+func storeProfile(ctx context.Context, svc *Service, chars *mockrepo.CharacterRepository, char *contract.CharacterProfile) error {
+	w, err := svc.PrepareCharacter(char)
+	if err != nil {
+		return err
+	}
+	return chars.StoreResult(ctx, contract.CensusResult{Characters: []contract.CharacterWrite{w}})
+}
+
+// processMilestones stores an achievement summary the way a census handler
+// does: PrepareMilestoneResults, then one committed write.
+func processMilestones(ctx context.Context, svc *Service, chars *mockrepo.CharacterRepository, charID uint32, summary *contract.AchievementSummary) ([]contract.CharacterMilestone, error) {
+	w, err := svc.PrepareMilestoneResults(ctx, charID, summary)
+	if err != nil {
+		return nil, err
+	}
+	if err := mockwriter.NewStoring(chars, svc.achievements).Write(ctx, contract.CensusResult{Achievements: []contract.AchievementWrite{w}}); err != nil {
+		return nil, err
+	}
+	return w.Milestones, nil
+}
+
+// setLatestAchievement sets a character's latest-achievement time through
+// StoreResult, the one write path.
+func setLatestAchievement(ctx context.Context, chars *mockrepo.CharacterRepository, id uint32, at *time.Time) error {
+	return chars.StoreResult(ctx, contract.CensusResult{Achievements: []contract.AchievementWrite{{CharacterID: id, LatestAt: at}}})
+}
+
+func TestService_StoreProfile(t *testing.T) {
 	svc, chars := newTestService(t)
 
 	char := &contract.CharacterProfile{
@@ -50,7 +80,7 @@ func TestService_UpsertCharacter(t *testing.T) {
 		},
 	}
 
-	if err := svc.UpsertCharacter(context.Background(), char); err != nil {
+	if err := storeProfile(context.Background(), svc, chars, char); err != nil {
 		t.Fatalf("UpsertCharacter: %v", err)
 	}
 	got, err := chars.Get(context.Background(), 123)
@@ -93,9 +123,9 @@ func TestService_StreamCharacters(t *testing.T) {
 	}
 }
 
-func TestService_UpsertCharacter_NilGuard(t *testing.T) {
-	svc, _ := newTestService(t)
-	if err := svc.UpsertCharacter(context.Background(), nil); err == nil {
+func TestService_StoreProfile_NilGuard(t *testing.T) {
+	svc, chars := newTestService(t)
+	if err := storeProfile(context.Background(), svc, chars, nil); err == nil {
 		t.Fatal("expected error for nil character")
 	}
 }
@@ -103,7 +133,7 @@ func TestService_UpsertCharacter_NilGuard(t *testing.T) {
 // A profile without usable race data is hidden on Lodestone (private profile
 // or suppressed race/clan "----"). It must not be persisted and must not
 // erase an existing row.
-func TestService_UpsertCharacter_HiddenProfileNotStored(t *testing.T) {
+func TestService_StoreProfile_HiddenProfileNotStored(t *testing.T) {
 	svc, chars := newTestService(t)
 	ctx := context.Background()
 
@@ -112,7 +142,7 @@ func TestService_UpsertCharacter_HiddenProfileNotStored(t *testing.T) {
 			ID: 1, Name: "Hidden", World: "Ultros", Datacenter: "Primal", Race: race,
 			ClassJobs: []contract.ClassJobRecord{{ClassJobID: 1, Name: "Gladiator", Level: 10}},
 		}
-		if err := svc.UpsertCharacter(ctx, char); !errors.Is(err, ErrProfileHidden) {
+		if err := storeProfile(ctx, svc, chars, char); !errors.Is(err, ErrProfileHidden) {
 			t.Fatalf("race %q: err = %v, want ErrProfileHidden", race, err)
 		}
 		if got, _ := chars.Get(ctx, 1); got != nil {
@@ -125,10 +155,10 @@ func TestService_UpsertCharacter_HiddenProfileNotStored(t *testing.T) {
 
 	// An existing row keeps its last known good data when a re-census hits a
 	// now-hidden profile.
-	if err := svc.UpsertCharacter(ctx, &contract.CharacterProfile{ID: 2, Name: "Good", World: "Ultros", Datacenter: "Primal", Race: "Hyur"}); err != nil {
+	if err := storeProfile(ctx, svc, chars, &contract.CharacterProfile{ID: 2, Name: "Good", World: "Ultros", Datacenter: "Primal", Race: "Hyur"}); err != nil {
 		t.Fatalf("seed upsert: %v", err)
 	}
-	if err := svc.UpsertCharacter(ctx, &contract.CharacterProfile{ID: 2, Name: "Good", World: "Ultros", Datacenter: "Primal", Race: ""}); !errors.Is(err, ErrProfileHidden) {
+	if err := storeProfile(ctx, svc, chars, &contract.CharacterProfile{ID: 2, Name: "Good", World: "Ultros", Datacenter: "Primal", Race: ""}); !errors.Is(err, ErrProfileHidden) {
 		t.Fatalf("re-census err = %v, want ErrProfileHidden", err)
 	}
 	got, _ := chars.Get(ctx, 2)
@@ -137,7 +167,7 @@ func TestService_UpsertCharacter_HiddenProfileNotStored(t *testing.T) {
 	}
 }
 
-func TestService_UpsertCharacter_Profile(t *testing.T) {
+func TestService_StoreProfile_Profile(t *testing.T) {
 	svc, chars := newTestService(t)
 	ctx := context.Background()
 
@@ -151,7 +181,7 @@ func TestService_UpsertCharacter_Profile(t *testing.T) {
 		ActiveJob:  "Black Mage",
 	}
 
-	if err := svc.UpsertCharacter(ctx, char); err != nil {
+	if err := storeProfile(ctx, svc, chars, char); err != nil {
 		t.Fatalf("UpsertCharacter: %v", err)
 	}
 
@@ -187,7 +217,7 @@ func TestService_MaxCharacterID(t *testing.T) {
 	}
 }
 
-func TestService_ProcessAchievements(t *testing.T) {
+func TestService_ProcessMilestones(t *testing.T) {
 	svc, chars := newTestService(t)
 	if err := svc.SyncMilestones(context.Background()); err != nil {
 		t.Fatalf("SyncMilestones: %v", err)
@@ -207,7 +237,7 @@ func TestService_ProcessAchievements(t *testing.T) {
 		LatestAchievement: &latest,
 	}
 
-	ms, err := svc.ProcessMilestoneResults(context.Background(), 123, summary)
+	ms, err := processMilestones(context.Background(), svc, chars, 123, summary)
 	if err != nil {
 		t.Fatalf("ProcessAchievements: %v", err)
 	}
@@ -225,17 +255,66 @@ func TestService_ProcessAchievements(t *testing.T) {
 	}
 }
 
-func TestService_ProcessAchievements_Private(t *testing.T) {
+func TestService_ProcessMilestones_Private(t *testing.T) {
 	svc, chars := newTestService(t)
 	_ = chars.Upsert(context.Background(), contract.CharacterRecord{ID: 5, Name: "X", FirstSeenAt: time.Now()}, nil)
 
 	summary := &contract.AchievementSummary{Private: true}
-	if _, err := svc.ProcessMilestoneResults(context.Background(), 5, summary); err != nil {
+	if _, err := processMilestones(context.Background(), svc, chars, 5, summary); err != nil {
 		t.Fatalf("ProcessAchievements: %v", err)
 	}
 	got, _ := chars.Get(context.Background(), 5)
 	if !got.AchievementsPrivate {
 		t.Error("achievements_private = false, want true")
+	}
+}
+
+func TestService_PrepareMilestoneResults(t *testing.T) {
+	svc, chars := newTestService(t)
+	if err := svc.SyncMilestones(context.Background()); err != nil {
+		t.Fatalf("SyncMilestones: %v", err)
+	}
+	earned := time.Now().Add(-48 * time.Hour)
+	latest := contract.AchievementResult{AchievementID: 999, Earned: true, EarnedAt: time.Now().Add(-time.Hour)}
+	summary := &contract.AchievementSummary{
+		Milestones: []contract.AchievementResult{
+			{AchievementID: 590, Earned: true, EarnedAt: earned},
+			{AchievementID: 591, Earned: false},
+			{AchievementID: 999, Earned: true, EarnedAt: latest.EarnedAt},
+		},
+		LatestAchievement: &latest,
+	}
+
+	w, err := svc.PrepareMilestoneResults(context.Background(), 123, summary)
+	if err != nil {
+		t.Fatalf("PrepareMilestoneResults: %v", err)
+	}
+
+	if w.CharacterID != 123 || w.Private {
+		t.Fatalf("write = %+v", w)
+	}
+	if len(w.Milestones) != 1 || w.Milestones[0].AchievementID != 590 || w.Milestones[0].CharacterID != 123 || !w.Milestones[0].AchievedAt.Equal(earned) {
+		t.Fatalf("milestones = %+v, want only earned registered 590", w.Milestones)
+	}
+	if w.LatestID == nil || *w.LatestID != 999 || w.LatestAt == nil || !w.LatestAt.Equal(latest.EarnedAt) {
+		t.Fatalf("latest = %v @ %v, want 999", w.LatestID, w.LatestAt)
+	}
+	if chars.UpsertCalls != 0 || len(chars.StoredAchievements) != 0 {
+		t.Fatal("PrepareMilestoneResults must not store anything")
+	}
+}
+
+func TestService_PrepareMilestoneResults_PrivateAndErrors(t *testing.T) {
+	svc, _ := newTestService(t)
+	w, err := svc.PrepareMilestoneResults(context.Background(), 5, &contract.AchievementSummary{Private: true})
+	if err != nil || !w.Private || w.CharacterID != 5 || len(w.Milestones) != 0 {
+		t.Fatalf("private write = %+v, %v", w, err)
+	}
+	if _, err := svc.PrepareMilestoneResults(context.Background(), 5, nil); err == nil {
+		t.Fatal("nil summary: want error")
+	}
+	if _, err := svc.PrepareMilestoneResults(context.Background(), 5, &contract.AchievementSummary{}); err == nil {
+		t.Fatal("empty registry: want error")
 	}
 }
 
@@ -257,7 +336,7 @@ func TestService_IsActive_ZeroTime(t *testing.T) {
 	}
 }
 
-func TestService_ProcessAchievements_PreservesMilestonesOnPrivate(t *testing.T) {
+func TestService_ProcessMilestones_PreservesMilestonesOnPrivate(t *testing.T) {
 	svc, chars := newTestService(t)
 	if err := svc.SyncMilestones(context.Background()); err != nil {
 		t.Fatalf("SyncMilestones: %v", err)
@@ -272,12 +351,12 @@ func TestService_ProcessAchievements_PreservesMilestonesOnPrivate(t *testing.T) 
 		},
 		LatestAchievement: &contract.AchievementResult{AchievementID: 590, Name: "My Little Chocobo", Earned: true, EarnedAt: now590},
 	}
-	if _, err := svc.ProcessMilestoneResults(context.Background(), 7, publicSummary); err != nil {
+	if _, err := processMilestones(context.Background(), svc, chars, 7, publicSummary); err != nil {
 		t.Fatalf("ProcessMilestoneResults (public): %v", err)
 	}
 
 	// Now the profile goes private: milestones and latest must be preserved.
-	if _, err := svc.ProcessMilestoneResults(context.Background(), 7, &contract.AchievementSummary{Private: true}); err != nil {
+	if _, err := processMilestones(context.Background(), svc, chars, 7, &contract.AchievementSummary{Private: true}); err != nil {
 		t.Fatalf("ProcessMilestoneResults (private): %v", err)
 	}
 	got, _ := chars.Get(context.Background(), 7)
@@ -296,12 +375,12 @@ func TestService_ProcessAchievements_PreservesMilestonesOnPrivate(t *testing.T) 
 	}
 }
 
-func TestService_ProcessAchievements_EmptyRegistry(t *testing.T) {
+func TestService_ProcessMilestones_EmptyRegistry(t *testing.T) {
 	svc, chars := newTestService(t)
 	_ = chars.Upsert(context.Background(), contract.CharacterRecord{ID: 9, Name: "X", FirstSeenAt: time.Now()}, nil)
 
 	// No SyncMilestones: registry is empty, processing must error rather than wipe.
-	if _, err := svc.ProcessMilestoneResults(context.Background(), 9, &contract.AchievementSummary{}); err == nil {
+	if _, err := processMilestones(context.Background(), svc, chars, 9, &contract.AchievementSummary{}); err == nil {
 		t.Fatal("expected error for empty milestone registry")
 	}
 }
@@ -323,7 +402,7 @@ func TestService_Summary(t *testing.T) {
 		}
 		_ = chars.Upsert(ctx, contract.CharacterRecord{ID: id, Name: fmt.Sprintf("c%d", id), World: "Ultros", FirstSeenAt: now}, jobs)
 		if lat != nil {
-			_ = chars.UpdateAchievementSummary(ctx, id, false, nil, lat)
+			_ = setLatestAchievement(ctx, chars, id, lat)
 		}
 	}
 	seed(1, &active, 100)  // active within window, level 100
@@ -494,7 +573,7 @@ func TestService_Breakdown_Delegates(t *testing.T) {
 	seed := func(id uint32, world string, lat *time.Time) {
 		_ = chars.Upsert(ctx, contract.CharacterRecord{ID: id, Name: fmt.Sprintf("c%d", id), World: world, FirstSeenAt: now}, nil)
 		if lat != nil {
-			_ = chars.UpdateAchievementSummary(ctx, id, false, nil, lat)
+			_ = setLatestAchievement(ctx, chars, id, lat)
 		}
 	}
 	seed(1, "Ultros", &active)

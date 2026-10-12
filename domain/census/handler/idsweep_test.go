@@ -14,6 +14,7 @@ import (
 	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
 	mocklodestone "github.com/mihaiflorentin88/ffxiv-census/mock/lodestone"
 	mockrepo "github.com/mihaiflorentin88/ffxiv-census/mock/repository"
+	mockwriter "github.com/mihaiflorentin88/ffxiv-census/mock/writer"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
@@ -22,7 +23,7 @@ func newTestIDSweep(t *testing.T) (*IDSweep, *mocklodestone.Fake, *mockrepo.Char
 	ls := mocklodestone.NewFake()
 	chars := mockrepo.NewCharacterFake()
 	svc := census.NewService(chars, mockrepo.NewAchievementFake(), mockrepo.NewCensusRunFake())
-	return NewIDSweep(ls, svc, nil), ls, chars
+	return NewIDSweep(ls, svc, nil).WithWriter(mockwriter.NewStoring(chars, nil)), ls, chars
 }
 
 func idsweepPayload(from, to uint32) []byte {
@@ -255,7 +256,7 @@ func TestIDSweep_ReturnsDownstreamJobsInNext(t *testing.T) {
 		}, nil
 	}
 
-	h := NewIDSweep(ls, svc, nil)
+	h := NewIDSweep(ls, svc, nil).WithWriter(mockwriter.NewStoring(chars, nil))
 
 	next, err := h.Handle(context.Background(), idsweepPayload(1, 2))
 	if err != nil {
@@ -299,7 +300,7 @@ func BenchmarkIDSweepNotFoundInfo(b *testing.B) {
 	chars := mockrepo.NewCharacterFake()
 	svc := census.NewService(chars, mockrepo.NewAchievementFake(), mockrepo.NewCensusRunFake())
 	logger := slog.New(slog.NewTextHandler(io.Discard, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	h := NewIDSweep(ls, svc, logger)
+	h := NewIDSweep(ls, svc, logger).WithWriter(mockwriter.NewFake())
 	payload := idsweepPayload(1, 100)
 
 	b.ReportAllocs()

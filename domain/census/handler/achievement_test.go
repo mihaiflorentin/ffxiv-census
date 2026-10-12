@@ -11,6 +11,7 @@ import (
 	"github.com/mihaiflorentin88/ffxiv-census/mock"
 	mocklodestone "github.com/mihaiflorentin88/ffxiv-census/mock/lodestone"
 	mockrepo "github.com/mihaiflorentin88/ffxiv-census/mock/repository"
+	mockwriter "github.com/mihaiflorentin88/ffxiv-census/mock/writer"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
@@ -23,7 +24,7 @@ func newTestAchievementCensus(t *testing.T) (*AchievementCensus, *mocklodestone.
 	if err := svc.SyncMilestones(context.Background()); err != nil {
 		t.Fatalf("SyncMilestones: %v", err)
 	}
-	return NewAchievementCensus(ls, svc, nil), ls, chars, ach
+	return NewAchievementCensus(ls, svc, nil).WithWriter(mockwriter.NewStoring(chars, ach)), ls, chars, ach
 }
 
 func achievementPayload(characterID uint32) []byte {
@@ -91,7 +92,7 @@ func TestAchievementCensus_WaitsForRateLimitedLodestone(t *testing.T) {
 		return &contract.AchievementSummary{}, nil
 	}
 
-	h := NewAchievementCensus(ls, svc, nil, rl)
+	h := NewAchievementCensus(ls, svc, nil, rl).WithWriter(mockwriter.NewFake())
 	start := time.Now()
 	_, err := h.Handle(context.Background(), achievementPayload(1))
 	elapsed := time.Since(start)

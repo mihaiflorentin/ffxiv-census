@@ -46,6 +46,10 @@ vhost    = "ffxiv-census"
 [queue]
 max_attempts = 50
 
+[writer]
+batch_size     = 100
+flush_interval = "1s"
+
 [lodestone]
 rate_limit = 1.0
 max_retries = 1
