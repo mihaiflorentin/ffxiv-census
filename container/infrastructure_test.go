@@ -20,6 +20,16 @@ func TestProxyScanPolicy_CarriesRetirementRuleFromConfig(t *testing.T) {
 	}
 }
 
+func TestProxyListingRule_CarriesRetireSettingsFromConfig(t *testing.T) {
+	svc := NewServiceContainer()
+	retire := svc.Config().Proxy.Retire
+
+	got := svc.ProxyListingRule()
+	if got.RewriteInterval != retire.ListedRewriteInterval || got.ReviveAfter != retire.ReviveAfter {
+		t.Fatalf("ProxyListingRule = %+v, want rewrite %s and revive %s", got, retire.ListedRewriteInterval, retire.ReviveAfter)
+	}
+}
+
 func TestProxyProviders_Enabled(t *testing.T) {
 	svc := NewServiceContainer()
 	// Force config load so we can inspect it.

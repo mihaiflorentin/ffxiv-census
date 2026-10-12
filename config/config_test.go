@@ -253,6 +253,12 @@ func TestNewConfig_ProxyRetireDefaults(t *testing.T) {
 	if retire.SweepBatch != 5000 {
 		t.Errorf("expected retire.sweep_batch 5000, got %d", retire.SweepBatch)
 	}
+	if retire.ReviveAfter != 7*24*time.Hour {
+		t.Errorf("expected retire.revive_after 168h, got %s", retire.ReviveAfter)
+	}
+	if retire.ListedRewriteInterval != 6*time.Hour {
+		t.Errorf("expected retire.listed_rewrite_interval 6h, got %s", retire.ListedRewriteInterval)
+	}
 }
 
 func TestNewConfig_ProxyRetireOverrides(t *testing.T) {
@@ -273,6 +279,8 @@ func TestNewConfigRejectsInvalidRetireSettings(t *testing.T) {
 		"PROXY_RETIRE_AFTER_DAYS",
 		"PROXY_RETIRE_SWEEP_INTERVAL",
 		"PROXY_RETIRE_SWEEP_BATCH",
+		"PROXY_RETIRE_REVIVE_AFTER",
+		"PROXY_RETIRE_LISTED_REWRITE_INTERVAL",
 	} {
 		for _, val := range []string{"0", "-1"} {
 			t.Run(key+"="+val, func(t *testing.T) {

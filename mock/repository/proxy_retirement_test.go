@@ -100,6 +100,8 @@ func TestFakeCountByStatus_ReportsRetired(t *testing.T) {
 	}
 }
 
+var testListingRule = contract.ListingRule{RewriteInterval: time.Hour, ReviveAfter: 48 * time.Hour}
+
 func TestFakeMarkListed_StampsRevivesAndRateLimits(t *testing.T) {
 	f, clock := newFakeRepo()
 	ctx := context.Background()
@@ -110,7 +112,7 @@ func TestFakeMarkListed_StampsRevivesAndRateLimits(t *testing.T) {
 		{Protocol: "http", IP: "10.9.9.9", Port: 9000}, // unknown, never inserted
 	}
 
-	res, err := f.MarkListed(ctx, ep)
+	res, err := f.MarkListed(ctx, ep, testListingRule)
 	if err != nil || res.Marked != 1 || res.Revived != 0 {
 		t.Fatalf("first MarkListed = %+v, %v; want 1 marked", res, err)
 	}
@@ -118,23 +120,49 @@ func TestFakeMarkListed_StampsRevivesAndRateLimits(t *testing.T) {
 		t.Fatalf("Count = %d, listing an unknown endpoint must not insert", n)
 	}
 
-	// Retired within the hour: the listing is rate limited.
-	fakeMutate(f, id, func(p *contract.ProxyRecord) { now := clock.Now(); p.RetiredAt = &now })
+	// Within the rewrite interval the listing is rate limited.
+	fakeMutate(f, id, func(p *contract.ProxyRecord) {
+		retired := clock.Now().Add(-72 * time.Hour)
+		p.RetiredAt = &retired
+		p.FailCount = 14
+	})
 	clock.advance(59 * time.Minute)
-	if res, _ := f.MarkListed(ctx, ep); res.Marked != 0 {
-		t.Fatalf("MarkListed within the hour = %+v, want a no-op", res)
+	if res, _ := f.MarkListed(ctx, ep, testListingRule); res.Marked != 0 {
+		t.Fatalf("MarkListed within the interval = %+v, want a no-op", res)
 	}
 	if got, _ := f.Get(ctx, id); got.RetiredAt == nil {
-		t.Fatal("revived inside the rate-limit window")
+		t.Fatal("revived inside the rewrite window")
 	}
 
 	clock.advance(2 * time.Minute)
-	res, err = f.MarkListed(ctx, ep)
+	res, err = f.MarkListed(ctx, ep, testListingRule)
 	if err != nil || res.Marked != 1 || res.Revived != 1 {
-		t.Fatalf("MarkListed after the hour = %+v, %v; want marked and revived", res, err)
+		t.Fatalf("MarkListed after the interval = %+v, %v; want marked and revived", res, err)
 	}
-	if got, _ := f.Get(ctx, id); got.RetiredAt != nil || got.LastListedAt == nil {
-		t.Fatalf("after revival: retired_at=%v last_listed_at=%v", got.RetiredAt, got.LastListedAt)
+	got, _ := f.Get(ctx, id)
+	if got.RetiredAt != nil || got.LastListedAt == nil || got.FailCount != 0 {
+		t.Fatalf("after revival: retired_at=%v last_listed_at=%v fail_count=%d", got.RetiredAt, got.LastListedAt, got.FailCount)
+	}
+}
+
+func TestFakeMarkListed_DoesNotReviveBeforeReviveAfter(t *testing.T) {
+	f, clock := newFakeRepo()
+	ctx := context.Background()
+	id := mustFakeInsert(t, f, "10.0.0.2")
+	ep := []contract.ProxyEndpoint{{Protocol: "http", IP: "10.0.0.2", Port: 9000}}
+	fakeMutate(f, id, func(p *contract.ProxyRecord) {
+		retired := clock.Now().Add(-24 * time.Hour)
+		p.RetiredAt = &retired
+		p.FailCount = 14
+	})
+
+	res, err := f.MarkListed(ctx, ep, testListingRule)
+	if err != nil || res.Marked != 1 || res.Revived != 0 {
+		t.Fatalf("MarkListed = %+v, %v; want stamped but not revived", res, err)
+	}
+	got, _ := f.Get(ctx, id)
+	if got.RetiredAt == nil || got.FailCount != 14 || got.LastListedAt == nil {
+		t.Fatalf("young retirement changed: retired_at=%v fail_count=%d last_listed_at=%v", got.RetiredAt, got.FailCount, got.LastListedAt)
 	}
 }
 
@@ -182,5 +210,24 @@ func TestFakeRetireStale_WalksInBatchesAndIsIdempotent(t *testing.T) {
 	}
 	if _, err := f.RetireStale(ctx, fakeRetireRule, 0, 0); err == nil {
 		t.Fatal("batch 0 accepted")
+	}
+}
+
+func TestFakeRevivedProxyNeedsFreshFailuresToBeRetiredAgain(t *testing.T) {
+	f, clock := newFakeRepo()
+	ctx := context.Background()
+	id := mustFakeInsert(t, f, "10.0.3.1")
+	ep := []contract.ProxyEndpoint{{Protocol: "http", IP: "10.0.3.1", Port: 9000}}
+	fakeMutate(f, id, func(p *contract.ProxyRecord) {
+		retired := clock.Now().Add(-72 * time.Hour)
+		p.RetiredAt = &retired
+		p.FailCount = 14
+		p.FirstSeenAt = clock.Now().Add(-30 * 24 * time.Hour)
+	})
+	if res, err := f.MarkListed(ctx, ep, testListingRule); err != nil || res.Revived != 1 {
+		t.Fatalf("MarkListed = %+v, %v; want revived", res, err)
+	}
+	if res, err := f.RetireStale(ctx, fakeRetireRule, 0, 100); err != nil || res.Retired != 0 {
+		t.Fatalf("sweep right after revival retired %d, %v; want 0", res.Retired, err)
 	}
 }

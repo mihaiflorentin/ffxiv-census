@@ -69,9 +69,24 @@ type ProxyEndpoint struct {
 	Port     int
 }
 
+// ListingRule tunes MarkListed. RewriteInterval is the shortest time between
+// two writes to one row. ReviveAfter is how long a proxy must have been
+// retired (counted from retired_at) before a listing revives it; a younger
+// retirement is left alone, so a proxy that is still on a provider list does
+// not flip between retired and live every sweep.
+type ListingRule struct {
+	RewriteInterval time.Duration
+	ReviveAfter     time.Duration
+}
+
+// DefaultListingRule is the rule used when none is configured.
+func DefaultListingRule() ListingRule {
+	return ListingRule{RewriteInterval: 6 * time.Hour, ReviveAfter: 7 * 24 * time.Hour}
+}
+
 // ListedResult reports what MarkListed wrote. Marked counts the rows stamped
-// (known endpoints not stamped within the last hour) and Revived counts those
-// that were retired and are live again.
+// (known endpoints not stamped within the rewrite interval) and Revived counts
+// those that were retired long enough and are live again.
 type ListedResult struct {
 	Marked  int64
 	Revived int64
@@ -151,12 +166,14 @@ type ProxyRepository interface {
 	// statement, so it costs one round trip however long recs is.
 	InsertNew(ctx context.Context, recs []ProxyRecord, limit int) ([]ProxyEndpoint, error)
 	// MarkListed records that a provider listed the given endpoints again:
-	// it stamps last_listed_at and revives retired proxies. Endpoints that are
-	// not in the table are ignored (inserting is InsertIfAbsent's job), and a
-	// row stamped within the last hour is left alone, so a busy provider list
-	// costs at most one write per row per hour. Rows locked by a concurrent
-	// scan are skipped, never waited on. The call is bulk-capable.
-	MarkListed(ctx context.Context, endpoints []ProxyEndpoint) (ListedResult, error)
+	// it stamps last_listed_at and revives proxies retired for at least
+	// rule.ReviveAfter, resetting their fail_count so they need fresh failures
+	// to be retired again. Endpoints that are not in the table are ignored
+	// (inserting is InsertIfAbsent's job), and a row stamped within
+	// rule.RewriteInterval is left alone, so a busy provider list costs at
+	// most one write per row per interval. Rows locked by a concurrent scan
+	// are skipped, never waited on. The call is bulk-capable.
+	MarkListed(ctx context.Context, endpoints []ProxyEndpoint, rule ListingRule) (ListedResult, error)
 	// Get returns a proxy by ID, or nil (no error) if not found.
 	Get(ctx context.Context, id int64) (*ProxyRecord, error)
 	// ListActive returns up to limit active proxies ordered by latency (lowest first).

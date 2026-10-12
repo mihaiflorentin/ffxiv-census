@@ -307,24 +307,23 @@ func (r *ProxyRepository) SaveListValidators(ctx context.Context, url string, v 
 }
 
 const (
-	// listedRewriteInterval is the shortest time between two writes to the
-	// same row from MarkListed.
-	listedRewriteInterval = time.Hour
 	// markListedChunk bounds the endpoints one statement handles, so a very
 	// long provider list becomes several short transactions.
 	markListedChunk = 5000
 )
 
-// MarkListed stamps last_listed_at and revives retired rows for endpoints a
-// provider listed again. Rows stamped within listedRewriteInterval are left
-// alone and rows locked by a concurrent scan are skipped, so discovery never
-// waits on the scanner and writes each row at most once per hour. Unknown
-// endpoints are ignored.
-func (r *ProxyRepository) MarkListed(ctx context.Context, endpoints []contract.ProxyEndpoint) (contract.ListedResult, error) {
+// MarkListed stamps last_listed_at for endpoints a provider listed again and
+// revives the ones retired for at least rule.ReviveAfter, resetting their
+// fail_count so that only fresh failures retire them again (the retirement
+// sweep matches on fail_count). Rows stamped within rule.RewriteInterval are
+// left alone and rows locked by a concurrent scan are skipped, so discovery
+// never waits on the scanner and writes each row at most once per interval.
+// Unknown endpoints are ignored.
+func (r *ProxyRepository) MarkListed(ctx context.Context, endpoints []contract.ProxyEndpoint, rule contract.ListingRule) (contract.ListedResult, error) {
 	var total contract.ListedResult
 	for start := 0; start < len(endpoints); start += markListedChunk {
 		end := min(start+markListedChunk, len(endpoints))
-		res, err := r.markListedChunk(ctx, endpoints[start:end])
+		res, err := r.markListedChunk(ctx, endpoints[start:end], rule)
 		if err != nil {
 			return total, err
 		}
@@ -334,7 +333,7 @@ func (r *ProxyRepository) MarkListed(ctx context.Context, endpoints []contract.P
 	return total, nil
 }
 
-func (r *ProxyRepository) markListedChunk(ctx context.Context, endpoints []contract.ProxyEndpoint) (contract.ListedResult, error) {
+func (r *ProxyRepository) markListedChunk(ctx context.Context, endpoints []contract.ProxyEndpoint, rule contract.ListingRule) (contract.ListedResult, error) {
 	protocols := make([]string, len(endpoints))
 	ips := make([]string, len(endpoints))
 	ports := make([]int32, len(endpoints))
@@ -350,7 +349,9 @@ func (r *ProxyRepository) markListedChunk(ctx context.Context, endpoints []contr
 			SELECT DISTINCT protocol, ip, port
 			FROM unnest($1::text[], $2::text[], $3::int[]) AS t(protocol, ip, port)
 		), target AS (
-			SELECT p.id, p.retired_at IS NOT NULL AS was_retired
+			SELECT p.id,
+				p.retired_at IS NOT NULL
+					AND p.retired_at <= statement_timestamp() - ($5 * interval '1 second') AS revive
 			FROM proxies p
 			JOIN input i ON p.protocol = i.protocol AND p.ip = i.ip AND p.port = i.port
 			WHERE p.last_listed_at IS NULL
@@ -359,14 +360,15 @@ func (r *ProxyRepository) markListedChunk(ctx context.Context, endpoints []contr
 		), upd AS (
 			UPDATE proxies p
 			SET last_listed_at = statement_timestamp(),
-				retired_at = NULL,
+				retired_at = CASE WHEN t.revive THEN NULL ELSE p.retired_at END,
+				fail_count = CASE WHEN t.revive THEN 0 ELSE p.fail_count END,
 				updated_at = statement_timestamp()
 			FROM target t
 			WHERE p.id = t.id
-			RETURNING t.was_retired
+			RETURNING t.revive
 		)
-		SELECT count(*), count(*) FILTER (WHERE was_retired) FROM upd`,
-		protocols, ips, ports, listedRewriteInterval.Seconds()).Scan(&res.Marked, &res.Revived)
+		SELECT count(*), count(*) FILTER (WHERE revive) FROM upd`,
+		protocols, ips, ports, rule.RewriteInterval.Seconds(), rule.ReviveAfter.Seconds()).Scan(&res.Marked, &res.Revived)
 	if err != nil {
 		return contract.ListedResult{}, fmt.Errorf("proxy mark listed: %w", err)
 	}

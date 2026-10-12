@@ -119,7 +119,7 @@ func TestClaimScansBackground_ConcurrentClaimersSkipRetiredAndNeverOverlap(t *te
 	const total = 200
 	mustExec(t, driver, `INSERT INTO proxies (protocol, ip, port, retired_at, source, first_seen_at, created_at, updated_at)
 		SELECT 'http', '10.4.' || (g / 250) || '.' || (g % 250), 9000,
-			CASE WHEN g % 5 = 0 THEN now() END, 'test', now(), now(), now()
+			CASE WHEN g % 5 = 0 THEN now() - interval '3 days' END, 'test', now(), now(), now()
 		FROM generate_series(1, $1::int) g`, total)
 	var retiredIDs []int64
 	rows, err := driver.FetchMany(ctx, `SELECT id FROM proxies WHERE retired_at IS NOT NULL`)
@@ -170,7 +170,7 @@ func TestClaimScansBackground_ConcurrentClaimersSkipRetiredAndNeverOverlap(t *te
 		defer wg.Done()
 		for g := 5; g <= total; g += 5 {
 			ep := endpoint(fmt.Sprintf("10.4.%d.%d", g/250, g%250), 9000)
-			if _, err := repos[0].MarkListed(ctx, []contract.ProxyEndpoint{ep}); err != nil {
+			if _, err := repos[0].MarkListed(ctx, []contract.ProxyEndpoint{ep}, testListingRule); err != nil {
 				t.Errorf("MarkListed: %v", err)
 				return
 			}
@@ -538,6 +538,10 @@ func TestCountByStatus_ReportsRetiredSeparately(t *testing.T) {
 	}
 }
 
+// testListingRule rewrites a row at most hourly and revives proxies retired
+// for two days or more.
+var testListingRule = contract.ListingRule{RewriteInterval: time.Hour, ReviveAfter: 48 * time.Hour}
+
 func endpoint(ip string, port int) contract.ProxyEndpoint {
 	return contract.ProxyEndpoint{Protocol: "http", IP: ip, Port: port}
 }
@@ -550,7 +554,7 @@ func TestMarkListed_StampsKnownEndpointsOnly(t *testing.T) {
 	other := mustInsertProxy(t, repo, "10.8.0.2", 9001)
 	before := mustGetProxy(t, repo, known)
 
-	res, err := repo.MarkListed(ctx, []contract.ProxyEndpoint{endpoint("10.8.0.1", 9001), endpoint("10.8.9.9", 9001)})
+	res, err := repo.MarkListed(ctx, []contract.ProxyEndpoint{endpoint("10.8.0.1", 9001), endpoint("10.8.9.9", 9001)}, testListingRule)
 	if err != nil {
 		t.Fatalf("MarkListed: %v", err)
 	}
@@ -580,15 +584,16 @@ func TestMarkListed_RevivesRetiredProxy(t *testing.T) {
 	id := mustInsertProxy(t, repo, "10.8.1.1", 9001)
 	seedScanState(t, driver, id, `retired_at = now() - interval '3 days', fail_count = 14`)
 
-	res, err := repo.MarkListed(ctx, []contract.ProxyEndpoint{endpoint("10.8.1.1", 9001)})
+	res, err := repo.MarkListed(ctx, []contract.ProxyEndpoint{endpoint("10.8.1.1", 9001)}, testListingRule)
 	if err != nil {
 		t.Fatalf("MarkListed: %v", err)
 	}
 	if res.Marked != 1 || res.Revived != 1 {
 		t.Fatalf("result = %+v, want 1 marked and 1 revived", res)
 	}
-	if p := mustGetProxy(t, repo, id); p.RetiredAt != nil || p.LastListedAt == nil {
-		t.Fatalf("retired_at = %v, last_listed_at = %v; want revived and stamped", p.RetiredAt, p.LastListedAt)
+	if p := mustGetProxy(t, repo, id); p.RetiredAt != nil || p.LastListedAt == nil || p.FailCount != 0 {
+		t.Fatalf("retired_at = %v, last_listed_at = %v, fail_count = %d; want revived, stamped and fail_count reset",
+			p.RetiredAt, p.LastListedAt, p.FailCount)
 	}
 	leases, err := repo.ClaimScans(ctx, contract.ScanBackground, 5)
 	if err != nil || len(leases) != 1 || leases[0].Record.ID != id {
@@ -596,21 +601,21 @@ func TestMarkListed_RevivesRetiredProxy(t *testing.T) {
 	}
 }
 
-func TestMarkListed_AtMostOncePerHourPerRow(t *testing.T) {
+func TestMarkListed_AtMostOncePerRewriteIntervalPerRow(t *testing.T) {
 	driver := newTestDriver(t)
 	ctx := context.Background()
 	repo := repository.NewProxyRepository(driver, testScanPolicy())
 	id := mustInsertProxy(t, repo, "10.8.2.1", 9001)
 	ep := []contract.ProxyEndpoint{endpoint("10.8.2.1", 9001)}
 
-	if res, err := repo.MarkListed(ctx, ep); err != nil || res.Marked != 1 {
+	if res, err := repo.MarkListed(ctx, ep, testListingRule); err != nil || res.Marked != 1 {
 		t.Fatalf("first MarkListed = %+v, %v; want 1 marked", res, err)
 	}
 	first := mustGetProxy(t, repo, id).LastListedAt
 
-	// Retired right after, then listed again within the hour: no write.
-	seedScanState(t, driver, id, `retired_at = statement_timestamp()`)
-	if res, err := repo.MarkListed(ctx, ep); err != nil || res.Marked != 0 || res.Revived != 0 {
+	// Retired long enough, but listed again within the hour: no write.
+	seedScanState(t, driver, id, `retired_at = now() - interval '3 days'`)
+	if res, err := repo.MarkListed(ctx, ep, testListingRule); err != nil || res.Marked != 0 || res.Revived != 0 {
 		t.Fatalf("second MarkListed = %+v, %v; want a no-op within the hour", res, err)
 	}
 	p := mustGetProxy(t, repo, id)
@@ -620,11 +625,57 @@ func TestMarkListed_AtMostOncePerHourPerRow(t *testing.T) {
 
 	// An hour later the listing counts again and revives the row.
 	seedScanState(t, driver, id, `last_listed_at = now() - interval '61 minutes'`)
-	if res, err := repo.MarkListed(ctx, ep); err != nil || res.Marked != 1 || res.Revived != 1 {
+	if res, err := repo.MarkListed(ctx, ep, testListingRule); err != nil || res.Marked != 1 || res.Revived != 1 {
 		t.Fatalf("third MarkListed = %+v, %v; want marked and revived", res, err)
 	}
 	if mustGetProxy(t, repo, id).RetiredAt != nil {
 		t.Fatal("still retired after the hour elapsed")
+	}
+}
+
+func TestMarkListed_DoesNotReviveBeforeReviveAfter(t *testing.T) {
+	driver := newTestDriver(t)
+	ctx := context.Background()
+	repo := repository.NewProxyRepository(driver, testScanPolicy())
+	id := mustInsertProxy(t, repo, "10.8.6.1", 9001)
+	seedScanState(t, driver, id, `retired_at = now() - interval '47 hours', fail_count = 14`)
+
+	res, err := repo.MarkListed(ctx, []contract.ProxyEndpoint{endpoint("10.8.6.1", 9001)}, testListingRule)
+	if err != nil {
+		t.Fatalf("MarkListed: %v", err)
+	}
+	if res.Marked != 1 || res.Revived != 0 {
+		t.Fatalf("result = %+v, want stamped but not revived", res)
+	}
+	p := mustGetProxy(t, repo, id)
+	if p.RetiredAt == nil || p.FailCount != 14 || p.LastListedAt == nil {
+		t.Fatalf("young retirement changed: retired_at=%v fail_count=%d last_listed_at=%v", p.RetiredAt, p.FailCount, p.LastListedAt)
+	}
+	if leases, err := repo.ClaimScans(ctx, contract.ScanBackground, 5); err != nil || len(leases) != 0 {
+		t.Fatalf("still-retired proxy claimable: %v, %v", leaseIDs(leases), err)
+	}
+}
+
+func TestMarkListed_RevivedProxyNeedsFreshFailuresToBeRetiredAgain(t *testing.T) {
+	driver := newTestDriver(t)
+	ctx := context.Background()
+	repo := repository.NewProxyRepository(driver, testScanPolicy())
+	id := mustInsertProxy(t, repo, "10.8.7.1", 9001)
+	seedScanState(t, driver, id, `retired_at = now() - interval '3 days', fail_count = 14, first_seen_at = now() - interval '30 days'`)
+
+	if res, err := repo.MarkListed(ctx, []contract.ProxyEndpoint{endpoint("10.8.7.1", 9001)}, testListingRule); err != nil || res.Revived != 1 {
+		t.Fatalf("MarkListed = %+v, %v; want revived", res, err)
+	}
+	rule := contract.RetirementRule{MinFailures: 10, MinAge: 14 * 24 * time.Hour}
+	if res, err := repo.RetireStale(ctx, rule, 0, 100); err != nil || res.Retired != 0 {
+		t.Fatalf("sweep right after revival retired %d, %v; want 0", res.Retired, err)
+	}
+	if mustGetProxy(t, repo, id).RetiredAt != nil {
+		t.Fatal("revived proxy was retired again without fresh failures")
+	}
+	seedScanState(t, driver, id, `fail_count = 10`)
+	if res, err := repo.RetireStale(ctx, rule, 0, 100); err != nil || res.Retired != 1 {
+		t.Fatalf("sweep after fresh failures retired %d, %v; want 1", res.Retired, err)
 	}
 }
 
@@ -633,7 +684,7 @@ func TestMarkListed_BulkWithDuplicatesAndEmptyInput(t *testing.T) {
 	ctx := context.Background()
 	repo := repository.NewProxyRepository(driver, testScanPolicy())
 
-	if res, err := repo.MarkListed(ctx, nil); err != nil || res.Marked != 0 {
+	if res, err := repo.MarkListed(ctx, nil, testListingRule); err != nil || res.Marked != 0 {
 		t.Fatalf("empty MarkListed = %+v, %v", res, err)
 	}
 
@@ -647,7 +698,7 @@ func TestMarkListed_BulkWithDuplicatesAndEmptyInput(t *testing.T) {
 	}
 	endpoints = append(endpoints, endpoints[0], endpoints[1]) // duplicates in one list
 
-	res, err := repo.MarkListed(ctx, endpoints)
+	res, err := repo.MarkListed(ctx, endpoints, testListingRule)
 	if err != nil {
 		t.Fatalf("MarkListed: %v", err)
 	}
@@ -681,7 +732,7 @@ func TestMarkListed_DoesNotWaitForRowsBeingScanned(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	res, err := repo.MarkListed(ctx, []contract.ProxyEndpoint{endpoint("10.8.3.1", 9001), endpoint("10.8.3.2", 9001)})
+	res, err := repo.MarkListed(ctx, []contract.ProxyEndpoint{endpoint("10.8.3.1", 9001), endpoint("10.8.3.2", 9001)}, testListingRule)
 	if err != nil {
 		t.Fatalf("MarkListed blocked or failed on a locked row: %v", err)
 	}

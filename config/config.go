@@ -217,6 +217,13 @@ type ProxyRetireConfig struct {
 	AfterDays     int           `mapstructure:"after_days"`
 	SweepInterval time.Duration `mapstructure:"sweep_interval"`
 	SweepBatch    int           `mapstructure:"sweep_batch"`
+	// ReviveAfter is how long a proxy must have been retired before a
+	// provider listing revives it (and resets its failure count). It stops a
+	// proxy that stays on a list from flipping between retired and live.
+	ReviveAfter time.Duration `mapstructure:"revive_after"`
+	// ListedRewriteInterval is the shortest time between two last_listed_at
+	// writes to one proxy row.
+	ListedRewriteInterval time.Duration `mapstructure:"listed_rewrite_interval"`
 }
 
 type ProxyConsumerConfig struct {
@@ -401,6 +408,12 @@ func validateProxySettings(cfg *Config) error {
 	}
 	if retire.SweepBatch <= 0 {
 		return fmt.Errorf("config: proxy.retire.sweep_batch must be positive, got %d", retire.SweepBatch)
+	}
+	if err := validatePositiveDuration("proxy.retire.revive_after", retire.ReviveAfter); err != nil {
+		return err
+	}
+	if err := validatePositiveDuration("proxy.retire.listed_rewrite_interval", retire.ListedRewriteInterval); err != nil {
+		return err
 	}
 
 	if err := validatePositiveDuration("proxy.consumer.cooldown", proxy.Consumer.Cooldown); err != nil {

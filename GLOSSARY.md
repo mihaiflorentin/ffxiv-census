@@ -165,7 +165,7 @@ A proxy's historical classification in the pool: active, inactive, or dead. It n
 _Avoid_: health status
 
 **Retired proxy**:
-A proxy that never worked, has failed at least a set number of times (default 10) and was first seen more than a set number of days ago (default 14). The background scan skips it, but its row stays in the pool so the unique key keeps discovery from registering it again. A provider listing it again revives it, at most once per hour per row. Unlike proxy status, retirement gates scanning.
+A proxy that never worked, has failed at least a set number of times (default 10) and was first seen more than a set number of days ago (default 14). The background scan skips it, but its row stays in the pool so the unique key keeps discovery from registering it again. A provider listing it again revives it once it has been retired for a set time (default 7 days), which also resets its failure count. Unlike proxy status, retirement gates scanning.
 _Avoid_: dead proxy (that is the historical status), deleted proxy, banned proxy, archived proxy
 
 **Proxy lock**:

@@ -39,6 +39,8 @@ type Discoverer struct {
 	// known holds the list validators loaded for the current run, updated as
 	// lists are read completely.
 	known map[string]contract.ListValidators
+	// listing tunes MarkListed: the rewrite interval and the revival age.
+	listing contract.ListingRule
 }
 
 // NewDiscoverer creates the discovery use case over the given providers.
@@ -48,6 +50,7 @@ func NewDiscoverer(providers []contract.ProxyProvider, repo contract.ProxyReposi
 		repo:      repo,
 		logger:    logger,
 		chunk:     DefaultDiscoveryChunk,
+		listing:   contract.DefaultListingRule(),
 		shuffle: func(ps []contract.ProxyProvider) {
 			rand.Shuffle(len(ps), func(i, j int) { ps[i], ps[j] = ps[j], ps[i] })
 		},
@@ -59,6 +62,13 @@ func (d *Discoverer) WithChunkSize(n int) *Discoverer {
 	if n > 0 {
 		d.chunk = n
 	}
+	return d
+}
+
+// WithListingRule sets how often a listed row is rewritten and how long a
+// proxy must stay retired before a listing revives it.
+func (d *Discoverer) WithListingRule(rule contract.ListingRule) *Discoverer {
+	d.listing = rule
 	return d
 }
 
@@ -176,12 +186,12 @@ func (d *Discoverer) readProvider(ctx context.Context, p contract.ProxyProvider,
 		pr.Inserted += len(inserted)
 		// Everything the provider listed, new or known, counts as listed
 		// again: that is what revives a retired proxy. Rows stamped by the
-		// insert above are skipped by the once-per-hour rule.
+		// insert above are skipped by the rewrite interval.
 		endpoints := make([]contract.ProxyEndpoint, len(pending))
 		for i, rec := range pending {
 			endpoints[i] = contract.ProxyEndpoint{Protocol: rec.Protocol, IP: rec.IP, Port: rec.Port}
 		}
-		if _, err := d.repo.MarkListed(ctx, endpoints); err != nil {
+		if _, err := d.repo.MarkListed(ctx, endpoints, d.listing); err != nil {
 			return fmt.Errorf("mark proxies listed: %w", err)
 		}
 		pending = pending[:0]

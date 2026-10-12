@@ -163,7 +163,7 @@ func (s *ServiceContainer) ProxyDiscoverer() *proxydomain.Discoverer {
 		logging.Warn("container.proxy_discoverer", "no proxy providers configured")
 	}
 
-	d := proxydomain.NewDiscoverer(providers, repo, s.Logger())
+	d := proxydomain.NewDiscoverer(providers, repo, s.Logger()).WithListingRule(s.ProxyListingRule())
 	if cache, ok := repo.(contract.ProxyListCache); ok {
 		d.WithListCache(cache)
 	}

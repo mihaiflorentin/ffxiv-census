@@ -392,6 +392,16 @@ func (s *ServiceContainer) ProxyRetirementRule() contract.RetirementRule {
 	return retirementRule(s.configUnlocked().Proxy.Retire)
 }
 
+// ProxyListingRule returns how discovery records a re-listed proxy: the
+// rewrite interval and how long a proxy must be retired before a listing
+// revives it.
+func (s *ServiceContainer) ProxyListingRule() contract.ListingRule {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cfg := s.configUnlocked().Proxy.Retire
+	return contract.ListingRule{RewriteInterval: cfg.ListedRewriteInterval, ReviveAfter: cfg.ReviveAfter}
+}
+
 // ProxyRetirementSweepSettings returns how often the retirement sweep runs
 // and how many rows one batch examines.
 func (s *ServiceContainer) ProxyRetirementSweepSettings() (interval time.Duration, batch int) {

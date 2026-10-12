@@ -51,6 +51,8 @@ type FakeProxyRepository struct {
 	// MarkListedEndpoints collects every endpoint it was given.
 	MarkListedCalls     int
 	MarkListedEndpoints []contract.ProxyEndpoint
+	// MarkListedRules collects the rule of every call.
+	MarkListedRules []contract.ListingRule
 }
 
 // Defaults for unset policy fields, mirroring the PostgreSQL adapter.
@@ -58,8 +60,6 @@ const (
 	defaultFakeFreshnessTTL    = 2 * time.Minute
 	defaultFakeLeaseDuration   = 30 * time.Second
 	defaultFakeRecoveryHorizon = time.Hour
-	// fakeListedRewriteInterval mirrors the adapter's once-per-hour limit.
-	fakeListedRewriteInterval = time.Hour
 )
 
 func normalizeFakePolicy(p contract.ProxyScanPolicy) contract.ProxyScanPolicy {
@@ -227,15 +227,17 @@ func (f *FakeProxyRepository) InsertNew(_ context.Context, recs []contract.Proxy
 }
 
 // MarkListed mirrors the PostgreSQL adapter: known endpoints not stamped
-// within the last hour get last_listed_at and lose their retirement; unknown
-// endpoints are ignored and duplicates within one call count once. Rows
-// leased by a scan are not skipped here, the fake has no row locks.
-func (f *FakeProxyRepository) MarkListed(_ context.Context, endpoints []contract.ProxyEndpoint) (contract.ListedResult, error) {
+// within rule.RewriteInterval get last_listed_at; a retirement older than
+// rule.ReviveAfter is lifted and the fail count reset. Unknown endpoints are
+// ignored and duplicates within one call count once. Rows leased by a scan
+// are not skipped here, the fake has no row locks.
+func (f *FakeProxyRepository) MarkListed(_ context.Context, endpoints []contract.ProxyEndpoint, rule contract.ListingRule) (contract.ListedResult, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	now := f.now()
 	f.MarkListedCalls++
 	f.MarkListedEndpoints = append(f.MarkListedEndpoints, endpoints...)
+	f.MarkListedRules = append(f.MarkListedRules, rule)
 	wanted := make(map[contract.ProxyEndpoint]bool, len(endpoints))
 	for _, e := range endpoints {
 		wanted[e] = true
@@ -246,15 +248,16 @@ func (f *FakeProxyRepository) MarkListed(_ context.Context, endpoints []contract
 		if !wanted[key] {
 			continue
 		}
-		if p.LastListedAt != nil && p.LastListedAt.After(now.Add(-fakeListedRewriteInterval)) {
+		if p.LastListedAt != nil && p.LastListedAt.After(now.Add(-rule.RewriteInterval)) {
 			continue
 		}
 		res.Marked++
-		if p.RetiredAt != nil {
+		if p.RetiredAt != nil && !p.RetiredAt.After(now.Add(-rule.ReviveAfter)) {
 			res.Revived++
+			p.RetiredAt = nil
+			p.FailCount = 0
 		}
 		p.LastListedAt = &now
-		p.RetiredAt = nil
 		p.UpdatedAt = now
 		f.proxies[id] = p
 	}

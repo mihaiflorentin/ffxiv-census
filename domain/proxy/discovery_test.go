@@ -59,7 +59,7 @@ func TestDiscoverer_InsertsNewProxiesInBulkWithoutPerLineReads(t *testing.T) {
 
 func TestDiscoverer_RelistedRetiredProxyIsRevivedNotReinserted(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(contract.ProxyScanPolicy{})
-	retiredAt := time.Now().Add(-72 * time.Hour)
+	retiredAt := time.Now().Add(-8 * 24 * time.Hour)
 	retiredID := repo.Seed(contract.ProxyRecord{
 		Protocol: "http", IP: "alpha-0", Port: 8080, Source: "old", FailCount: 14, RetiredAt: &retiredAt,
 	})
@@ -79,8 +79,33 @@ func TestDiscoverer_RelistedRetiredProxyIsRevivedNotReinserted(t *testing.T) {
 	if p.RetiredAt != nil || p.LastListedAt == nil {
 		t.Fatalf("retired_at = %v, last_listed_at = %v; want revived and stamped", p.RetiredAt, p.LastListedAt)
 	}
-	if p.FailCount != 14 {
-		t.Errorf("fail_count = %d, want it kept so one failed scan retires it again", p.FailCount)
+	if p.FailCount != 0 {
+		t.Errorf("fail_count = %d, want it reset so only fresh failures retire it again", p.FailCount)
+	}
+}
+
+func TestDiscoverer_PassesTheListingRuleToMarkListed(t *testing.T) {
+	repo := repository.NewFakeProxyRepository(contract.ProxyScanPolicy{})
+	rule := contract.ListingRule{RewriteInterval: 2 * time.Hour, ReviveAfter: 48 * time.Hour}
+	d := newDiscoverer(repo, mockproxy.NewFakeProvider("alpha", listing("alpha", 2))).WithListingRule(rule)
+
+	if _, err := d.Run(context.Background(), 0); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(repo.MarkListedRules) == 0 || repo.MarkListedRules[0] != rule {
+		t.Fatalf("MarkListed rules = %+v, want %+v", repo.MarkListedRules, rule)
+	}
+}
+
+func TestDiscoverer_DefaultsTheListingRule(t *testing.T) {
+	repo := repository.NewFakeProxyRepository(contract.ProxyScanPolicy{})
+	d := newDiscoverer(repo, mockproxy.NewFakeProvider("alpha", listing("alpha", 2)))
+
+	if _, err := d.Run(context.Background(), 0); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(repo.MarkListedRules) == 0 || repo.MarkListedRules[0] != contract.DefaultListingRule() {
+		t.Fatalf("MarkListed rules = %+v, want the default", repo.MarkListedRules)
 	}
 }
 

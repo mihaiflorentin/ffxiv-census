@@ -38,4 +38,5 @@ Previous versions used MySQL, then SQLite. The project now runs on PostgreSQL. T
 - `ProxyChecker()` — general availability checker: proxied GET against the configured health target (`[proxy].test_url`, default The Lodestone) requiring HTTP 200 and a complete non-empty body; used by the scan worker for every general check, so an active proxy is proven usable for Lodestone traffic
 - `ProxyScanPolicy()` / `ProxyScanWeights()` — the single parsed scheduler policy and queue capacity shares shared by the repository and the scan worker (the policy carries the `RetirementRule`)
 - `ProxyRetirementRule()` / `ProxyRetirementSweepSettings()` — the `[proxy.retire]` thresholds and the sweep cadence used by `proxy scan` and `proxy retire`
+- `ProxyListingRule()` — `revive_after` and `listed_rewrite_interval`, handed to the `Discoverer` for `MarkListed`
 - The providers share one direct HTTP client (`httpclient.NewListClient`: User-Agent, 30 s timeout, 64 MiB body limit). It never goes through the proxy pool and must not be used for Lodestone API traffic. The former `DiscoveryHTTPClient()` accessor and its rotating-proxy client were removed
