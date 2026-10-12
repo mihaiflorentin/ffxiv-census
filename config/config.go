@@ -31,11 +31,14 @@ type Config struct {
 	Proxy     *ProxyConfig     `mapstructure:"proxy"`
 }
 
-// QueueConfig holds the broker-agnostic delivery attempt budget. maxAttempts
-// bounds how many times a message may fail before it parks permanently in
-// its failed queue.
+// QueueConfig holds the broker-agnostic retry settings. MaxAttempts bounds how
+// many job-attributable failures a message may have before it parks on its
+// dead queue. RetryTiers are the delays of the retry queues a failed job waits
+// in, strictly ascending; the Nth job failure uses the Nth tier, the last tier
+// repeats.
 type QueueConfig struct {
-	MaxAttempts int `mapstructure:"max_attempts"`
+	MaxAttempts int             `mapstructure:"max_attempts"`
+	RetryTiers  []time.Duration `mapstructure:"retry_tiers"`
 }
 
 // WriterConfig tunes the per-pod batching writer that stores finished census

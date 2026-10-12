@@ -45,6 +45,7 @@ vhost    = "ffxiv-census"
 
 [queue]
 max_attempts = 50
+retry_tiers  = ["5s", "30s", "5m", "1h"]
 
 [writer]
 batch_size     = 100

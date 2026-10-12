@@ -216,7 +216,11 @@ func (s *ServiceContainer) Queue() contract.Queue {
 	if full.Queue != nil && full.Queue.MaxAttempts > 0 {
 		maxAttempts = full.Queue.MaxAttempts
 	}
-	q, err := rabbitmq.New(cfg.GetURL(), s.Logger(), maxAttempts)
+	var opts []rabbitmq.Option
+	if full.Queue != nil && len(full.Queue.RetryTiers) > 0 {
+		opts = append(opts, rabbitmq.WithRetryTiers(full.Queue.RetryTiers))
+	}
+	q, err := rabbitmq.New(cfg.GetURL(), s.Logger(), maxAttempts, opts...)
 	if err != nil {
 		logging.Error("container.queue", fmt.Sprintf("failed to create rabbitmq queue: %v", err))
 		return nil
