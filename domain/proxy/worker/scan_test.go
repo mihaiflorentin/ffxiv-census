@@ -314,7 +314,10 @@ func shortPoll(t *testing.T) {
 // startWorker runs the worker until test cleanup cancels it and fails the
 // test if the loop does not exit promptly. Shutdown-focused tests manage
 // their own lifecycle to observe the return value themselves.
-func startWorker(t *testing.T, w *ScanWorker, concurrency int) {
+// startWorker runs the worker until the test ends. The returned stop function
+// cancels it and waits until RunScan returned, which is after every pending
+// result was finished (stored, notified, logged); calling it twice is safe.
+func startWorker(t *testing.T, w *ScanWorker, concurrency int) (stop func()) {
 	t.Helper()
 	shortPoll(t)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -322,17 +325,22 @@ func startWorker(t *testing.T, w *ScanWorker, concurrency int) {
 	go func() {
 		done <- w.RunScan(ctx, concurrency)
 	}()
-	t.Cleanup(func() {
-		cancel()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Errorf("RunScan returned %v", err)
+	var once sync.Once
+	stop = func() {
+		once.Do(func() {
+			cancel()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Errorf("RunScan returned %v", err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Error("RunScan did not exit after cancellation")
 			}
-		case <-time.After(3 * time.Second):
-			t.Error("RunScan did not exit after cancellation")
-		}
-	})
+		})
+	}
+	t.Cleanup(stop)
+	return stop
 }
 
 func recvStarted(t *testing.T, ch <-chan string, timeout time.Duration) string {
@@ -722,16 +730,25 @@ func TestRunScan_NotifierOnlyOnAcceptedSuccess(t *testing.T) {
 		ip := "10.9.0.1"
 		seedVerification(t, repo, ip)
 		w := newWorker(probe, checker, guard)
-		var notifications atomic.Int32
-		w.SetNotifier(func() { notifications.Add(1) })
-		startWorker(t, w, 1)
+		// The worker notifies after the store reported the completion, so
+		// the test waits on the notifier itself, never on a sleep or on the
+		// store's event alone.
+		notified := make(chan struct{}, 4)
+		w.SetNotifier(func() { notified <- struct{}{} })
+		stop := startWorker(t, w, 1)
 
 		rec := waitAttempt(t, probe.completeEvents, 2*time.Second)
 		if rec.outcome != contract.ScanSuccess {
 			t.Fatalf("outcome = %v, want success", rec.outcome)
 		}
-		if notifications.Load() != 1 {
-			t.Fatalf("notifications = %d, want 1", notifications.Load())
+		select {
+		case <-notified:
+		case <-time.After(2 * time.Second):
+			t.Fatal("no notification after an accepted success")
+		}
+		stop()
+		if extra := len(notified); extra != 0 {
+			t.Fatalf("%d extra notifications for one accepted success, want none", extra)
 		}
 	})
 
@@ -750,12 +767,13 @@ func TestRunScan_NotifierOnlyOnAcceptedSuccess(t *testing.T) {
 		w := newWorker(probe, checker, guard)
 		var notifications atomic.Int32
 		w.SetNotifier(func() { notifications.Add(1) })
-		startWorker(t, w, 1)
+		stop := startWorker(t, w, 1)
 
 		rec := waitAttempt(t, probe.completeEvents, 2*time.Second)
 		if rec.outcome != contract.ScanFailure {
 			t.Fatalf("outcome = %v, want conclusive failure", rec.outcome)
 		}
+		stop() // the attempt is fully finished once RunScan returned
 		if notifications.Load() != 0 {
 			t.Fatalf("notifications = %d, want 0 for accepted failure", notifications.Load())
 		}
@@ -782,11 +800,12 @@ func TestRunScan_NotifierOnlyOnAcceptedSuccess(t *testing.T) {
 		w := newWorker(probe, checker, guard)
 		var notifications atomic.Int32
 		w.SetNotifier(func() { notifications.Add(1) })
-		startWorker(t, w, 1)
+		stop := startWorker(t, w, 1)
 
 		for range 3 {
 			waitAttempt(t, probe.completeEvents, 2*time.Second)
 		}
+		stop() // every attempt is fully finished once RunScan returned
 		if notifications.Load() != 0 {
 			t.Fatalf("notifications = %d, want 0 for discarded completions", notifications.Load())
 		}
