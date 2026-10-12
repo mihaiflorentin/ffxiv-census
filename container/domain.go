@@ -8,7 +8,6 @@ import (
 	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
 	"github.com/mihaiflorentin88/ffxiv-census/domain/census/handler"
 	proxydomain "github.com/mihaiflorentin88/ffxiv-census/domain/proxy"
-	proxyhandler "github.com/mihaiflorentin88/ffxiv-census/domain/proxy/handler"
 	"github.com/mihaiflorentin88/ffxiv-census/infrastructure/logging"
 	"github.com/mihaiflorentin88/ffxiv-census/infrastructure/metrics"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
@@ -16,9 +15,9 @@ import (
 
 // DomainContainer wires domain services.
 type DomainContainer struct {
-	censusService  *census.Service
-	uiStatsService *census.UIStatsService
-	proxyService   *proxydomain.Service
+	censusService   *census.Service
+	uiStatsService  *census.UIStatsService
+	proxyDiscoverer *proxydomain.Discoverer
 }
 
 func (s *ServiceContainer) CensusService() *census.Service {
@@ -39,6 +38,9 @@ func (s *ServiceContainer) CensusService() *census.Service {
 	if c := s.Config().Census; c != nil {
 		if c.ActivityWindowDays > 0 {
 			svc.SetActivityWindow(time.Duration(c.ActivityWindowDays) * 24 * time.Hour)
+		}
+		if c.PrivateRecheckDays > 0 {
+			svc.SetPrivateRecheckWindow(time.Duration(c.PrivateRecheckDays) * 24 * time.Hour)
 		}
 		var expansions []census.ExpansionConfig
 		for _, exp := range c.Expansions {
@@ -109,16 +111,17 @@ func (s *ServiceContainer) registerCensusHandlers(reg *handler.Registry, svc *ce
 	reg.Register(handler.EventCharacterCensus, handler.NewCharacterCensus(lodestoneClient, svc, s.Logger()).WithWriter(w))
 }
 
-// ProxyService returns the ingestion-only proxy service: providers plus the
-// repository. It performs no health checks — scanning is owned by the
-// guarded scan worker.
-func (s *ServiceContainer) ProxyService() *proxydomain.Service {
-	if s.domain.proxyService != nil {
-		return s.domain.proxyService
+// ProxyDiscoverer returns the proxy discovery use case: the configured
+// providers plus the repository, which also persists the list validators.
+// It performs no health checks — scanning is owned by the guarded scan
+// worker.
+func (s *ServiceContainer) ProxyDiscoverer() *proxydomain.Discoverer {
+	if s.domain.proxyDiscoverer != nil {
+		return s.domain.proxyDiscoverer
 	}
 	repo := s.ProxyRepository()
 	if repo == nil {
-		logging.Warn("container.proxy_service", "database driver unavailable, proxy service disabled")
+		logging.Warn("container.proxy_discoverer", "database driver unavailable, proxy discovery disabled")
 		return nil
 	}
 
@@ -157,22 +160,15 @@ func (s *ServiceContainer) ProxyService() *proxydomain.Service {
 		providers = append(providers, p)
 	}
 	if len(providers) == 0 {
-		logging.Warn("container.proxy_service", "no proxy providers configured")
+		logging.Warn("container.proxy_discoverer", "no proxy providers configured")
 	}
 
-	svc := proxydomain.NewService(providers, repo, s.Logger())
-	s.domain.proxyService = svc
-	return svc
-}
-
-func (s *ServiceContainer) ProxyHandlers() *proxyhandler.Registry {
-	reg := proxyhandler.NewRegistry()
-	svc := s.ProxyService()
-	if svc == nil {
-		return reg
+	d := proxydomain.NewDiscoverer(providers, repo, s.Logger()).WithListingRule(s.ProxyListingRule())
+	if cache, ok := repo.(contract.ProxyListCache); ok {
+		d.WithListCache(cache)
 	}
-	reg.Register(proxyhandler.EventNewProxy, proxyhandler.NewNewProxy(svc, s.Logger()))
-	return reg
+	s.domain.proxyDiscoverer = d
+	return d
 }
 
 // ProxyCensusHandlers returns a handler registry wired to the proxy-aware Lodestone

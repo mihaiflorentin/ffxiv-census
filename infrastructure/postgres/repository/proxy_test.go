@@ -706,10 +706,6 @@ func TestDestinationCooldown_DoesNotReduceActiveCount(t *testing.T) {
 	if err != nil || len(active) != 1 {
 		t.Fatalf("ListActive: %v, %v", active, err)
 	}
-	random, err := repo.RandomActive(ctx, nil)
-	if err != nil || random == nil || random.ID != id {
-		t.Fatalf("RandomActive: %v, %v", random, err)
-	}
 	claimed, err := repo.ClaimProxy(ctx, "owner", time.Minute)
 	if err != nil {
 		t.Fatalf("ClaimProxy: %v", err)

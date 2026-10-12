@@ -5,7 +5,6 @@ import (
 	crand "crypto/rand"
 	"encoding/hex"
 	"fmt"
-	"math/rand/v2"
 	"sort"
 	"sync"
 	"time"
@@ -32,9 +31,6 @@ type FakeProxyRepository struct {
 	policy  contract.ProxyScanPolicy
 	// Now returns the current time. When nil, time.Now is used.
 	Now func() time.Time
-	// Rand is an optional injectable RNG for deterministic RandomActive selection.
-	// When nil, a default PCG source is used.
-	Rand *rand.Rand
 	// ExistsErr is returned by Exists when set.
 	ExistsErr error
 	// InsertErr is returned by InsertIfAbsent when set.
@@ -43,6 +39,16 @@ type FakeProxyRepository struct {
 	ExistsCalls int
 	// InsertCalls counts how many times InsertIfAbsent was called.
 	InsertCalls int
+	// InsertNewErr is returned by InsertNew when set.
+	InsertNewErr error
+	// InsertNewCalls counts how many times InsertNew was called.
+	InsertNewCalls int
+	// MarkListedCalls counts how many times MarkListed was called, and
+	// MarkListedEndpoints collects every endpoint it was given.
+	MarkListedCalls     int
+	MarkListedEndpoints []contract.ProxyEndpoint
+	// MarkListedRules collects the rule of every call.
+	MarkListedRules []contract.ListingRule
 }
 
 // Defaults for unset policy fields, mirroring the PostgreSQL adapter.
@@ -112,6 +118,32 @@ func (f *FakeProxyRepository) SeedSuccess(id int64, latencyMS int) bool {
 	return target
 }
 
+// Seed stores a record verbatim, keeping every field the caller sets
+// (InsertIfAbsent resets status and failure history like the real insert). It
+// assigns the ID and fills unset creation times, and returns the ID. Tests use
+// it to arrange rows in a state only scans or time can reach.
+func (f *FakeProxyRepository) Seed(rec contract.ProxyRecord) int64 {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.nextID++
+	rec.ID = f.nextID
+	now := f.now()
+	if rec.Status == "" {
+		rec.Status = contract.ProxyStatusInactive
+	}
+	if rec.FirstSeenAt.IsZero() {
+		rec.FirstSeenAt = now
+	}
+	if rec.CreatedAt.IsZero() {
+		rec.CreatedAt = now
+	}
+	if rec.UpdatedAt.IsZero() {
+		rec.UpdatedAt = now
+	}
+	f.proxies[rec.ID] = rec
+	return rec.ID
+}
+
 func (f *FakeProxyRepository) Exists(_ context.Context, protocol, ip string, port int) (bool, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -151,6 +183,117 @@ func (f *FakeProxyRepository) InsertIfAbsent(_ context.Context, rec contract.Pro
 	}
 	f.proxies[rec.ID] = rec
 	return rec.ID, true, nil
+}
+
+// InsertNew mirrors the PostgreSQL adapter: unknown endpoints are inserted
+// (retired and live known ones are not), duplicates inside recs count once,
+// limit caps the rows inserted and new rows are stamped as listed now.
+func (f *FakeProxyRepository) InsertNew(_ context.Context, recs []contract.ProxyRecord, limit int) ([]contract.ProxyEndpoint, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.InsertNewCalls++
+	if f.InsertNewErr != nil {
+		return nil, f.InsertNewErr
+	}
+	known := make(map[contract.ProxyEndpoint]bool, len(f.proxies)+len(recs))
+	for _, p := range f.proxies {
+		known[contract.ProxyEndpoint{Protocol: p.Protocol, IP: p.IP, Port: p.Port}] = true
+	}
+	now := f.now()
+	var inserted []contract.ProxyEndpoint
+	for _, rec := range recs {
+		if limit > 0 && len(inserted) >= limit {
+			break
+		}
+		key := contract.ProxyEndpoint{Protocol: rec.Protocol, IP: rec.IP, Port: rec.Port}
+		if known[key] {
+			continue
+		}
+		known[key] = true
+		f.nextID++
+		rec.ID = f.nextID
+		rec.Status = contract.ProxyStatusInactive
+		rec.FailCount = 0
+		rec.CreatedAt, rec.UpdatedAt, rec.FirstSeenAt = now, now, now
+		rec.LastListedAt = &now
+		f.proxies[rec.ID] = rec
+		inserted = append(inserted, key)
+	}
+	return inserted, nil
+}
+
+// MarkListed mirrors the PostgreSQL adapter: known endpoints not stamped
+// within rule.RewriteInterval get last_listed_at; a retirement older than
+// rule.ReviveAfter is lifted and the fail count reset. Unknown endpoints are
+// ignored and duplicates within one call count once. Rows leased by a scan
+// are not skipped here, the fake has no row locks.
+func (f *FakeProxyRepository) MarkListed(_ context.Context, endpoints []contract.ProxyEndpoint, rule contract.ListingRule) (contract.ListedResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	now := f.now()
+	f.MarkListedCalls++
+	f.MarkListedEndpoints = append(f.MarkListedEndpoints, endpoints...)
+	f.MarkListedRules = append(f.MarkListedRules, rule)
+	wanted := make(map[contract.ProxyEndpoint]bool, len(endpoints))
+	for _, e := range endpoints {
+		wanted[e] = true
+	}
+	var res contract.ListedResult
+	for id, p := range f.proxies {
+		key := contract.ProxyEndpoint{Protocol: p.Protocol, IP: p.IP, Port: p.Port}
+		if !wanted[key] {
+			continue
+		}
+		if p.LastListedAt != nil && p.LastListedAt.After(now.Add(-rule.RewriteInterval)) {
+			continue
+		}
+		res.Marked++
+		if p.RetiredAt != nil && !p.RetiredAt.After(now.Add(-rule.ReviveAfter)) {
+			res.Revived++
+			p.RetiredAt = nil
+			p.FailCount = 0
+		}
+		p.LastListedAt = &now
+		p.UpdatedAt = now
+		f.proxies[id] = p
+	}
+	return res, nil
+}
+
+// RetireStale mirrors the PostgreSQL sweep step: a window of at most batch
+// rows in ID order after afterID, retiring the matching rows of the window.
+func (f *FakeProxyRepository) RetireStale(_ context.Context, rule contract.RetirementRule, afterID int64, batch int) (contract.RetireBatch, error) {
+	if batch <= 0 {
+		return contract.RetireBatch{}, fmt.Errorf("fake proxy retire: batch must be positive, got %d", batch)
+	}
+	if !rule.Enabled() {
+		return contract.RetireBatch{NextID: afterID, Done: true}, nil
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	now := f.now()
+	var ids []int64
+	for id := range f.proxies {
+		if id > afterID {
+			ids = append(ids, id)
+		}
+	}
+	sort.Slice(ids, func(i, j int) bool { return ids[i] < ids[j] })
+	if len(ids) > batch {
+		ids = ids[:batch]
+	}
+	res := contract.RetireBatch{NextID: afterID, Done: len(ids) == 0}
+	for _, id := range ids {
+		res.NextID = id
+		p := f.proxies[id]
+		if p.RetiredAt == nil && fakeShouldRetire(p, p.FailCount, now, rule) {
+			p.RetiredAt = &now
+			p.UpdatedAt = now
+			f.proxies[id] = p
+			res.Retired++
+		}
+	}
+	return res, nil
 }
 
 func (f *FakeProxyRepository) Get(_ context.Context, id int64) (*contract.ProxyRecord, error) {
@@ -207,6 +350,8 @@ func (f *FakeProxyRepository) CountByStatus(_ context.Context) (map[string]int64
 		switch {
 		case f.fresh(p, now):
 			counts[contract.ProxyStatusActive]++
+		case p.RetiredAt != nil:
+			counts["retired"]++
 		case p.Status == contract.ProxyStatusActive:
 			counts["stale"]++
 		default:
@@ -218,7 +363,8 @@ func (f *FakeProxyRepository) CountByStatus(_ context.Context) (map[string]int64
 
 // ClaimProxy claims the best fresh, unlocked, protocol-supported proxy for a
 // consumer. A live destination cooldown excludes the row; there is no stale
-// fallback. Preference order mirrors the SQL: higher uptime, lower latency,
+// fallback. Preference order mirrors the SQL: fewer consecutive destination
+// failures, then higher uptime, lower latency,
 // lower fail count.
 func (f *FakeProxyRepository) ClaimProxy(_ context.Context, owner string, lockTTL time.Duration) (*contract.ProxyRecord, error) {
 	f.mu.Lock()
@@ -242,6 +388,12 @@ func (f *FakeProxyRepository) ClaimProxy(_ context.Context, owner string, lockTT
 		}
 		if best == nil {
 			best = &p
+			continue
+		}
+		if p.DestinationFailures != best.DestinationFailures {
+			if p.DestinationFailures < best.DestinationFailures {
+				best = &p
+			}
 			continue
 		}
 		pUptime := uptimeOrZero(p)
@@ -286,44 +438,6 @@ func (f *FakeProxyRepository) ReleaseProxy(_ context.Context, id int64, owner st
 	p.UpdatedAt = time.Now().UTC()
 	f.proxies[id] = p
 	return nil
-}
-
-// RandomActive returns a random fresh healthy proxy for discovery, honoring
-// ID exclusions and protocol support. No destination cooldown filter and no
-// lock side effects.
-func (f *FakeProxyRepository) RandomActive(_ context.Context, excludeIDs []int64) (*contract.ProxyRecord, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	now := f.now()
-	excludeSet := make(map[int64]bool, len(excludeIDs))
-	for _, id := range excludeIDs {
-		excludeSet[id] = true
-	}
-	var eligible []contract.ProxyRecord
-	for _, p := range f.proxies {
-		if !f.fresh(p, now) {
-			continue
-		}
-		if p.Protocol != "http" && p.Protocol != "https" && p.Protocol != "socks4" && p.Protocol != "socks5" {
-			continue
-		}
-		if excludeSet[p.ID] {
-			continue
-		}
-		eligible = append(eligible, p)
-	}
-	if len(eligible) == 0 {
-		return nil, nil
-	}
-	// Sort by ID for deterministic iteration order before random selection.
-	sort.Slice(eligible, func(i, j int) bool { return eligible[i].ID < eligible[j].ID })
-	r := f.Rand
-	if r == nil {
-		r = rand.New(rand.NewPCG(1, 2))
-	}
-	idx := r.IntN(len(eligible))
-	rec := eligible[idx]
-	return &rec, nil
 }
 
 func uptimeOrZero(p contract.ProxyRecord) float64 {
@@ -391,7 +505,7 @@ func (f *FakeProxyRepository) ClaimScans(_ context.Context, queue contract.ScanQ
 				continue
 			}
 		case contract.ScanBackground:
-			if p.GeneralHealthy {
+			if p.GeneralHealthy || p.RetiredAt != nil {
 				continue
 			}
 		}
@@ -471,6 +585,15 @@ func fakeClassifyFailure(p contract.ProxyRecord, now time.Time, update contract.
 	return contract.ProxyStatusInactive, newFailCount
 }
 
+// fakeShouldRetire mirrors the PostgreSQL retirement predicate: the proxy
+// never worked, has failed often enough and was first seen long enough ago.
+func fakeShouldRetire(p contract.ProxyRecord, newFailCount int, now time.Time, rule contract.RetirementRule) bool {
+	return rule.Enabled() &&
+		p.LastAliveAt == nil &&
+		newFailCount >= rule.MinFailures &&
+		now.Sub(p.FirstSeenAt) >= rule.MinAge
+}
+
 // CompleteScan applies the fenced state transition for one outcome. A failed
 // fence returns (false, nil) and leaves every field untouched.
 func (f *FakeProxyRepository) CompleteScan(_ context.Context, lease contract.ScanLease, update contract.ScanUpdate) (bool, error) {
@@ -495,6 +618,7 @@ func (f *FakeProxyRepository) CompleteScan(_ context.Context, lease contract.Sca
 		p.RecoveryStep = 0
 		p.NextAttemptAt = &nextAttempt
 		p.ScanNotBefore = &notBefore
+		p.RetiredAt = nil
 		p.ObservationVersion++
 	case contract.ScanFailure:
 		status, newFailCount := fakeClassifyFailure(p, now, update)
@@ -505,6 +629,9 @@ func (f *FakeProxyRepository) CompleteScan(_ context.Context, lease contract.Sca
 		p.RecoveryStep = update.RecoveryStep
 		p.NextAttemptAt = &nextAttempt
 		p.ScanNotBefore = &notBefore
+		if p.RetiredAt == nil && fakeShouldRetire(p, newFailCount, now, update.Retirement) {
+			p.RetiredAt = &now
+		}
 		p.ObservationVersion++
 	case contract.ScanInconclusive:
 		p.LastCompletedAt = &now
@@ -633,6 +760,7 @@ func (f *FakeProxyRepository) CooldownDestination(_ context.Context, id int64, o
 		raised = *p.DestinationCooldownUntil
 	}
 	p.DestinationCooldownUntil = &raised
+	p.DestinationFailures++
 	p.LockedBy = nil
 	p.LockedAt = nil
 	p.UpdatedAt = now
@@ -640,7 +768,23 @@ func (f *FakeProxyRepository) CooldownDestination(_ context.Context, id int64, o
 	return nil
 }
 
+// ResetDestinationFailures zeroes the consecutive destination failure counter
+// of an owned proxy, keeping the lock.
+func (f *FakeProxyRepository) ResetDestinationFailures(_ context.Context, id int64, owner string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	p, ok := f.proxies[id]
+	if !ok || p.LockedBy == nil || *p.LockedBy != owner || p.DestinationFailures == 0 {
+		return nil
+	}
+	p.DestinationFailures = 0
+	p.UpdatedAt = f.now()
+	f.proxies[p.ID] = p
+	return nil
+}
+
 var (
-	_ contract.ProxyScanStore  = (*FakeProxyRepository)(nil)
-	_ contract.ProxyRepository = (*FakeProxyRepository)(nil)
+	_ contract.ProxyScanStore       = (*FakeProxyRepository)(nil)
+	_ contract.ProxyRepository      = (*FakeProxyRepository)(nil)
+	_ contract.ProxyRetirementStore = (*FakeProxyRepository)(nil)
 )

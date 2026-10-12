@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
@@ -17,8 +18,9 @@ import (
 // reads and the ProxyScanStore lease pipeline. The concrete constructor
 // return lets callers reach either port from one adapter.
 var (
-	_ contract.ProxyScanStore  = (*ProxyRepository)(nil)
-	_ contract.ProxyRepository = (*ProxyRepository)(nil)
+	_ contract.ProxyScanStore       = (*ProxyRepository)(nil)
+	_ contract.ProxyRepository      = (*ProxyRepository)(nil)
+	_ contract.ProxyRetirementStore = (*ProxyRepository)(nil)
 )
 
 // newScanToken returns a fresh 128-bit hex nonce. A batch token paired with
@@ -40,19 +42,29 @@ const claimLeaseWhere = `(p2.scan_lease_until IS NULL OR p2.scan_lease_until <= 
 // claimQueueWhere returns the queue-specific static predicate. Caller values
 // arrive only as bind parameters; queue SQL is selected, never interpolated.
 // Background ignores the scheduling deadline entirely.
-func claimQueueWhere(queue contract.ScanQueue) (string, string, bool) {
+//
+// The recovery horizon is inlined as a literal, not bound: with a bind
+// parameter PostgreSQL's generic plan cannot see how selective the horizon is
+// and walks idx_proxies_recovery_claim in deadline order, filtering every
+// long-unverified row (138 ms and 108k buffers on production). A literal lets
+// it pick the small idx_proxies_recovery_recent range instead. The value
+// comes from policy, never from callers.
+func claimQueueWhere(queue contract.ScanQueue, recoveryHorizon time.Duration) (string, string, bool) {
 	switch queue {
 	case contract.ScanVerification:
 		return `p2.general_healthy
 			AND (p2.next_attempt_at IS NULL OR p2.next_attempt_at <= statement_timestamp())`,
 			`p2.next_attempt_at ASC NULLS FIRST, p2.id ASC`, true
 	case contract.ScanRecovery:
-		return `NOT p2.general_healthy
-			AND p2.last_verified_at > statement_timestamp() - ($2 * interval '1 second')
+		return fmt.Sprintf(`NOT p2.general_healthy
+			AND p2.last_verified_at > statement_timestamp() - (%s * interval '1 second')
 			AND (p2.next_attempt_at IS NULL OR p2.next_attempt_at <= statement_timestamp())`,
+				strconv.FormatFloat(recoveryHorizon.Seconds(), 'f', -1, 64)),
 			`p2.next_attempt_at ASC NULLS FIRST, p2.id ASC`, true
 	case contract.ScanBackground:
-		return `NOT p2.general_healthy`,
+		// Retired proxies stay in the table but leave the sweep; this
+		// predicate must match idx_proxies_background_live exactly.
+		return `NOT p2.general_healthy AND p2.retired_at IS NULL`,
 			`p2.last_completed_at ASC NULLS FIRST, p2.id ASC`, true
 	default:
 		return "", "", false
@@ -69,43 +81,14 @@ func (r *ProxyRepository) ClaimScans(ctx context.Context, queue contract.ScanQue
 	if limit <= 0 {
 		return nil, fmt.Errorf("scan claim: limit must be positive, got %d", limit)
 	}
-	where, order, ok := claimQueueWhere(queue)
-	if !ok {
-		return nil, fmt.Errorf("scan claim: unknown queue %d", int(queue))
-	}
-
 	token, err := newScanToken()
 	if err != nil {
 		return nil, err
 	}
-
-	args := []any{limit}
-	if queue == contract.ScanRecovery {
-		args = append(args, r.policy.RecoveryHorizon.Seconds())
+	query, args, err := r.claimQuery(queue, limit, token)
+	if err != nil {
+		return nil, err
 	}
-	tokenPH := len(args) + 1
-	args = append(args, token)
-	leasePH := len(args) + 1
-	args = append(args, r.policy.LeaseDuration.Seconds())
-
-	query := fmt.Sprintf(`WITH chosen AS (
-		SELECT p2.id
-		FROM proxies p2
-		WHERE %s
-		  AND %s
-		ORDER BY %s
-		LIMIT $1
-		FOR UPDATE SKIP LOCKED
-	)
-	UPDATE proxies p
-	SET scan_token = $%d,
-		scan_lease_until = clock_timestamp() + ($%d * interval '1 second'),
-		claimed_version = p.observation_version,
-		updated_at = clock_timestamp()
-	FROM chosen
-	WHERE p.id = chosen.id
-	RETURNING %s`,
-		claimLeaseWhere, where, order, tokenPH, leasePH, proxyColumnsClaimed)
 
 	db, err := r.driver.Acquire(ctx)
 	if err != nil {
@@ -141,6 +124,37 @@ func (r *ProxyRepository) ClaimScans(ctx context.Context, queue contract.ScanQue
 		sortScanLeases(leases, func(l contract.ScanLease) *time.Time { return l.Record.NextAttemptAt })
 	}
 	return leases, nil
+}
+
+// claimQuery assembles the lease statement and its bind arguments for one
+// queue.
+func (r *ProxyRepository) claimQuery(queue contract.ScanQueue, limit int, token string) (string, []any, error) {
+	where, order, ok := claimQueueWhere(queue, r.policy.RecoveryHorizon)
+	if !ok {
+		return "", nil, fmt.Errorf("scan claim: unknown queue %d", int(queue))
+	}
+
+	args := []any{limit, token, r.policy.LeaseDuration.Seconds()}
+
+	query := fmt.Sprintf(`WITH chosen AS (
+		SELECT p2.id
+		FROM proxies p2
+		WHERE %s
+		  AND %s
+		ORDER BY %s
+		LIMIT $1
+		FOR UPDATE SKIP LOCKED
+	)
+	UPDATE proxies p
+	SET scan_token = $2,
+		scan_lease_until = clock_timestamp() + ($3 * interval '1 second'),
+		claimed_version = p.observation_version,
+		updated_at = clock_timestamp()
+	FROM chosen
+	WHERE p.id = chosen.id
+	RETURNING %s`,
+		claimLeaseWhere, where, order, proxyColumnsClaimed)
+	return query, args, nil
 }
 
 // sortScanLeases orders leases by an optional timestamp key, NULLS FIRST,
@@ -221,6 +235,7 @@ func (r *ProxyRepository) CompleteScan(ctx context.Context, lease contract.ScanL
 			recovery_step = 0,
 			next_attempt_at = $3,
 			scan_not_before = $4,
+			retired_at = NULL,
 			observation_version = observation_version + 1,
 			scan_token = NULL,
 			scan_lease_until = NULL,
@@ -244,15 +259,22 @@ func (r *ProxyRepository) CompleteScan(ctx context.Context, lease contract.ScanL
 			recovery_step = $7,
 			next_attempt_at = $3,
 			scan_not_before = $4,
+			retired_at = COALESCE(retired_at, $10),
 			observation_version = observation_version + 1,
 			scan_token = NULL,
 			scan_lease_until = NULL,
 			claimed_version = NULL,
 			updated_at = $2
 			WHERE %s`, fencedWhere(1, 8, 9, 2))
+		// The failure that satisfies the retirement rule retires the proxy
+		// in the same write; an existing retirement time is kept.
+		var retiredAt any
+		if shouldRetire(current, newFailCount, dbNow, update.Retirement) {
+			retiredAt = dbNow
+		}
 		args = []any{
 			lease.Record.ID, dbNow, dbNow.Add(update.NextDelay), dbNow.Add(update.RepeatDelay),
-			status, newFailCount, update.RecoveryStep, lease.Token, lease.Version,
+			status, newFailCount, update.RecoveryStep, lease.Token, lease.Version, retiredAt,
 		}
 	case contract.ScanInconclusive:
 		// No evidence either way: preserve health, status, failure history,
@@ -430,6 +452,7 @@ func (r *ProxyRepository) CooldownDestination(ctx context.Context, id int64, own
 		SET destination_cooldown_until = GREATEST(
 				COALESCE(destination_cooldown_until, '-infinity'::timestamptz),
 				statement_timestamp() + ($2 * interval '1 second')),
+			destination_failures = destination_failures + 1,
 			locked_by = NULL,
 			locked_at = NULL,
 			updated_at = statement_timestamp()
@@ -437,6 +460,77 @@ func (r *ProxyRepository) CooldownDestination(ctx context.Context, id int64, own
 		id, delay.Seconds(), owner)
 	if err != nil {
 		return fmt.Errorf("destination cooldown: %w", err)
+	}
+	return nil
+}
+
+// shouldRetire applies the retirement rule to a row after a conclusive
+// failure: it never worked, has failed at least MinFailures times and was
+// first seen at least MinAge ago. The SQL sweep (RetireStale) states the same
+// predicate; keep them in step.
+func shouldRetire(current *contract.ProxyRecord, newFailCount int, dbNow time.Time, rule contract.RetirementRule) bool {
+	return rule.Enabled() &&
+		current.LastAliveAt == nil &&
+		newFailCount >= rule.MinFailures &&
+		dbNow.Sub(current.FirstSeenAt) >= rule.MinAge
+}
+
+// RetireStale retires matching proxies in one bounded step. The step walks a
+// window of at most batch rows in ID order starting after afterID (the window
+// bounds the work whatever share of it matches) and retires the matching rows
+// of that window in one short statement. Rows stay in the table, so the unique
+// key keeps discovery from re-inserting them. The predicate mirrors
+// shouldRetire; retired_at IS NULL makes repeats and concurrent sweeps no-ops.
+func (r *ProxyRepository) RetireStale(ctx context.Context, rule contract.RetirementRule, afterID int64, batch int) (contract.RetireBatch, error) {
+	if batch <= 0 {
+		return contract.RetireBatch{}, fmt.Errorf("proxy retire: batch must be positive, got %d", batch)
+	}
+	if !rule.Enabled() {
+		return contract.RetireBatch{NextID: afterID, Done: true}, nil
+	}
+	db, err := r.driver.Acquire(ctx)
+	if err != nil {
+		return contract.RetireBatch{}, err
+	}
+	var next, retired, examined int64
+	err = db.QueryRowContext(ctx, `WITH win AS (
+			SELECT id FROM proxies WHERE id > $1 ORDER BY id LIMIT $2
+		), upd AS (
+			UPDATE proxies p
+			SET retired_at = statement_timestamp(), updated_at = statement_timestamp()
+			FROM win
+			WHERE p.id = win.id
+			  AND p.retired_at IS NULL
+			  AND p.last_alive_at IS NULL
+			  AND p.fail_count >= $3
+			  AND p.first_seen_at <= statement_timestamp() - ($4 * interval '1 second')
+			RETURNING p.id
+		)
+		SELECT COALESCE((SELECT max(id) FROM win), $1::bigint),
+			(SELECT count(*) FROM upd),
+			(SELECT count(*) FROM win)`,
+		afterID, batch, rule.MinFailures, rule.MinAge.Seconds()).Scan(&next, &retired, &examined)
+	if err != nil {
+		return contract.RetireBatch{}, fmt.Errorf("proxy retire: %w", err)
+	}
+	return contract.RetireBatch{NextID: next, Retired: retired, Done: examined == 0}, nil
+}
+
+// ResetDestinationFailures zeroes the consecutive destination failure counter
+// of an owned proxy after a success. The destination_failures > 0 predicate
+// makes the steady state (counter already zero) a no-row update, so healthy
+// proxies cost no write per job.
+func (r *ProxyRepository) ResetDestinationFailures(ctx context.Context, id int64, owner string) error {
+	db, err := r.driver.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, `UPDATE proxies
+		SET destination_failures = 0, updated_at = statement_timestamp()
+		WHERE id = $1 AND locked_by = $2 AND destination_failures > 0`,
+		id, owner)
+	if err != nil {
+		return fmt.Errorf("reset destination failures: %w", err)
 	}
 	return nil
 }

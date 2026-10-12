@@ -48,6 +48,30 @@ func (h *AchievementCensus) Handle(ctx context.Context, payload []byte) ([]contr
 		return nil, err
 	}
 
+	// A private flag needs no Lodestone request while it is trusted: verified
+	// within the recheck window, or never verified (then it is stamped now, so
+	// the window starts at first sight). The job succeeds, so the worker acks
+	// it. This is checked before the rate-limit wait: a skipped job must not
+	// queue behind a cooldown.
+	check, err := h.census.AchievementCensusCheck(ctx, p.CharacterID)
+	if err != nil {
+		// Log warning but continue: the skip is an optimization, not a requirement.
+		h.logger.ErrorContext(ctx, "handler.achievement_census.due_check_failed", slog.Uint64("character_id", uint64(p.CharacterID)), slog.Any("error", err))
+	}
+	switch check {
+	case census.AchievementCheckSkip:
+		h.logger.DebugContext(ctx, "handler.achievement_census.skipped",
+			slog.Uint64("character_id", uint64(p.CharacterID)), slog.String("reason", "private_recently_checked"))
+		return nil, nil
+	case census.AchievementCheckStamp:
+		if _, err := h.process(ctx, p.CharacterID, &contract.AchievementSummary{Private: true}); err != nil {
+			return nil, fmt.Errorf("achievement-census stamp %d: %w", p.CharacterID, err)
+		}
+		h.logger.DebugContext(ctx, "handler.achievement_census.stamped",
+			slog.Uint64("character_id", uint64(p.CharacterID)), slog.String("reason", "private_flag_unverified"))
+		return nil, nil
+	}
+
 	// Wait for Lodestone if rate-limited (blocks until cooldown expires).
 	if h.rateLimiter != nil && !h.rateLimiter.IsAvailable(contract.ProviderLodestone) {
 		h.logger.InfoContext(ctx, "handler.achievement_census.waiting_for_lodestone", slog.Uint64("character_id", uint64(p.CharacterID)))

@@ -41,7 +41,7 @@ The ordered sequence of milestone achievements in which earning a later one impl
 _Avoid_: achievement chain, chain verification, sequential dependency, early exit
 
 **Confirmed missing**:
-The conclusion that a character no longer exists, reached when the providers report not-found; the character stops being part of the census from then on. A not-found from The Lodestone alone is sufficient, because it is authoritative for existence.
+The conclusion that a character no longer exists, reached when the providers report not-found; the character stops being part of the regular character census from then on. Only a small periodic batch of them is re-probed, so a character that comes back is found again. A not-found from The Lodestone alone is sufficient, because it is authoritative for existence.
 _Avoid_: mark deleted, confirmed not found, character gone
 
 **Private profile**:
@@ -52,6 +52,10 @@ _Avoid_: privacy skip, skipped character
 A character whose achievement history is hidden from public view. This is recorded on the character and is a valid reason for it to have no milestone records.
 _Avoid_: hidden achievement list
 
+**Private recheck window**:
+How long a character found achievements private is left alone before its achievement census asks The Lodestone again — 30 days by default. A job inside the window is skipped and succeeds; a character whose flag was never verified is checked once.
+_Avoid_: private skip, private cooldown
+
 **The Lodestone**:
 FFXIV's official community site, read as web pages rather than through an official API, and the authoritative source of character existence and profile truth. The sole provider for every census event.
 _Avoid_: official API
@@ -61,13 +65,13 @@ The character-data source: The Lodestone, the only one. Fetches happen per event
 _Avoid_: source, dual-source
 
 **Proxy provider**:
-An external service publishing lists of free proxies, fetched by proxy discovery. Not a provider of character data.
+An external service publishing lists of free proxies, fetched directly by proxy discovery. Not a provider of character data.
 _Avoid_: provider (for proxy lists)
 
 ## Queue and events
 
 **Event type**:
-The named kind of work a job carries — currently ID sweep, character census, achievement census, and new-proxy. It routes the job to its queue and its event handler.
+The named kind of work a job carries — currently ID sweep, character census and achievement census. It routes the job to its queue and its event handler.
 _Avoid_: job type, routing key, event (bare)
 
 **Queue job**:
@@ -91,7 +95,7 @@ The per-worker component that event handlers hand a finished census result to in
 _Avoid_: batch writer, persister, store (as a noun)
 
 **Write batch**:
-The results the result writer has gathered, stored together in one database transaction. It closes when it holds a set number of results or about a second has passed. If the database rejects one result, that result is split off and retried alone so its neighbours still commit; if the batch fails for any other reason, every job in it stays unacknowledged and is retried through the failed queue.
+The results the result writer has gathered, stored together in one database transaction. It closes when it holds a set number of results or about a second has passed. If the database rejects one result, that result is split off and retried alone so its neighbours still commit; if the batch fails for any other reason, every job in it stays unacknowledged and is retried through a delay tier.
 _Avoid_: flush (as a noun for the unit), chunk
 
 **Chaining**:
@@ -102,8 +106,12 @@ _Avoid_: event cascading, downstream jobs, follow-up job
 An event type that chains nothing.
 _Avoid_: terminal event
 
+**Delay tier**:
+One of the retry queues a failed job waits in before it returns to the main queue: 5 seconds, 30 seconds, 5 minutes and 1 hour by default, each a separate queue whose expiry sends the job back on its own. The tier comes from the job's attempt count, which counts only failures the job itself caused; a failure caused by a proxy (dial failure, challenge, timeout, 429, 5xx) does not raise it.
+_Avoid_: backoff queue, retry ladder (as a place), failed queue (the legacy name)
+
 **Failed queue**:
-The per-event-type holding area for jobs awaiting retry. Retryable failures wait there with exponential backoff (5 seconds up to one hour) and return to the main queue on their own; they are retried until they succeed or the handler reaches a terminal outcome.
+The legacy per-event-type holding area where retries waited, with a per-message backoff, before delay tiers existed. Nothing is published to it any more; it stays declared only so jobs still parked there can drain, and it can be removed once empty.
 _Avoid_: dead-letter queue, DLQ, retry exchange (stale phrasing)
 
 **Dead queue**:
@@ -111,7 +119,7 @@ The per-event-type terminal parking area for jobs that cannot be routed or decod
 _Avoid_: dead-letter queue, DLQ
 
 **Retry worker**:
-The worker that consumes failed queues and republishes each job to the main exchange under its canonical event type, acknowledging only after the broker confirms.
+The transition worker that drains the legacy failed queues without sleeping, moving each job to the main exchange under its canonical event type, into the delay tier that covers its remaining wait, or to the dead queue, acknowledging only after the broker confirms. New failures do not pass through it.
 _Avoid_: failed worker, census-retry (that is the deployment name)
 
 **Push-based consumption**:
@@ -125,12 +133,8 @@ The maintained set of free proxies that census workers rotate through as outboun
 _Avoid_: pool, proxies (bare)
 
 **Proxy discovery**:
-The continuous fetch of proxy lists from proxy providers, registering only addresses not already in the pool.
+The recurring cron run that fetches proxy lists straight from the proxy providers (never through the pool), registers the addresses not already in the pool with bulk inserts, and marks every listed address as listed again. Its per-run limit is split fairly across providers, and lists a provider reports as unchanged are skipped.
 _Avoid_: streaming discovery
-
-**Rotating discovery client**:
-The HTTP client used only to fetch proxy lists, routed through random pool proxies. It is forbidden for provider traffic.
-_Avoid_: rotating proxy client, discovery HTTP client
 
 **Proxy scan**:
 The recurring re-test of pool proxies that keeps their general-health evidence current. It reads proxies straight from the database, not through the queue, and is spread across replicas by scan leases.
@@ -145,7 +149,7 @@ A proxy whose latest general-health check succeeded recently enough (within the 
 _Avoid_: alive proxy, active proxy (for live availability)
 
 **Scan queue**:
-One of three logical queues the proxy scan draws from: verification (re-checking proxies whose evidence is about to expire), recovery (retrying recently working proxies that failed, with growing delays), and background (a continuous sweep of every non-succeeding proxy). Each holds a reserved share of scan concurrency and lends unused capacity to the others.
+One of three logical queues the proxy scan draws from: verification (re-checking proxies whose evidence is about to expire), recovery (retrying recently working proxies that failed, with growing delays), and background (a continuous sweep of every non-succeeding proxy that is not retired). Each holds a reserved share of scan concurrency and lends unused capacity to the others.
 _Avoid_: scan pool, cohort, dead pool
 
 **Scan lease**:
@@ -157,19 +161,23 @@ The per-replica baseline check of the general-health endpoint itself. While it i
 _Avoid_: circuit breaker
 
 **Proxy status**:
-A proxy's historical classification in the pool: active, inactive, or dead. It never gates the background scan and never decides live availability; freshness does.
+A proxy's historical classification in the pool: active, inactive, or dead. It never gates the background scan (retirement does) and never decides live availability; freshness does.
 _Avoid_: health status
+
+**Retired proxy**:
+A proxy that never worked, has failed at least a set number of times (default 10) and was first seen more than a set number of days ago (default 14). The background scan skips it, but its row stays in the pool so the unique key keeps discovery from registering it again. A provider listing it again revives it once it has been retired for a set time (default 7 days), which also resets its failure count. Unlike proxy status, retirement gates scanning.
+_Avoid_: dead proxy (that is the historical status), deleted proxy, banned proxy, archived proxy
 
 **Proxy lock**:
 The exclusive, time-limited hold one census worker has on a proxy while using it. Expired holds may be taken over by other workers.
 _Avoid_: proxy lease (that is the scan lease), consumer lease
 
-**Test-before-handout**:
-The rule that a proxy must be fresh and pass a live Lodestone check before a worker is ever asked to use it.
-_Avoid_: blind handout
+**Freshness-only handout**:
+The rule that a proxy is handed to a worker on scan freshness alone (general health verified within the freshness window, 120 s), with ownership and freshness revalidated against the database right after the claim. No separate Lodestone request is made at hand-out; the first real request of the job is the destination check, and a proxy The Lodestone rejects then is released and put on a destination cooldown at once.
+_Avoid_: Test-before-handout, handout check, destination check at handout, blind handout
 
 **Destination cooldown**:
-The temporary exclusion of a proxy from Lodestone use after The Lodestone rejects or rate-limits it. It does not mark the proxy generally unhealthy.
+The temporary exclusion of a proxy from Lodestone use after The Lodestone challenges, rejects, rate-limits or times out on it. It does not mark the proxy generally unhealthy. It starts at the cooldown floor (60 s) and doubles for each consecutive failure of the same proxy up to a configurable cap (15 min), never undercutting a server `Retry-After`; the first successful job on the proxy resets the streak. A cooled proxy is not handed out again until the cooldown ends, and afterwards it ranks behind proxies with no recent failures.
 _Avoid_: proxy ban, proxy failure
 
 **Proxy mode**:
@@ -181,7 +189,7 @@ The temporary pause on requests to one provider after it signals a rate limit. I
 _Avoid_: provider pause, rate-limit error
 
 **Immediate proxy switch**:
-The policy of abandoning a proxy on its first transport-level failure rather than retrying through it.
+The policy of abandoning a proxy on its first transport-level failure rather than retrying through it. In proxy mode the same job is retried in-process on a different proxy (at most three proxies per job) after a proxy-dial failure, challenge, timeout or server error; a 404 or private outcome is never a reason to switch.
 _Avoid_: bad-proxy retry
 
 ## Statistics

@@ -31,11 +31,17 @@ type Config struct {
 	Proxy     *ProxyConfig     `mapstructure:"proxy"`
 }
 
-// QueueConfig holds the broker-agnostic delivery attempt budget. maxAttempts
-// bounds how many times a message may fail before it parks permanently in
-// its failed queue.
+// QueueConfig holds the broker-agnostic retry settings. MaxAttempts bounds how
+// many job-attributable failures a message may have before it parks on its
+// dead queue. RetryTiers are the delays of the retry queues a failed job waits
+// in, strictly ascending; the Nth job failure uses the Nth tier, the last tier
+// repeats. ProxyFailureCap is how many proxy-attributable failures a message
+// absorbs without counting as a job attempt; each further one counts, so a
+// message that only meets bad proxies still reaches MaxAttempts.
 type QueueConfig struct {
-	MaxAttempts int `mapstructure:"max_attempts"`
+	MaxAttempts     int             `mapstructure:"max_attempts"`
+	RetryTiers      []time.Duration `mapstructure:"retry_tiers"`
+	ProxyFailureCap int             `mapstructure:"proxy_failure_cap"`
 }
 
 // WriterConfig tunes the per-pod batching writer that stores finished census
@@ -161,7 +167,10 @@ type ExpansionConfig struct {
 }
 
 type CensusConfig struct {
-	ActivityWindowDays int               `mapstructure:"activity_window_days"`
+	ActivityWindowDays int `mapstructure:"activity_window_days"`
+	// PrivateRecheckDays is how many days a character found private is left
+	// alone before its achievement census runs again.
+	PrivateRecheckDays int               `mapstructure:"private_recheck_days"`
 	MaxLevel           uint32            `mapstructure:"max_level"`
 	Expansions         []ExpansionConfig `mapstructure:"expansions"`
 	UIStats            *UIStatsConfig    `mapstructure:"ui_stats"`
@@ -179,6 +188,7 @@ type ProxyConfig struct {
 	DeadThresholdDays  int                 `mapstructure:"dead_threshold_days"`
 	FailCountThreshold int                 `mapstructure:"fail_count_threshold"`
 	Scan               ProxyScanConfig     `mapstructure:"scan"`
+	Retire             ProxyRetireConfig   `mapstructure:"retire"`
 	Providers          ProxyProviderConfig `mapstructure:"providers"`
 	Consumer           ProxyConsumerConfig `mapstructure:"consumer"`
 }
@@ -201,13 +211,39 @@ type ProxyScanConfig struct {
 	ControlInterval      time.Duration `mapstructure:"control_interval"`
 }
 
+// ProxyRetireConfig holds the retirement thresholds and the cadence of the
+// sweep that retires existing rows. A proxy that never worked, has failed at
+// least AfterFailures times and was first seen at least AfterDays ago is
+// retired: the background scan skips it until a provider lists it again.
+type ProxyRetireConfig struct {
+	AfterFailures int           `mapstructure:"after_failures"`
+	AfterDays     int           `mapstructure:"after_days"`
+	SweepInterval time.Duration `mapstructure:"sweep_interval"`
+	SweepBatch    int           `mapstructure:"sweep_batch"`
+	// ReviveAfter is how long a proxy must have been retired before a
+	// provider listing revives it (and resets its failure count). It stops a
+	// proxy that stays on a list from flipping between retired and live.
+	ReviveAfter time.Duration `mapstructure:"revive_after"`
+	// ListedRewriteInterval is the shortest time between two last_listed_at
+	// writes to one proxy row.
+	ListedRewriteInterval time.Duration `mapstructure:"listed_rewrite_interval"`
+}
+
 type ProxyConsumerConfig struct {
 	LockTTL            string        `mapstructure:"lock_ttl"`
 	LodestoneRateLimit float64       `mapstructure:"lodestone_rate_limit"`
 	RequestTimeout     string        `mapstructure:"request_timeout"`
-	TestURL            string        `mapstructure:"test_url"`
-	TestTimeout        time.Duration `mapstructure:"test_timeout"`
 	Cooldown           time.Duration `mapstructure:"cooldown"`
+	// CooldownMax caps the destination cooldown that doubles per consecutive
+	// destination failure of one proxy, starting at Cooldown.
+	CooldownMax time.Duration `mapstructure:"cooldown_max"`
+	// JobAttempts is how many proxies one job tries in-process (first
+	// attempt included) before it takes the queue's error path.
+	JobAttempts int `mapstructure:"job_attempts"`
+	// LockRefreshInterval is the most often a worker re-validates and
+	// extends the lock of a proxy it holds. It must stay below half of
+	// lock_ttl so the lock cannot expire between refreshes.
+	LockRefreshInterval time.Duration `mapstructure:"lock_refresh_interval"`
 }
 
 type ProxyProviderConfig struct {
@@ -289,6 +325,14 @@ func validatePositiveDuration(key string, d time.Duration) error {
 	return nil
 }
 
+// validateQueueSettings fails startup on an invalid explicit queue setting.
+func validateQueueSettings(cfg *Config) error {
+	if cfg.Queue != nil && cfg.Queue.ProxyFailureCap < 1 {
+		return fmt.Errorf("config: queue.proxy_failure_cap must be at least 1, got %d", cfg.Queue.ProxyFailureCap)
+	}
+	return nil
+}
+
 // validateProxySettings fails startup on invalid explicit settings. Nothing
 // is clamped or silently defaulted: a bad operator value must surface here,
 // not as surprising scanner behavior.
@@ -363,13 +407,56 @@ func validateProxySettings(cfg *Config) error {
 			scan.MinRepeatInterval, scan.InconclusiveRetry)
 	}
 
-	if err := validateHTTPSURL("proxy.consumer.test_url", proxy.Consumer.TestURL); err != nil {
+	retire := &proxy.Retire
+	if retire.AfterFailures <= 0 {
+		return fmt.Errorf("config: proxy.retire.after_failures must be positive, got %d", retire.AfterFailures)
+	}
+	if retire.AfterDays <= 0 {
+		return fmt.Errorf("config: proxy.retire.after_days must be positive, got %d", retire.AfterDays)
+	}
+	if err := validatePositiveDuration("proxy.retire.sweep_interval", retire.SweepInterval); err != nil {
 		return err
 	}
-	if err := validatePositiveDuration("proxy.consumer.test_timeout", proxy.Consumer.TestTimeout); err != nil {
+	if retire.SweepBatch <= 0 {
+		return fmt.Errorf("config: proxy.retire.sweep_batch must be positive, got %d", retire.SweepBatch)
+	}
+	if err := validatePositiveDuration("proxy.retire.revive_after", retire.ReviveAfter); err != nil {
 		return err
 	}
-	return validatePositiveDuration("proxy.consumer.cooldown", proxy.Consumer.Cooldown)
+	if err := validatePositiveDuration("proxy.retire.listed_rewrite_interval", retire.ListedRewriteInterval); err != nil {
+		return err
+	}
+
+	if err := validatePositiveDuration("proxy.consumer.cooldown", proxy.Consumer.Cooldown); err != nil {
+		return err
+	}
+	if proxy.Consumer.CooldownMax < proxy.Consumer.Cooldown {
+		return fmt.Errorf("config: proxy.consumer.cooldown_max (%s) must be at least cooldown (%s)",
+			proxy.Consumer.CooldownMax, proxy.Consumer.Cooldown)
+	}
+	if proxy.Consumer.JobAttempts < 1 {
+		return fmt.Errorf("config: proxy.consumer.job_attempts must be at least 1, got %d", proxy.Consumer.JobAttempts)
+	}
+	return validateLockRefreshInterval(proxy.Consumer)
+}
+
+// validateLockRefreshInterval requires the consumer lock refresh interval to
+// stay below half of lock_ttl, so a held lock always has at least half its
+// lifetime left when the next refresh is due. An empty or malformed lock_ttl
+// is compared at the 5m the container falls back to.
+func validateLockRefreshInterval(consumer ProxyConsumerConfig) error {
+	if err := validatePositiveDuration("proxy.consumer.lock_refresh_interval", consumer.LockRefreshInterval); err != nil {
+		return err
+	}
+	lockTTL := 5 * time.Minute
+	if d, err := time.ParseDuration(consumer.LockTTL); err == nil && d > 0 {
+		lockTTL = d
+	}
+	if consumer.LockRefreshInterval >= lockTTL/2 {
+		return fmt.Errorf("config: proxy.consumer.lock_refresh_interval (%s) must be below half of lock_ttl (%s)",
+			consumer.LockRefreshInterval, lockTTL)
+	}
+	return nil
 }
 
 func NewConfig() (*Config, error) {
@@ -391,6 +478,9 @@ func NewConfig() (*Config, error) {
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("unmarshal config: %w", err)
+	}
+	if err := validateQueueSettings(&cfg); err != nil {
+		return nil, err
 	}
 	if err := validateProxySettings(&cfg); err != nil {
 		return nil, err

@@ -45,6 +45,10 @@ vhost    = "ffxiv-census"
 
 [queue]
 max_attempts = 50
+retry_tiers  = ["5s", "30s", "5m", "1h"]
+# Proxy-attributable failures (x-proxy-failures) a message absorbs without
+# counting as a job attempt; each further one counts toward max_attempts.
+proxy_failure_cap = 20
 
 [writer]
 batch_size     = 100
@@ -75,6 +79,23 @@ min_repeat_interval   = "1s"
 inconclusive_retry    = "60s"
 control_interval      = "30s"
 
+# A proxy that never worked, has failed at least after_failures times and was
+# first seen at least after_days ago is retired: the background scan skips it,
+# the row stays (the unique key blocks re-insertion) and a provider listing it
+# again revives it. The sweep retires rows that were already over the
+# thresholds, in batches of sweep_batch, once at scan start and then every
+# sweep_interval. A listing revives a proxy only after it has been retired for
+# revive_after, and revival resets its failure count, so a proxy that stays on
+# a list needs fresh failures to be retired again. listed_rewrite_interval is
+# the shortest time between two last_listed_at writes to one row.
+[proxy.retire]
+after_failures          = 10
+after_days              = 14
+sweep_interval          = "1h"
+sweep_batch             = 5000
+revive_after            = "168h"
+listed_rewrite_interval = "6h"
+
 [proxy.providers]
 proxyscrape     = true
 proxyscrape_url = "https://api.proxyscrape.com/v4/free-proxy-list/get"
@@ -101,12 +122,18 @@ ercindedeoglu    = true
 lock_ttl              = "5m"
 lodestone_rate_limit  = 1.0
 request_timeout       = "30s"
-test_url              = "https://na.finalfantasyxiv.com/lodestone/"
-test_timeout          = "10s"
 cooldown              = "60s"
+cooldown_max          = "15m"
+job_attempts          = 3
+# A worker re-validates and extends the lock of a proxy it holds at most this
+# often. Must be below half of lock_ttl so the lock cannot expire in between.
+lock_refresh_interval = "100s"
 
 [census]
 activity_window_days = 30
+# Days a character found private is left alone before its achievement census
+# runs again.
+private_recheck_days = 30
 max_level = 100
 
 [census.ui_stats]

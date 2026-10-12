@@ -162,8 +162,8 @@ func TestNewConfigRejectsNonPositiveScanDurations(t *testing.T) {
 		"PROXY_SCAN_MIN_REPEAT_INTERVAL",
 		"PROXY_SCAN_INCONCLUSIVE_RETRY",
 		"PROXY_SCAN_CONTROL_INTERVAL",
-		"PROXY_CONSUMER_TEST_TIMEOUT",
 		"PROXY_CONSUMER_COOLDOWN",
+		"PROXY_CONSUMER_COOLDOWN_MAX",
 	}
 	for _, key := range keys {
 		for _, val := range []string{"0s", "-1s"} {
@@ -209,9 +209,6 @@ func TestNewConfigRejectsInvalidTestURLs(t *testing.T) {
 		{"PROXY_TEST_URL", "https://user:pass@api64.ipify.org/"},
 		{"PROXY_TEST_URL", "https://"},
 		{"PROXY_TEST_URL", "api64.ipify.org"},
-		{"PROXY_CONSUMER_TEST_URL", "http://na.finalfantasyxiv.com/lodestone/"},
-		{"PROXY_CONSUMER_TEST_URL", "https://user:pass@na.finalfantasyxiv.com/"},
-		{"PROXY_CONSUMER_TEST_URL", "https://"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.key+"="+tc.val, func(t *testing.T) {
@@ -236,6 +233,64 @@ func TestNewConfigRejectsNonPositiveThresholds(t *testing.T) {
 			t.Fatal("accepted fail_count_threshold=-1")
 		}
 	})
+}
+
+func TestNewConfig_ProxyRetireDefaults(t *testing.T) {
+	cfg, err := NewConfig()
+	if err != nil {
+		t.Fatalf("unexpected error loading defaults: %v", err)
+	}
+	retire := cfg.Proxy.Retire
+	if retire.AfterFailures != 10 {
+		t.Errorf("expected retire.after_failures 10, got %d", retire.AfterFailures)
+	}
+	if retire.AfterDays != 14 {
+		t.Errorf("expected retire.after_days 14, got %d", retire.AfterDays)
+	}
+	if retire.SweepInterval != time.Hour {
+		t.Errorf("expected retire.sweep_interval 1h, got %s", retire.SweepInterval)
+	}
+	if retire.SweepBatch != 5000 {
+		t.Errorf("expected retire.sweep_batch 5000, got %d", retire.SweepBatch)
+	}
+	if retire.ReviveAfter != 7*24*time.Hour {
+		t.Errorf("expected retire.revive_after 168h, got %s", retire.ReviveAfter)
+	}
+	if retire.ListedRewriteInterval != 6*time.Hour {
+		t.Errorf("expected retire.listed_rewrite_interval 6h, got %s", retire.ListedRewriteInterval)
+	}
+}
+
+func TestNewConfig_ProxyRetireOverrides(t *testing.T) {
+	t.Setenv("PROXY_RETIRE_AFTER_FAILURES", "3")
+	t.Setenv("PROXY_RETIRE_AFTER_DAYS", "30")
+	cfg, err := NewConfig()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.Proxy.Retire.AfterFailures != 3 || cfg.Proxy.Retire.AfterDays != 30 {
+		t.Errorf("env overrides not applied: %+v", cfg.Proxy.Retire)
+	}
+}
+
+func TestNewConfigRejectsInvalidRetireSettings(t *testing.T) {
+	for _, key := range []string{
+		"PROXY_RETIRE_AFTER_FAILURES",
+		"PROXY_RETIRE_AFTER_DAYS",
+		"PROXY_RETIRE_SWEEP_INTERVAL",
+		"PROXY_RETIRE_SWEEP_BATCH",
+		"PROXY_RETIRE_REVIVE_AFTER",
+		"PROXY_RETIRE_LISTED_REWRITE_INTERVAL",
+	} {
+		for _, val := range []string{"0", "-1"} {
+			t.Run(key+"="+val, func(t *testing.T) {
+				t.Setenv(key, val)
+				if _, err := NewConfig(); err == nil {
+					t.Fatalf("accepted %s=%q", key, val)
+				}
+			})
+		}
+	}
 }
 
 func TestNewConfig_ProxyScanDefaults(t *testing.T) {
@@ -280,14 +335,17 @@ func TestNewConfig_ProxyScanDefaults(t *testing.T) {
 	if cfg.Proxy.TestURL != "https://na.finalfantasyxiv.com/lodestone/" {
 		t.Errorf("expected general test_url to default to the Lodestone URL, got %q", cfg.Proxy.TestURL)
 	}
-	if cfg.Proxy.Consumer.TestURL != "https://na.finalfantasyxiv.com/lodestone/" {
-		t.Errorf("expected consumer test_url to default to the Lodestone URL, got %q", cfg.Proxy.Consumer.TestURL)
-	}
-	if cfg.Proxy.Consumer.TestTimeout != 10*time.Second {
-		t.Errorf("expected consumer test_timeout 10s, got %s", cfg.Proxy.Consumer.TestTimeout)
-	}
 	if cfg.Proxy.Consumer.Cooldown != 60*time.Second {
 		t.Errorf("expected consumer cooldown 60s, got %s", cfg.Proxy.Consumer.Cooldown)
+	}
+	if cfg.Proxy.Consumer.CooldownMax != 15*time.Minute {
+		t.Errorf("expected consumer cooldown_max 15m, got %s", cfg.Proxy.Consumer.CooldownMax)
+	}
+	if cfg.Proxy.Consumer.JobAttempts != 3 {
+		t.Errorf("expected consumer job_attempts 3, got %d", cfg.Proxy.Consumer.JobAttempts)
+	}
+	if cfg.Proxy.Consumer.LockRefreshInterval != 100*time.Second {
+		t.Errorf("expected consumer lock_refresh_interval 100s, got %s", cfg.Proxy.Consumer.LockRefreshInterval)
 	}
 }
 
@@ -306,9 +364,10 @@ func TestNewConfig_ProxyScanEnvOverrides(t *testing.T) {
 	t.Setenv("PROXY_SCAN_MIN_REPEAT_INTERVAL", "2s")
 	t.Setenv("PROXY_SCAN_INCONCLUSIVE_RETRY", "90s")
 	t.Setenv("PROXY_SCAN_CONTROL_INTERVAL", "45s")
-	t.Setenv("PROXY_CONSUMER_TEST_URL", "https://destination.example.com/lodestone/")
-	t.Setenv("PROXY_CONSUMER_TEST_TIMEOUT", "15s")
 	t.Setenv("PROXY_CONSUMER_COOLDOWN", "90s")
+	t.Setenv("PROXY_CONSUMER_COOLDOWN_MAX", "30m")
+	t.Setenv("PROXY_CONSUMER_JOB_ATTEMPTS", "5")
+	t.Setenv("PROXY_CONSUMER_LOCK_REFRESH_INTERVAL", "45s")
 
 	cfg, err := NewConfig()
 	if err != nil {
@@ -351,13 +410,54 @@ func TestNewConfig_ProxyScanEnvOverrides(t *testing.T) {
 	if cfg.Proxy.TestTimeout != 12*time.Second {
 		t.Errorf("PROXY_TEST_TIMEOUT override not applied: %s", cfg.Proxy.TestTimeout)
 	}
-	if cfg.Proxy.Consumer.TestURL != "https://destination.example.com/lodestone/" {
-		t.Errorf("PROXY_CONSUMER_TEST_URL override not applied: %q", cfg.Proxy.Consumer.TestURL)
-	}
-	if cfg.Proxy.Consumer.TestTimeout != 15*time.Second {
-		t.Errorf("PROXY_CONSUMER_TEST_TIMEOUT override not applied: %s", cfg.Proxy.Consumer.TestTimeout)
-	}
 	if cfg.Proxy.Consumer.Cooldown != 90*time.Second {
 		t.Errorf("PROXY_CONSUMER_COOLDOWN override not applied: %s", cfg.Proxy.Consumer.Cooldown)
+	}
+	if cfg.Proxy.Consumer.CooldownMax != 30*time.Minute {
+		t.Errorf("PROXY_CONSUMER_COOLDOWN_MAX override not applied: %s", cfg.Proxy.Consumer.CooldownMax)
+	}
+	if cfg.Proxy.Consumer.JobAttempts != 5 {
+		t.Errorf("PROXY_CONSUMER_JOB_ATTEMPTS override not applied: %d", cfg.Proxy.Consumer.JobAttempts)
+	}
+	if cfg.Proxy.Consumer.LockRefreshInterval != 45*time.Second {
+		t.Errorf("PROXY_CONSUMER_LOCK_REFRESH_INTERVAL override not applied: %s", cfg.Proxy.Consumer.LockRefreshInterval)
+	}
+}
+
+func TestNewConfigRejectsConsumerCooldownMaxBelowFloor(t *testing.T) {
+	t.Setenv("PROXY_CONSUMER_COOLDOWN", "5m")
+	t.Setenv("PROXY_CONSUMER_COOLDOWN_MAX", "1m")
+	if _, err := NewConfig(); err == nil {
+		t.Fatal("accepted a destination cooldown cap below the floor")
+	}
+}
+
+func TestNewConfigRejectsNonPositiveJobAttempts(t *testing.T) {
+	for _, val := range []string{"0", "-1"} {
+		t.Setenv("PROXY_CONSUMER_JOB_ATTEMPTS", val)
+		if _, err := NewConfig(); err == nil {
+			t.Fatalf("accepted PROXY_CONSUMER_JOB_ATTEMPTS=%s", val)
+		}
+	}
+}
+
+// The lock must survive between refreshes with margin, so the refresh
+// interval has to stay below half the lock TTL.
+func TestNewConfigRejectsLockRefreshIntervalThatCouldLetTheLockExpire(t *testing.T) {
+	cases := []struct{ name, ttl, interval string }{
+		{"zero", "5m", "0s"},
+		{"negative", "5m", "-1s"},
+		{"half of ttl", "5m", "150s"},
+		{"above half of ttl", "5m", "4m"},
+		{"default interval with short ttl", "3m", "100s"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("PROXY_CONSUMER_LOCK_TTL", tc.ttl)
+			t.Setenv("PROXY_CONSUMER_LOCK_REFRESH_INTERVAL", tc.interval)
+			if _, err := NewConfig(); err == nil {
+				t.Fatalf("accepted lock_ttl=%s lock_refresh_interval=%s", tc.ttl, tc.interval)
+			}
+		})
 	}
 }

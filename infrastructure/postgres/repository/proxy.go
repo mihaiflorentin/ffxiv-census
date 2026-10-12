@@ -49,17 +49,19 @@ func NewProxyRepository(driver contract.DatabaseDriver, policy contract.ProxySca
 const proxyColumns = `id, protocol, ip, port, country, anonymity, latency_ms, uptime_percent,
 	status, last_scanned_at, last_alive_at, first_seen_at, source, fail_count, locked_by, locked_at, created_at, updated_at,
 	general_healthy, last_completed_at, last_verified_at, next_attempt_at, scan_not_before, recovery_step,
-	observation_version, scan_token, scan_lease_until, claimed_version, destination_cooldown_until`
+	observation_version, scan_token, scan_lease_until, claimed_version, destination_cooldown_until, destination_failures,
+	retired_at, last_listed_at`
 
 // proxyColumnsClaimed mirrors proxyColumns with the p alias used by the
 // claiming UPDATE ... RETURNING in listForScan and ClaimScans.
 const proxyColumnsClaimed = `p.id, p.protocol, p.ip, p.port, p.country, p.anonymity, p.latency_ms, p.uptime_percent,
 	p.status, p.last_scanned_at, p.last_alive_at, p.first_seen_at, p.source, p.fail_count, p.locked_by, p.locked_at, p.created_at, p.updated_at,
 	p.general_healthy, p.last_completed_at, p.last_verified_at, p.next_attempt_at, p.scan_not_before, p.recovery_step,
-	p.observation_version, p.scan_token, p.scan_lease_until, p.claimed_version, p.destination_cooldown_until`
+	p.observation_version, p.scan_token, p.scan_lease_until, p.claimed_version, p.destination_cooldown_until, p.destination_failures,
+	p.retired_at, p.last_listed_at`
 
 // freshPredicate is the single general-health availability predicate shared
-// by ListActive, RandomActive, CountByStatus, ClaimProxy and
+// by ListActive, CountByStatus, ClaimProxy and
 // RefreshConsumerLock: healthy AND verified within the freshness TTL. $N is
 // the TTL in seconds; n is database time taken inside the statement.
 const freshPredicate = `general_healthy AND last_verified_at > statement_timestamp() - ($%d * interval '1 second')`
@@ -72,6 +74,7 @@ func scanProxy(row rowScanner) (*contract.ProxyRecord, error) {
 	var lastScannedAt, lastAliveAt, lockedAt sql.NullTime
 	var lastCompletedAt, lastVerifiedAt, nextAttemptAt, scanNotBefore sql.NullTime
 	var scanLeaseUntil, destinationCooldownUntil sql.NullTime
+	var retiredAt, lastListedAt sql.NullTime
 	var claimedVersion sql.NullInt64
 
 	// Keep this column order exactly in sync with proxyColumns and
@@ -84,7 +87,8 @@ func scanProxy(row rowScanner) (*contract.ProxyRecord, error) {
 		&p.CreatedAt, &p.UpdatedAt,
 		&p.GeneralHealthy, &lastCompletedAt, &lastVerifiedAt, &nextAttemptAt,
 		&scanNotBefore, &p.RecoveryStep, &p.ObservationVersion, &scanToken,
-		&scanLeaseUntil, &claimedVersion, &destinationCooldownUntil,
+		&scanLeaseUntil, &claimedVersion, &destinationCooldownUntil, &p.DestinationFailures,
+		&retiredAt, &lastListedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -106,6 +110,8 @@ func scanProxy(row rowScanner) (*contract.ProxyRecord, error) {
 	p.ScanLeaseUntil = sqlTimePtr(scanLeaseUntil)
 	p.ClaimedVersion = sqlInt64Ptr(claimedVersion)
 	p.DestinationCooldownUntil = sqlTimePtr(destinationCooldownUntil)
+	p.RetiredAt = sqlTimePtr(retiredAt)
+	p.LastListedAt = sqlTimePtr(lastListedAt)
 	return &p, nil
 }
 
@@ -159,6 +165,214 @@ func (r *ProxyRepository) InsertIfAbsent(ctx context.Context, rec contract.Proxy
 		return 0, false, fmt.Errorf("proxy insert if absent: %w", err)
 	}
 	return newID, true, nil
+}
+
+// insertNewChunk bounds the records one InsertNew statement handles, so a
+// caller passing a whole list still gets short statements.
+const insertNewChunk = 5000
+
+// InsertNew inserts the records no row exists for yet, in one statement per
+// chunk. Known endpoints are filtered out before the INSERT rather than left
+// to ON CONFLICT: a conflicting candidate still draws a serial id, and with
+// mostly-known lists re-read every few minutes that would burn through the
+// 32-bit id space. ON CONFLICT DO NOTHING stays as the guard against a
+// concurrent discovery run inserting the same endpoint.
+func (r *ProxyRepository) InsertNew(ctx context.Context, recs []contract.ProxyRecord, limit int) ([]contract.ProxyEndpoint, error) {
+	var inserted []contract.ProxyEndpoint
+	for start := 0; start < len(recs); start += insertNewChunk {
+		room := 0
+		if limit > 0 {
+			room = limit - len(inserted)
+			if room <= 0 {
+				break
+			}
+		}
+		end := min(start+insertNewChunk, len(recs))
+		got, err := r.insertNewChunk(ctx, recs[start:end], room)
+		if err != nil {
+			return inserted, err
+		}
+		inserted = append(inserted, got...)
+	}
+	return inserted, nil
+}
+
+// insertNewChunk runs the statement for one chunk; room <= 0 means no cap.
+func (r *ProxyRepository) insertNewChunk(ctx context.Context, recs []contract.ProxyRecord, room int) ([]contract.ProxyEndpoint, error) {
+	protocols := make([]string, len(recs))
+	ips := make([]string, len(recs))
+	ports := make([]int32, len(recs))
+	countries := make([]*string, len(recs))
+	anonymities := make([]*string, len(recs))
+	uptimes := make([]*float64, len(recs))
+	sources := make([]string, len(recs))
+	for i, rec := range recs {
+		protocols[i], ips[i], ports[i] = rec.Protocol, rec.IP, int32(rec.Port)
+		countries[i], anonymities[i], uptimes[i] = rec.Country, rec.Anonymity, rec.UptimePercent
+		sources[i] = rec.Source
+	}
+	maxRows := any(nil)
+	if room > 0 {
+		maxRows = room
+	}
+	db, err := r.driver.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, `WITH input AS (
+			SELECT DISTINCT ON (protocol, ip, port)
+				protocol, ip, port, country, anonymity, uptime_percent, source, ord
+			FROM unnest($1::text[], $2::text[], $3::int[], $4::text[], $5::text[], $6::float8[], $7::text[])
+				WITH ORDINALITY AS t(protocol, ip, port, country, anonymity, uptime_percent, source, ord)
+			ORDER BY protocol, ip, port, ord
+		), fresh AS (
+			SELECT i.* FROM input i
+			WHERE NOT EXISTS (
+				SELECT 1 FROM proxies p
+				WHERE p.protocol = i.protocol AND p.ip = i.ip AND p.port = i.port)
+			ORDER BY i.ord
+			LIMIT $8
+		), ins AS (
+			INSERT INTO proxies (protocol, ip, port, country, anonymity, uptime_percent, status,
+				first_seen_at, source, fail_count, created_at, updated_at, last_listed_at)
+			SELECT protocol, ip, port, country, anonymity, uptime_percent, $9,
+				statement_timestamp(), source, 0, statement_timestamp(), statement_timestamp(), statement_timestamp()
+			FROM fresh
+			ON CONFLICT (protocol, ip, port) DO NOTHING
+			RETURNING protocol, ip, port
+		)
+		SELECT ins.protocol, ins.ip, ins.port
+		FROM ins JOIN fresh f ON f.protocol = ins.protocol AND f.ip = ins.ip AND f.port = ins.port
+		ORDER BY f.ord`,
+		protocols, ips, ports, countries, anonymities, uptimes, sources, maxRows, contract.ProxyStatusInactive)
+	if err != nil {
+		return nil, fmt.Errorf("proxy insert new: %w", err)
+	}
+	defer rows.Close()
+	var out []contract.ProxyEndpoint
+	for rows.Next() {
+		var e contract.ProxyEndpoint
+		if err := rows.Scan(&e.Protocol, &e.IP, &e.Port); err != nil {
+			return nil, fmt.Errorf("proxy insert new scan: %w", err)
+		}
+		out = append(out, e)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("proxy insert new rows: %w", err)
+	}
+	return out, nil
+}
+
+// LoadListValidators returns the stored provider list validators by URL.
+func (r *ProxyRepository) LoadListValidators(ctx context.Context) (map[string]contract.ListValidators, error) {
+	db, err := r.driver.Acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := db.QueryContext(ctx, `SELECT url, etag, last_modified FROM proxy_list_validators`)
+	if err != nil {
+		return nil, fmt.Errorf("proxy list validators load: %w", err)
+	}
+	defer rows.Close()
+	out := map[string]contract.ListValidators{}
+	for rows.Next() {
+		var url string
+		var v contract.ListValidators
+		if err := rows.Scan(&url, &v.ETag, &v.LastModified); err != nil {
+			return nil, fmt.Errorf("proxy list validators scan: %w", err)
+		}
+		out[url] = v
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("proxy list validators rows: %w", err)
+	}
+	return out, nil
+}
+
+// SaveListValidators stores (replaces) the validators of one list URL.
+func (r *ProxyRepository) SaveListValidators(ctx context.Context, url string, v contract.ListValidators) error {
+	db, err := r.driver.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, `INSERT INTO proxy_list_validators (url, etag, last_modified, updated_at)
+		VALUES ($1, $2, $3, now())
+		ON CONFLICT (url) DO UPDATE
+		SET etag = EXCLUDED.etag, last_modified = EXCLUDED.last_modified, updated_at = EXCLUDED.updated_at`,
+		url, v.ETag, v.LastModified)
+	if err != nil {
+		return fmt.Errorf("proxy list validators save: %w", err)
+	}
+	return nil
+}
+
+const (
+	// markListedChunk bounds the endpoints one statement handles, so a very
+	// long provider list becomes several short transactions.
+	markListedChunk = 5000
+)
+
+// MarkListed stamps last_listed_at for endpoints a provider listed again and
+// revives the ones retired for at least rule.ReviveAfter, resetting their
+// fail_count so that only fresh failures retire them again (the retirement
+// sweep matches on fail_count). Rows stamped within rule.RewriteInterval are
+// left alone and rows locked by a concurrent scan are skipped, so discovery
+// never waits on the scanner and writes each row at most once per interval.
+// Unknown endpoints are ignored.
+func (r *ProxyRepository) MarkListed(ctx context.Context, endpoints []contract.ProxyEndpoint, rule contract.ListingRule) (contract.ListedResult, error) {
+	var total contract.ListedResult
+	for start := 0; start < len(endpoints); start += markListedChunk {
+		end := min(start+markListedChunk, len(endpoints))
+		res, err := r.markListedChunk(ctx, endpoints[start:end], rule)
+		if err != nil {
+			return total, err
+		}
+		total.Marked += res.Marked
+		total.Revived += res.Revived
+	}
+	return total, nil
+}
+
+func (r *ProxyRepository) markListedChunk(ctx context.Context, endpoints []contract.ProxyEndpoint, rule contract.ListingRule) (contract.ListedResult, error) {
+	protocols := make([]string, len(endpoints))
+	ips := make([]string, len(endpoints))
+	ports := make([]int32, len(endpoints))
+	for i, e := range endpoints {
+		protocols[i], ips[i], ports[i] = e.Protocol, e.IP, int32(e.Port)
+	}
+	db, err := r.driver.Acquire(ctx)
+	if err != nil {
+		return contract.ListedResult{}, err
+	}
+	var res contract.ListedResult
+	err = db.QueryRowContext(ctx, `WITH input AS (
+			SELECT DISTINCT protocol, ip, port
+			FROM unnest($1::text[], $2::text[], $3::int[]) AS t(protocol, ip, port)
+		), target AS (
+			SELECT p.id,
+				p.retired_at IS NOT NULL
+					AND p.retired_at <= statement_timestamp() - ($5 * interval '1 second') AS revive
+			FROM proxies p
+			JOIN input i ON p.protocol = i.protocol AND p.ip = i.ip AND p.port = i.port
+			WHERE p.last_listed_at IS NULL
+			   OR p.last_listed_at <= statement_timestamp() - ($4 * interval '1 second')
+			FOR UPDATE OF p SKIP LOCKED
+		), upd AS (
+			UPDATE proxies p
+			SET last_listed_at = statement_timestamp(),
+				retired_at = CASE WHEN t.revive THEN NULL ELSE p.retired_at END,
+				fail_count = CASE WHEN t.revive THEN 0 ELSE p.fail_count END,
+				updated_at = statement_timestamp()
+			FROM target t
+			WHERE p.id = t.id
+			RETURNING t.revive
+		)
+		SELECT count(*), count(*) FILTER (WHERE revive) FROM upd`,
+		protocols, ips, ports, rule.RewriteInterval.Seconds(), rule.ReviveAfter.Seconds()).Scan(&res.Marked, &res.Revived)
+	if err != nil {
+		return contract.ListedResult{}, fmt.Errorf("proxy mark listed: %w", err)
+	}
+	return res, nil
 }
 
 func (r *ProxyRepository) Get(ctx context.Context, id int64) (*contract.ProxyRecord, error) {
@@ -221,8 +435,9 @@ func (r *ProxyRepository) Count(ctx context.Context) (int64, error) {
 }
 
 // CountByStatus classifies rows by general evidence: active means the fresh
-// predicate holds; a historically active but non-fresh row counts as stale.
-// The historical inactive/dead categories are preserved.
+// predicate holds; a retired row counts as retired whatever its stored status;
+// a historically active but non-fresh row counts as stale. The historical
+// inactive/dead categories are preserved for the remaining rows.
 func (r *ProxyRepository) CountByStatus(ctx context.Context) (map[string]int64, error) {
 	db, err := r.driver.Acquire(ctx)
 	if err != nil {
@@ -230,6 +445,7 @@ func (r *ProxyRepository) CountByStatus(ctx context.Context) (map[string]int64, 
 	}
 	rows, err := db.QueryContext(ctx, `SELECT CASE
 			WHEN `+fmt.Sprintf(freshPredicate, 1)+` THEN 'active'
+			WHEN retired_at IS NOT NULL THEN 'retired'
 			WHEN status = 'active' THEN 'stale'
 			ELSE status
 		END AS bucket, COUNT(*)
@@ -254,7 +470,10 @@ func (r *ProxyRepository) CountByStatus(ctx context.Context) (map[string]int64, 
 // ClaimProxy claims one fresh, unlocked, protocol-supported proxy for a
 // consumer (FOR UPDATE SKIP LOCKED). Availability uses the same general
 // freshness predicate as every other read; a live destination cooldown
-// excludes the row here (and only here). The historical stale fallback is
+// excludes the row here (and only here). A proxy that recently failed the
+// destination (destination_failures > 0, cooldown already over) ranks behind
+// every clean proxy, so the best-looking but failing proxies do not return to
+// the top the moment their cooldown ends. The historical stale fallback is
 // gone: a non-fresh proxy is never handed to a consumer.
 func (r *ProxyRepository) ClaimProxy(ctx context.Context, owner string, lockTTL time.Duration) (*contract.ProxyRecord, error) {
 	db, err := r.driver.Acquire(ctx)
@@ -274,7 +493,7 @@ func (r *ProxyRepository) ClaimProxy(ctx context.Context, owner string, lockTTL 
 			AND protocol IN ('http', 'https', 'socks4', 'socks5')
 			AND (locked_at IS NULL OR locked_at < statement_timestamp() - ($2 * interval '1 second'))
 			AND (destination_cooldown_until IS NULL OR destination_cooldown_until <= statement_timestamp())
-		ORDER BY uptime_percent DESC NULLS LAST, latency_ms ASC NULLS LAST, fail_count ASC
+		ORDER BY destination_failures ASC, uptime_percent DESC NULLS LAST, latency_ms ASC NULLS LAST, fail_count ASC
 		LIMIT 1
 		FOR UPDATE SKIP LOCKED`, r.policy.FreshnessTTL.Seconds(), lockTTL.Seconds())
 
@@ -315,32 +534,4 @@ func (r *ProxyRepository) ReleaseProxy(ctx context.Context, id int64, owner stri
 		return fmt.Errorf("proxy release: %w", err)
 	}
 	return nil
-}
-
-// RandomActive returns a random fresh healthy proxy for provider discovery,
-// honoring ID exclusions and protocol support. It applies no destination
-// cooldown filter — cooldowns gate consumers, not discovery — and does not
-// claim or lock the row.
-func (r *ProxyRepository) RandomActive(ctx context.Context, excludeIDs []int64) (*contract.ProxyRecord, error) {
-	db, err := r.driver.Acquire(ctx)
-	if err != nil {
-		return nil, err
-	}
-	row := db.QueryRowContext(ctx,
-		`SELECT `+proxyColumns+` FROM proxies
-		WHERE `+fmt.Sprintf(freshPredicate, 2)+`
-		  AND protocol IN ('http', 'https', 'socks4', 'socks5')
-		  AND (cardinality(COALESCE($1::bigint[], '{}'::bigint[])) = 0
-		       OR id <> ALL(COALESCE($1::bigint[], '{}'::bigint[])))
-		ORDER BY RANDOM()
-		LIMIT 1`,
-		excludeIDs, r.policy.FreshnessTTL.Seconds())
-	rec, err := scanProxy(row)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, nil
-		}
-		return nil, fmt.Errorf("proxy random active: %w", err)
-	}
-	return rec, nil
 }

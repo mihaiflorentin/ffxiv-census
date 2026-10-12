@@ -12,9 +12,11 @@ import (
 type Client struct {
 	DoFunc      func(ctx context.Context, req requestdto.HTTPRequest) (responsedto.HTTPResponse, error)
 	GetStreamFn func(ctx context.Context, url string, queryParams, headers map[string]string, consume func(int, io.Reader) error) error
-	Response    responsedto.HTTPResponse
-	Err         error
-	Requests    []requestdto.HTTPRequest
+	// GetStreamHeadersFn serves GetStreamHeaders; when nil it falls back to GetStream.
+	GetStreamHeadersFn func(ctx context.Context, url string, queryParams, headers map[string]string, consume func(int, map[string][]string, io.Reader) error) error
+	Response           responsedto.HTTPResponse
+	Err                error
+	Requests           []requestdto.HTTPRequest
 }
 
 func (c *Client) Do(ctx context.Context, req requestdto.HTTPRequest) (responsedto.HTTPResponse, error) {
@@ -60,6 +62,17 @@ func (c *Client) Delete(ctx context.Context, url string, queryParams, headers ma
 		URL:         url,
 		QueryParams: queryParams,
 		Headers:     headers,
+	})
+}
+
+// GetStreamHeaders runs GetStreamHeadersFn when set; otherwise it behaves like
+// GetStream with no response headers.
+func (c *Client) GetStreamHeaders(ctx context.Context, url string, queryParams, headers map[string]string, consume func(int, map[string][]string, io.Reader) error) error {
+	if c.GetStreamHeadersFn != nil {
+		return c.GetStreamHeadersFn(ctx, url, queryParams, headers, consume)
+	}
+	return c.GetStream(ctx, url, queryParams, headers, func(status int, body io.Reader) error {
+		return consume(status, nil, body)
 	})
 }
 

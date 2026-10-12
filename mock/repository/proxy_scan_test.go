@@ -406,7 +406,7 @@ func TestFakeCountByStatus_MapsStale(t *testing.T) {
 	}
 }
 
-func TestFakeClaimProxy_RandomActive_CooldownAndExclusions(t *testing.T) {
+func TestFakeClaimProxy_RespectsCooldownAndNeverFallsBackToStale(t *testing.T) {
 	f, _ := newFakeRepo()
 	ctx := context.Background()
 	id := mustFakeInsert(t, f, "10.8.0.1")
@@ -415,17 +415,8 @@ func TestFakeClaimProxy_RandomActive_CooldownAndExclusions(t *testing.T) {
 		t.Fatalf("success: %v", err)
 	}
 
-	// Discovery ignores the destination cooldown.
 	cooldown := f.Now().Add(time.Hour)
 	f.proxies[id] = func() contract.ProxyRecord { p := f.proxies[id]; p.DestinationCooldownUntil = &cooldown; return p }()
-
-	random, err := f.RandomActive(ctx, nil)
-	if err != nil || random == nil || random.ID != id {
-		t.Fatalf("RandomActive: %v, %v", random, err)
-	}
-	if random, err := f.RandomActive(ctx, []int64{id}); err != nil || random != nil {
-		t.Fatalf("RandomActive with exclusion: %v, %v", random, err)
-	}
 
 	// Consumer claims respect the cooldown.
 	claimed, err := f.ClaimProxy(ctx, "owner", time.Minute)

@@ -28,10 +28,25 @@ Prometheus metrics are exposed at `http://<host>:8080/metrics` and scraped autom
 | `result_writer_batch_size` | Histogram | Results stored per batching-writer flush. |
 | `result_writer_flush_duration_seconds` | Histogram | Duration of one batch transaction. |
 | `result_writer_flush_failures_total` | Counter | Batch flushes that failed to commit (their jobs stay unacked and are retried). |
+| `lodestone_requests_total` | Counter | Lodestone request attempts (`outcome`, `proxy_bucket`). |
 
 The `result_writer_*` metrics observe every batch transaction attempt, including the extra attempts made while isolating a result the database rejected, so `result_writer_flush_failures_total` can rise by more than one for a single bad character. Batch size is counted in results (characters plus achievement updates). Tune `[writer] batch_size` and `flush_interval` (`WRITER_BATCH_SIZE`, `WRITER_FLUSH_INTERVAL`) against these; see [docs/queue.md](queue.md#batched-writes-and-acks).
 
+`lodestone_requests_total` counts every request attempt the Lodestone client makes, so the per-proxy request rate can be tuned against data. `outcome` is one of `success` (any usable response, including a genuine 403 or 404), `rate_limited` (HTTP 429), `challenge` (a Cloudflare 202 or 403 interstitial) or `failure` (transport error, unreadable body or 5xx). `proxy_bucket` is a stable hash of the proxy address into 64 buckets (`00` to `63`), or `direct` when no proxy is used; the address itself is never a label, so cardinality is capped at 65 buckets times 4 outcomes. Different proxies can share a bucket, so read the ratio of `rate_limited` and `challenge` to total per bucket rather than per exact proxy. Each process exposes only its own counts; the series appear on the `/metrics` of the process that makes the requests.
+
 `ui_stats_refresh_total` and `ui_stats_refresh_duration_seconds` are emitted by the process that executes a refresh. In the default short-lived Kubernetes CronJob, the completion log is the durable refresh outcome; the web Grafana dashboard therefore uses snapshot age, last refresh duration, and `ui_stats_cache_total`, which are continuously scrapeable from web pods.
+
+### Worker endpoint
+
+Worker processes serve the same `/metrics` handler and registry, so counters recorded outside the web server (`lodestone_requests_total`, `result_writer_*`) can be scraped. Pass `--metrics-port <port>` to `consume` (normal and `--proxy` mode) or `consume failed`; `0`, the default, disables the endpoint. A port that cannot be bound stops the worker at startup.
+
+```bash
+./bin/ffxiv-census consume --proxy character-census --metrics-port 9090
+```
+
+The endpoint is independent of graceful shutdown. On SIGTERM workers stop claiming, in-flight handlers finish and the result writer flushes, exactly as without the endpoint. The metrics server is stopped last, with a 5 second bound, so scrapes keep working during the drain and never delay it.
+
+In the Helm chart, a worker instance with `metricsPort` in `k8s/values.yaml` gets the `--metrics-port` argument and a named `metrics` container port. Workers have no Service, so `k8s/templates/podmonitor.yaml` renders a `PodMonitor` for them (enabled by `serviceMonitor.workers.enabled`, using the same path, interval and `release` label as the web `ServiceMonitor`). `proxy consume` and `proxy scan` do not support the flag.
 
 ---
 

@@ -38,6 +38,7 @@ pause affected provider queues while letting others continue.`,
 		eventsFlag, _ := cmd.Flags().GetString("events")
 		concurrency, _ := cmd.Flags().GetInt("concurrency")
 		proxyMode, _ := cmd.Flags().GetBool("proxy")
+		metricsPort, _ := cmd.Flags().GetInt("metrics-port")
 
 		var eventTypes []string
 		if len(args) > 0 && args[0] != "" && args[0] != "all" {
@@ -62,6 +63,14 @@ pause affected provider queues while letting others continue.`,
 		defer stop()
 
 		logger := container.Load.Logger()
+
+		stopMetrics, err := startMetricsServer(metricsPort, logger)
+		if err != nil {
+			return err
+		}
+		// Registered first so it runs last: scraping stays available while
+		// in-flight jobs finish and the writer flushes, and never delays them.
+		defer stopMetrics()
 
 		q := container.Load.Queue()
 		if q == nil {
@@ -92,6 +101,8 @@ func init() {
 	consumeCmd.Flags().StringP("events", "e", "all", "comma-separated event types to consume (e.g. id-sweep,character-census or 'all')")
 	consumeCmd.Flags().IntP("concurrency", "c", 4, "number of concurrent worker routines")
 	consumeCmd.Flags().Bool("proxy", false, "run in proxy mode: each goroutine acquires its own proxy from the pool")
+	consumeCmd.Flags().Int("metrics-port", 0, "serve Prometheus /metrics on this port (0 disables)")
+	consumeFailedCmd.Flags().Int("metrics-port", 0, "serve Prometheus /metrics on this port (0 disables)")
 	consumeFailedCmd.Flags().IntP("concurrency", "c", 4, "number of concurrent worker routines")
 	consumeFailedCmd.Flags().StringP("events", "e", "all", "comma-separated event types for failed queues (e.g. id-sweep,character-census or 'all')")
 }
@@ -120,8 +131,10 @@ func runProxyConsumer(ctx context.Context, q contract.Queue, eventTypes []string
 	lodestoneCfg := cfg.Lodestone
 
 	var proxyLodestoneRate float64
+	var jobAttempts int
 	if pcfg := cfg.Proxy; pcfg != nil {
 		proxyLodestoneRate = pcfg.Consumer.LodestoneRateLimit
+		jobAttempts = pcfg.Consumer.JobAttempts
 	}
 
 	// Prewarm CensusService on the command goroutine so milestone sync and
@@ -129,6 +142,8 @@ func runProxyConsumer(ctx context.Context, q contract.Queue, eventTypes []string
 	if svc := container.Load.CensusService(); svc == nil {
 		return fmt.Errorf("census service not initialised")
 	}
+
+	requestObserver := container.Load.LodestoneRequestObserver()
 
 	// Create proxy-aware client factories.
 	newLodestoneClient := func(proxyURL string, limiter contract.ProviderRateLimiter) (contract.LodestoneClient, error) {
@@ -139,9 +154,9 @@ func runProxyConsumer(ctx context.Context, q contract.Queue, eventTypes []string
 		if proxyLodestoneRate > 0 {
 			override := *lodestoneCfg
 			override.RateLimit = proxyLodestoneRate
-			return lodestone.NewCustomClient(&override, logger, limiter, lodestone.WithProxy(proxyURL))
+			return lodestone.NewCustomClient(&override, logger, limiter, lodestone.WithProxy(proxyURL), lodestone.WithRequestObserver(requestObserver))
 		}
-		return lodestone.NewCustomClient(lodestoneCfg, logger, limiter, lodestone.WithProxy(proxyURL))
+		return lodestone.NewCustomClient(lodestoneCfg, logger, limiter, lodestone.WithProxy(proxyURL), lodestone.WithRequestObserver(requestObserver))
 	}
 
 	newRateLimiter := func() contract.ProviderRateLimiter {
@@ -161,21 +176,27 @@ func runProxyConsumer(ctx context.Context, q contract.Queue, eventTypes []string
 
 	// Pass nil handlers — RunEventsWithProxy uses the per-goroutine registry
 	// returned by newHandlers, never reads w.handlers.
-	w := worker.New(q, nil, logger)
+	w := worker.New(q, nil, logger).WithProxyAttempts(jobAttempts)
 	return w.RunEventsWithProxy(ctx, eventTypes, concurrency, ownerPrefix, proxyHub, newHandlers, newLodestoneClient, newRateLimiter)
 }
 
 var consumeFailedCmd = &cobra.Command{
 	Use:   "failed",
-	Short: "Consume from failed queues and re-publish to main queues",
-	Long: `Run a long-running consumer that reads from per-event-type failed queues
-and re-publishes messages back to the main queues for retry. Messages that have
-exceeded 100 failure attempts are permanently discarded.
+	Short: "Drain the legacy failed queues into the main queues and delay tiers",
+	Long: `Run a long-running consumer that drains the per-event-type legacy failed
+queues (census.<type>.failed). New failures no longer go there: they wait in
+delay-tier queues that expire back to the main queue on their own. This worker
+only moves messages left over from before the tiers existed, without sleeping:
+straight to the main queue when their old backoff has elapsed, into the tier
+covering the remaining wait otherwise, or to the dead queue when their attempts
+are exhausted. Nothing is discarded. It can be stopped once the failed queues
+are empty.
 
 Use --events to filter which failed queues to consume from (e.g. --events "id-sweep,character-census").`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		concurrency, _ := cmd.Flags().GetInt("concurrency")
 		eventsFlag, _ := cmd.Flags().GetString("events")
+		metricsPort, _ := cmd.Flags().GetInt("metrics-port")
 
 		var eventTypes []string
 		if eventsFlag != "" && eventsFlag != "all" {
@@ -192,6 +213,14 @@ Use --events to filter which failed queues to consume from (e.g. --events "id-sw
 		defer stop()
 
 		logger := container.Load.Logger()
+
+		stopMetrics, err := startMetricsServer(metricsPort, logger)
+		if err != nil {
+			return err
+		}
+		// Registered first so it runs last: scraping stays available while
+		// in-flight jobs finish and the writer flushes, and never delays them.
+		defer stopMetrics()
 
 		q := container.Load.Queue()
 		if q == nil {

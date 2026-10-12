@@ -109,7 +109,7 @@ func TestProxyWorkerLoop_WaitsForProxy(t *testing.T) {
 	})
 
 	w := newTestCensusWorker(q, logger)
-	proxyHub := proxydomain.NewProxyHub(repo, 5*time.Minute, nil, 0, contract.ProxyScanPolicy{})
+	proxyHub := proxydomain.NewProxyHub(repo, 5*time.Minute, 0, contract.ProxyScanPolicy{})
 
 	var started int32
 	handlers := func(_ contract.LodestoneClient, _ contract.ProviderRateLimiter) *censushandler.Registry {
@@ -183,7 +183,7 @@ func TestReplaceProxy_ReleasesBadBeforeReplacement(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	q := &fakeProxyQueue{}
 	w := New(q, nil, logger)
-	proxyHub := proxydomain.NewProxyHub(repo, 5*time.Minute, nil, 0, workerPolicy)
+	proxyHub := proxydomain.NewProxyHub(repo, 5*time.Minute, 0, workerPolicy)
 
 	owner := "test-w0"
 	p1, err := proxyHub.NewProxy(context.Background(), owner)
@@ -194,6 +194,7 @@ func TestReplaceProxy_ReleasesBadBeforeReplacement(t *testing.T) {
 	p2, _, _, _, err := w.replaceProxy(
 		context.Background(),
 		p1,
+		nil,
 		owner,
 		proxyHub,
 		func(string, contract.ProviderRateLimiter) (contract.LodestoneClient, error) {
@@ -242,7 +243,7 @@ func TestReplaceProxy_ReplacementTransportError(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	q := &fakeProxyQueue{}
 	w := New(q, nil, logger)
-	proxyHub := proxydomain.NewProxyHub(repo, 5*time.Minute, nil, 0, contract.ProxyScanPolicy{})
+	proxyHub := proxydomain.NewProxyHub(repo, 5*time.Minute, 0, contract.ProxyScanPolicy{})
 
 	owner := "test-w0"
 	p1, err := proxyHub.NewProxy(context.Background(), owner)
@@ -253,6 +254,7 @@ func TestReplaceProxy_ReplacementTransportError(t *testing.T) {
 	p2, _, _, _, err := w.replaceProxy(
 		context.Background(),
 		p1,
+		nil,
 		owner,
 		proxyHub,
 		func(string, contract.ProviderRateLimiter) (contract.LodestoneClient, error) {
@@ -286,7 +288,7 @@ func TestProxyWorkerLoop_CancellationWhileWaiting(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	q := &fakeProxyQueue{}
 	w := newTestCensusWorker(q, logger)
-	proxyHub := proxydomain.NewProxyHub(repo, 5*time.Minute, nil, 0, contract.ProxyScanPolicy{})
+	proxyHub := proxydomain.NewProxyHub(repo, 5*time.Minute, 0, contract.ProxyScanPolicy{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
@@ -336,7 +338,7 @@ func TestRunEventsWithProxyCreatesIsolatedWorkerDependencies(t *testing.T) {
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	q := &fakeProxyQueue{}
-	proxyHub := proxydomain.NewProxyHub(repo, 5*time.Minute, nil, 0, contract.ProxyScanPolicy{})
+	proxyHub := proxydomain.NewProxyHub(repo, 5*time.Minute, 0, contract.ProxyScanPolicy{})
 
 	// Publish two jobs so each goroutine gets one.
 	for range 2 {
@@ -436,7 +438,7 @@ func TestWaitForProxy_ExponentialBackoff(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(contract.ProxyScanPolicy{})
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	w := newTestCensusWorker(nil, logger)
-	proxyHub := proxydomain.NewProxyHub(repo, 5*time.Minute, nil, 0, contract.ProxyScanPolicy{})
+	proxyHub := proxydomain.NewProxyHub(repo, 5*time.Minute, 0, contract.ProxyScanPolicy{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -481,7 +483,7 @@ func TestWaitForProxy_NotificationChannel(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(contract.ProxyScanPolicy{})
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	w := newTestCensusWorker(nil, logger)
-	proxyHub := proxydomain.NewProxyHub(repo, 5*time.Minute, nil, 0, contract.ProxyScanPolicy{})
+	proxyHub := proxydomain.NewProxyHub(repo, 5*time.Minute, 0, contract.ProxyScanPolicy{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -577,7 +579,7 @@ func typedJobErr(kind contract.ProxyCheckKind, retryAfter time.Duration) error {
 	})
 }
 
-func TestTargetErrorDoesNotBecomeGeneralFailure(t *testing.T) {
+func TestTargetErrorIsATypedCause(t *testing.T) {
 	err := fmt.Errorf("request: %w", &contract.ProxyCheckError{
 		Kind: contract.CheckTarget, Reason: "http_503",
 		Err: errors.New("Service Unavailable"),
@@ -586,30 +588,8 @@ func TestTargetErrorDoesNotBecomeGeneralFailure(t *testing.T) {
 	if !errors.As(err, &e) {
 		t.Fatal("lost typed cause")
 	}
-	if isGeneralProxyFailure(err) {
+	if classifyProxyFailure(err) == proxyFailureDead {
 		t.Fatal("target 503 killed general health")
-	}
-}
-
-func TestIsGeneralProxyFailure_Classification(t *testing.T) {
-	cases := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"nil", nil, false},
-		{"plain error", errors.New("context deadline exceeded"), false},
-		{"proxy kind", &contract.ProxyCheckError{Kind: contract.CheckProxy}, true},
-		{"wrapped proxy kind", fmt.Errorf("request: %w", &contract.ProxyCheckError{Kind: contract.CheckProxy}), true},
-		{"target kind", &contract.ProxyCheckError{Kind: contract.CheckTarget}, false},
-		{"deadline kind", &contract.ProxyCheckError{Kind: contract.CheckDeadline}, false},
-		{"cancelled kind", &contract.ProxyCheckError{Kind: contract.CheckCancelled}, false},
-		{"local kind", &contract.ProxyCheckError{Kind: contract.CheckLocal}, false},
-	}
-	for _, tc := range cases {
-		if got := isGeneralProxyFailure(tc.err); got != tc.want {
-			t.Errorf("%s: isGeneralProxyFailure = %v, want %v", tc.name, got, tc.want)
-		}
 	}
 }
 
@@ -679,7 +659,7 @@ func seedTwoFreshProxies(t *testing.T, repo *repository.FakeProxyRepository) {
 func TestConsumerJob_GeneralFailurePersistsAndReplacesProxy(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(workerPolicy)
 	seedTwoFreshProxies(t, repo)
-	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, nil, time.Minute, workerPolicy)
+	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, time.Minute, workerPolicy)
 
 	calls, err := runOneJob(t, hub, func(call int) error {
 		if call == 1 {
@@ -707,13 +687,20 @@ func TestConsumerJob_GeneralFailurePersistsAndReplacesProxy(t *testing.T) {
 	}
 }
 
-// TestConsumerJob_RetryGeneralFailureRecordsBothProxies proves the retry
-// path: a typed CheckProxy failure on the replacement proxy is persisted too
-// and the claim is released before the delivery returns to the queue.
-func TestConsumerJob_RetryGeneralFailureRecordsBothProxies(t *testing.T) {
+// TestConsumerJob_RetryGeneralFailureRecordsEveryProxyTried proves the retry
+// path: a typed CheckProxy failure on every replacement proxy is persisted
+// too (three proxies are tried per job) and each claim is released before the
+// delivery returns to the queue.
+func TestConsumerJob_RetryGeneralFailureRecordsEveryProxyTried(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(workerPolicy)
 	seedTwoFreshProxies(t, repo)
-	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, nil, time.Minute, workerPolicy)
+	repo.InsertIfAbsent(context.Background(), contract.ProxyRecord{
+		Protocol: "http", IP: "3.3.3.3", Port: 8080, Source: "test",
+	})
+	if !repo.SeedSuccess(3, 100) {
+		t.Fatal("failed to seed proxy evidence")
+	}
+	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, time.Minute, workerPolicy)
 
 	calls, err := runOneJob(t, hub, func(call int) error {
 		return typedJobErr(contract.CheckProxy, 0)
@@ -725,10 +712,10 @@ func TestConsumerJob_RetryGeneralFailureRecordsBothProxies(t *testing.T) {
 	if !errors.As(err, &checkErr) || checkErr.Kind != contract.CheckProxy {
 		t.Fatalf("expected typed proxy failure returned, got %v", err)
 	}
-	if got := atomic.LoadInt32(calls); got != 2 {
-		t.Fatalf("expected exactly two handler calls, got %d", got)
+	if got := atomic.LoadInt32(calls); got != 3 {
+		t.Fatalf("expected exactly three handler calls, got %d", got)
 	}
-	for id := int64(1); id <= 2; id++ {
+	for id := int64(1); id <= 3; id++ {
 		rec, err := repo.Get(context.Background(), id)
 		if err != nil {
 			t.Fatalf("repo.Get(%d): %v", id, err)
@@ -749,7 +736,7 @@ func TestConsumerJob_RetryGeneralFailureRecordsBothProxies(t *testing.T) {
 func TestConsumerJob_TargetErrorCooldownsWithoutRotation(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(workerPolicy)
 	seedTwoFreshProxies(t, repo)
-	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, nil, time.Minute, workerPolicy)
+	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, time.Minute, workerPolicy)
 
 	calls, err := runOneJob(t, hub, func(call int) error {
 		return typedJobErr(contract.CheckTarget, 90*time.Second)
@@ -777,7 +764,7 @@ func TestConsumerJob_TargetErrorCooldownsWithoutRotation(t *testing.T) {
 func TestConsumerJob_BusinessErrorStaysOrdinary(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(workerPolicy)
 	seedTwoFreshProxies(t, repo)
-	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, nil, time.Minute, workerPolicy)
+	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, time.Minute, workerPolicy)
 
 	calls, err := runOneJob(t, hub, func(call int) error {
 		// An ordinary untyped business error (e.g. an upstream 429 text).
@@ -798,5 +785,86 @@ func TestConsumerJob_BusinessErrorStaysOrdinary(t *testing.T) {
 			t.Errorf("proxy %d: expected evidence and cooldowns untouched, got healthy=%v fail_count=%d cooldown=%v",
 				id, rec.GeneralHealthy, rec.FailCount, rec.DestinationCooldownUntil)
 		}
+	}
+}
+
+// recordingLodestoneClient counts CloseIdleConnections calls.
+type recordingLodestoneClient struct {
+	fakeLodestoneClient
+	closed int32
+}
+
+func (c *recordingLodestoneClient) CloseIdleConnections() { atomic.AddInt32(&c.closed, 1) }
+
+// TestProxyWorkerLoop_SwapClosesReplacedClientIdleConnections proves a swapped
+// proxy's client gives up its idle tunnel at the swap, and the surviving
+// client does the same when the worker exits.
+func TestProxyWorkerLoop_SwapClosesReplacedClientIdleConnections(t *testing.T) {
+	repo := repository.NewFakeProxyRepository(workerPolicy)
+	seedTwoFreshProxies(t, repo)
+	hub := proxydomain.NewProxyHub(repo, 5*time.Minute, time.Minute, workerPolicy)
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	q := &fakeProxyQueue{}
+	w := newTestCensusWorker(q, logger)
+	if err := q.Publish(context.Background(), contract.QueueJob{Type: censushandler.EventIDSweep, Payload: []byte(`{}`)}); err != nil {
+		t.Fatalf("Publish: %v", err)
+	}
+
+	retried := make(chan struct{})
+	handler := &scriptedHandler{script: func(call int) error {
+		if call == 1 {
+			return typedJobErr(contract.CheckProxy, 0)
+		}
+		close(retried)
+		return nil
+	}}
+	handlers := func(contract.LodestoneClient, contract.ProviderRateLimiter) *censushandler.Registry {
+		reg := censushandler.NewRegistry()
+		reg.Register(censushandler.EventIDSweep, handler)
+		return reg
+	}
+
+	var mu sync.Mutex
+	var clients []*recordingLodestoneClient
+	newClient := func(string, contract.ProviderRateLimiter) (contract.LodestoneClient, error) {
+		c := &recordingLodestoneClient{}
+		mu.Lock()
+		clients = append(clients, c)
+		mu.Unlock()
+		return c, nil
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- w.RunEventsWithProxy(ctx, []string{censushandler.EventIDSweep}, 1, "test", hub, handlers, newClient,
+			func() contract.ProviderRateLimiter { return nil })
+	}()
+
+	select {
+	case <-retried:
+	case <-time.After(5 * time.Second):
+		t.Fatal("job was not retried through a replacement proxy")
+	}
+	mu.Lock()
+	if len(clients) != 2 {
+		mu.Unlock()
+		t.Fatalf("expected two clients (original and replacement), got %d", len(clients))
+	}
+	replaced, current := clients[0], clients[1]
+	mu.Unlock()
+	if got := atomic.LoadInt32(&replaced.closed); got != 1 {
+		t.Errorf("expected the replaced client's idle connections closed once at the swap, got %d", got)
+	}
+	if got := atomic.LoadInt32(&current.closed); got != 0 {
+		t.Errorf("expected the live client left open while the worker runs, got %d closes", got)
+	}
+
+	cancel()
+	<-done
+	if got := atomic.LoadInt32(&current.closed); got != 1 {
+		t.Errorf("expected the live client's idle connections closed on worker exit, got %d", got)
 	}
 }

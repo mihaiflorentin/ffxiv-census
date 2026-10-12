@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mihaiflorentin88/ffxiv-census/config"
 	proxydomain "github.com/mihaiflorentin88/ffxiv-census/domain/proxy"
 	"github.com/mihaiflorentin88/ffxiv-census/infrastructure/geonode"
 	"github.com/mihaiflorentin88/ffxiv-census/infrastructure/httpclient"
@@ -27,7 +28,7 @@ import (
 
 type InfrastructureContainer struct {
 	httpClient            contract.HTTPClient
-	discoveryHTTPClient   contract.HTTPClient
+	providerHTTPClient    contract.HTTPClient
 	statsd                contract.StatsdClient
 	prometheusRegistry    *metrics.Registry
 	databaseDriver        contract.DatabaseDriver
@@ -41,7 +42,6 @@ type InfrastructureContainer struct {
 	providerRateLimiter   contract.ProviderRateLimiter
 	proxyRepository       contract.ProxyRepository
 	proxyChecker          contract.ProxyChecker
-	destinationChecker    *proxyinfra.Checker
 	proxyScrapeProvider   contract.ProxyProvider
 	geonodeProvider       contract.ProxyProvider
 	pubProxyProvider      contract.ProxyProvider
@@ -70,45 +70,25 @@ func (s *ServiceContainer) HTTPClient() contract.HTTPClient {
 	return client
 }
 
-// DiscoveryHTTPClient returns an HTTPClient that routes requests through a
-// rotating pool of active proxies for public proxy-list providers. Falls back
-// to the direct client when no proxy is available. Must not be used for
-// Lodestone APIs.
-func (s *ServiceContainer) DiscoveryHTTPClient() contract.HTTPClient {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.discoveryHTTPClientUnlocked()
-}
+// Limits of the direct client that fetches proxy provider lists and APIs.
+const (
+	providerHTTPTimeout  = 30 * time.Second
+	providerMaxBodyBytes = 64 << 20
+	// providerUserAgent names the project and where to reach it, so a provider
+	// that dislikes the traffic can tell who is behind it.
+	providerUserAgent = "ffxiv-census/1.0 (+https://github.com/mihaiflorentin88/ffxiv-census)"
+)
 
-// discoveryHTTPClientUnlocked returns the discovery HTTP client without acquiring
-// the mutex. Callers that already hold s.mu MUST use this method to avoid deadlock.
-func (s *ServiceContainer) discoveryHTTPClientUnlocked() contract.HTTPClient {
-	if s.infrastructure.discoveryHTTPClient != nil {
-		return s.infrastructure.discoveryHTTPClient
+// providerHTTPClientUnlocked returns the HTTP client for proxy provider lists
+// and APIs without acquiring the mutex; callers that already hold s.mu use it.
+// It goes straight out from the cluster, never through the proxy pool: list
+// downloads must not spend the Lodestone proxies' bandwidth and request
+// budget. It must not be used for Lodestone requests.
+func (s *ServiceContainer) providerHTTPClientUnlocked() contract.HTTPClient {
+	if s.infrastructure.providerHTTPClient == nil {
+		s.infrastructure.providerHTTPClient = httpclient.NewListClient(providerUserAgent, providerHTTPTimeout, providerMaxBodyBytes)
 	}
-	// Build the proxy hub using unlocked accessors since we already hold the lock.
-	driver := s.databaseUnlocked()
-	if driver == nil {
-		return s.HTTPClient()
-	}
-	repo := s.infrastructure.proxyRepository
-	if repo == nil {
-		repo = repository.NewProxyRepository(driver, s.proxyScanPolicyUnlocked())
-		s.infrastructure.proxyRepository = repo
-	}
-	lockTTL := 5 * time.Minute
-	if cfg := s.configUnlocked().Proxy; cfg != nil && cfg.Consumer.LockTTL != "" {
-		if d, err := time.ParseDuration(cfg.Consumer.LockTTL); err == nil && d > 0 {
-			lockTTL = d
-		}
-	}
-	checker := s.destinationCheckerUnlocked()
-	hub := proxydomain.NewProxyHub(repo, lockTTL, checker, s.proxyConsumerCooldownUnlocked(), s.proxyScanPolicyUnlocked())
-	if hub == nil {
-		return s.HTTPClient()
-	}
-	s.infrastructure.discoveryHTTPClient = httpclient.NewRotatingProxyClient(hub, s.HTTPClient(), 30*time.Second)
-	return s.infrastructure.discoveryHTTPClient
+	return s.infrastructure.providerHTTPClient
 }
 
 func (s *ServiceContainer) Statsd() contract.StatsdClient {
@@ -215,7 +195,14 @@ func (s *ServiceContainer) Queue() contract.Queue {
 	if full.Queue != nil && full.Queue.MaxAttempts > 0 {
 		maxAttempts = full.Queue.MaxAttempts
 	}
-	q, err := rabbitmq.New(cfg.GetURL(), s.Logger(), maxAttempts)
+	var opts []rabbitmq.Option
+	if full.Queue != nil && full.Queue.ProxyFailureCap > 0 {
+		opts = append(opts, rabbitmq.WithProxyFailureCap(full.Queue.ProxyFailureCap))
+	}
+	if full.Queue != nil && len(full.Queue.RetryTiers) > 0 {
+		opts = append(opts, rabbitmq.WithRetryTiers(full.Queue.RetryTiers))
+	}
+	q, err := rabbitmq.New(cfg.GetURL(), s.Logger(), maxAttempts, opts...)
 	if err != nil {
 		logging.Error("container.queue", fmt.Sprintf("failed to create rabbitmq queue: %v", err))
 		return nil
@@ -224,7 +211,15 @@ func (s *ServiceContainer) Queue() contract.Queue {
 	return q
 }
 
+// LodestoneRequestObserver returns an observer that counts Lodestone request
+// outcomes per hashed proxy bucket in the Prometheus registry. Observers share
+// the same underlying counter, so one per client is fine.
+func (s *ServiceContainer) LodestoneRequestObserver() contract.LodestoneRequestObserver {
+	return metrics.NewLodestoneRequestObserver(s.PrometheusRegistry())
+}
+
 func (s *ServiceContainer) LodestoneClient() contract.LodestoneClient {
+	observer := s.LodestoneRequestObserver()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.infrastructure.lodestoneClient != nil {
@@ -235,7 +230,7 @@ func (s *ServiceContainer) LodestoneClient() contract.LodestoneClient {
 		logging.Warn("container.lodestone", "lodestone config missing")
 		return nil
 	}
-	client, err := lodestone.NewCustomClient(cfg, s.Logger(), s.providerRateLimiterUnlocked())
+	client, err := lodestone.NewCustomClient(cfg, s.Logger(), s.providerRateLimiterUnlocked(), lodestone.WithRequestObserver(observer))
 	if err != nil {
 		logging.Error("container.lodestone", fmt.Sprintf("failed to create lodestone client: %v", err))
 		return nil
@@ -359,25 +354,6 @@ func (s *ServiceContainer) ProxyChecker() contract.ProxyChecker {
 	return checker
 }
 
-// DestinationChecker returns the Lodestone destination checker built from the
-// [proxy.consumer] settings. It is used for handout-time validation only;
-// random provider discovery never invokes it.
-func (s *ServiceContainer) DestinationChecker() contract.ProxyChecker {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.destinationCheckerUnlocked()
-}
-
-func (s *ServiceContainer) destinationCheckerUnlocked() *proxyinfra.Checker {
-	if s.infrastructure.destinationChecker != nil {
-		return s.infrastructure.destinationChecker
-	}
-	cfg := s.configUnlocked().Proxy
-	checker := proxyinfra.NewChecker(cfg.Consumer.TestURL, cfg.Consumer.TestTimeout, s.Logger())
-	s.infrastructure.destinationChecker = checker
-	return checker
-}
-
 // ProxyScanPolicy returns the single parsed scheduler policy shared by the
 // repository adapter and the scan worker. DeadAfter and FailThreshold come
 // from the retained [proxy] threshold settings.
@@ -400,7 +376,42 @@ func (s *ServiceContainer) proxyScanPolicyUnlocked() contract.ProxyScanPolicy {
 		InconclusiveRetry: cfg.Scan.InconclusiveRetry,
 		DeadAfter:         time.Duration(cfg.DeadThresholdDays) * 24 * time.Hour,
 		FailThreshold:     cfg.FailCountThreshold,
+		Retirement:        retirementRule(cfg.Retire),
 	}
+}
+
+func retirementRule(cfg config.ProxyRetireConfig) contract.RetirementRule {
+	return contract.RetirementRule{
+		MinFailures: cfg.AfterFailures,
+		MinAge:      time.Duration(cfg.AfterDays) * 24 * time.Hour,
+	}
+}
+
+// ProxyRetirementRule returns the retirement thresholds shared by the scan
+// completion path and the retirement sweep.
+func (s *ServiceContainer) ProxyRetirementRule() contract.RetirementRule {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return retirementRule(s.configUnlocked().Proxy.Retire)
+}
+
+// ProxyListingRule returns how discovery records a re-listed proxy: the
+// rewrite interval and how long a proxy must be retired before a listing
+// revives it.
+func (s *ServiceContainer) ProxyListingRule() contract.ListingRule {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cfg := s.configUnlocked().Proxy.Retire
+	return contract.ListingRule{RewriteInterval: cfg.ListedRewriteInterval, ReviveAfter: cfg.ReviveAfter}
+}
+
+// ProxyRetirementSweepSettings returns how often the retirement sweep runs
+// and how many rows one batch examines.
+func (s *ServiceContainer) ProxyRetirementSweepSettings() (interval time.Duration, batch int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cfg := s.configUnlocked().Proxy.Retire
+	return cfg.SweepInterval, cfg.SweepBatch
 }
 
 // ProxyScanWeights returns the long-run capacity shares for the
@@ -422,7 +433,7 @@ func (s *ServiceContainer) ProxyScrapeProvider() contract.ProxyProvider {
 	if cfg == nil || !cfg.Providers.ProxyScrape {
 		return nil
 	}
-	s.infrastructure.proxyScrapeProvider = proxyscrape.New(s.discoveryHTTPClientUnlocked(), cfg.Providers.ProxyScrapeURL)
+	s.infrastructure.proxyScrapeProvider = proxyscrape.New(s.providerHTTPClientUnlocked(), cfg.Providers.ProxyScrapeURL)
 	return s.infrastructure.proxyScrapeProvider
 }
 
@@ -436,7 +447,7 @@ func (s *ServiceContainer) GeonodeProvider() contract.ProxyProvider {
 	if cfg == nil || !cfg.Providers.Geonode {
 		return nil
 	}
-	s.infrastructure.geonodeProvider = geonode.New(s.discoveryHTTPClientUnlocked(), cfg.Providers.GeonodeURL)
+	s.infrastructure.geonodeProvider = geonode.New(s.providerHTTPClientUnlocked(), cfg.Providers.GeonodeURL)
 	return s.infrastructure.geonodeProvider
 }
 
@@ -450,7 +461,7 @@ func (s *ServiceContainer) PubProxyProvider() contract.ProxyProvider {
 	if cfg == nil || !cfg.Providers.PubProxy {
 		return nil
 	}
-	s.infrastructure.pubProxyProvider = pubproxy.New(s.discoveryHTTPClientUnlocked(), cfg.Providers.PubProxyURL)
+	s.infrastructure.pubProxyProvider = pubproxy.New(s.providerHTTPClientUnlocked(), cfg.Providers.PubProxyURL)
 	return s.infrastructure.pubProxyProvider
 }
 
@@ -465,7 +476,7 @@ func (s *ServiceContainer) ProxiflyProvider() contract.ProxyProvider {
 		return nil
 	}
 	base := strings.TrimRight(cfg.Providers.ProxiflyURL, "/")
-	s.infrastructure.proxiflyProvider = textproxy.New(s.discoveryHTTPClientUnlocked(), "proxifly", map[string]string{
+	s.infrastructure.proxiflyProvider = textproxy.New(s.providerHTTPClientUnlocked(), "proxifly", map[string]string{
 		"http":   base + "/http/data.txt",
 		"socks4": base + "/socks4/data.txt",
 		"socks5": base + "/socks5/data.txt",
@@ -484,7 +495,7 @@ func (s *ServiceContainer) TheSpeedXProvider() contract.ProxyProvider {
 		return nil
 	}
 	base := strings.TrimRight(cfg.Providers.TheSpeedXURL, "/")
-	s.infrastructure.theSpeedXProvider = textproxy.New(s.discoveryHTTPClientUnlocked(), "thespeedx", map[string]string{
+	s.infrastructure.theSpeedXProvider = textproxy.New(s.providerHTTPClientUnlocked(), "thespeedx", map[string]string{
 		"http":   base + "/http.txt",
 		"socks4": base + "/socks4.txt",
 		"socks5": base + "/socks5.txt",
@@ -503,7 +514,7 @@ func (s *ServiceContainer) MonosansProvider() contract.ProxyProvider {
 		return nil
 	}
 	base := strings.TrimRight(cfg.Providers.MonosansURL, "/")
-	s.infrastructure.monosansProvider = textproxy.New(s.discoveryHTTPClientUnlocked(), "monosans", map[string]string{
+	s.infrastructure.monosansProvider = textproxy.New(s.providerHTTPClientUnlocked(), "monosans", map[string]string{
 		"http":   base + "/http.txt",
 		"socks4": base + "/socks4.txt",
 		"socks5": base + "/socks5.txt",
@@ -522,7 +533,7 @@ func (s *ServiceContainer) GfpcomProvider() contract.ProxyProvider {
 		return nil
 	}
 	base := strings.TrimRight(cfg.Providers.GfpcomURL, "/")
-	s.infrastructure.gfpcomProvider = textproxy.New(s.discoveryHTTPClientUnlocked(), "gfpcom", map[string]string{
+	s.infrastructure.gfpcomProvider = textproxy.New(s.providerHTTPClientUnlocked(), "gfpcom", map[string]string{
 		"http":   base + "/http.txt",
 		"socks4": base + "/socks4.txt",
 		"socks5": base + "/socks5.txt",
@@ -541,7 +552,7 @@ func (s *ServiceContainer) ThordataProvider() contract.ProxyProvider {
 		return nil
 	}
 	base := strings.TrimRight(cfg.Providers.ThordataURL, "/")
-	s.infrastructure.thordataProvider = textproxy.New(s.discoveryHTTPClientUnlocked(), "thordata", map[string]string{
+	s.infrastructure.thordataProvider = textproxy.New(s.providerHTTPClientUnlocked(), "thordata", map[string]string{
 		"http": base + "/http.txt",
 	})
 	return s.infrastructure.thordataProvider
@@ -558,7 +569,7 @@ func (s *ServiceContainer) HproxyProvider() contract.ProxyProvider {
 		return nil
 	}
 	base := strings.TrimRight(cfg.Providers.HproxyURL, "/")
-	s.infrastructure.hproxyProvider = textproxy.New(s.discoveryHTTPClientUnlocked(), "hproxy", map[string]string{
+	s.infrastructure.hproxyProvider = textproxy.New(s.providerHTTPClientUnlocked(), "hproxy", map[string]string{
 		"http":   base + "/http.txt",
 		"socks4": base + "/socks4.txt",
 		"socks5": base + "/socks5.txt",
@@ -577,7 +588,7 @@ func (s *ServiceContainer) Sage520Provider() contract.ProxyProvider {
 		return nil
 	}
 	base := strings.TrimRight(cfg.Providers.Sage520URL, "/")
-	s.infrastructure.sage520Provider = textproxy.New(s.discoveryHTTPClientUnlocked(), "sage520", map[string]string{
+	s.infrastructure.sage520Provider = textproxy.New(s.providerHTTPClientUnlocked(), "sage520", map[string]string{
 		"http":   base + "/http.txt",
 		"socks4": base + "/socks4.txt",
 		"socks5": base + "/socks5.txt",
@@ -596,7 +607,7 @@ func (s *ServiceContainer) ErcinDedeogluProvider() contract.ProxyProvider {
 		return nil
 	}
 	base := strings.TrimRight(cfg.Providers.ErcinDedeogluURL, "/")
-	s.infrastructure.ercindedeogluProvider = textproxy.New(s.discoveryHTTPClientUnlocked(), "ercindedeoglu", map[string]string{
+	s.infrastructure.ercindedeogluProvider = textproxy.New(s.providerHTTPClientUnlocked(), "ercindedeoglu", map[string]string{
 		"http":   base + "/http.txt",
 		"socks5": base + "/socks5.txt",
 	})
@@ -604,9 +615,9 @@ func (s *ServiceContainer) ErcinDedeogluProvider() contract.ProxyProvider {
 }
 
 // ProxyHub creates a ProxyHub for consumer handout. The lock TTL and the
-// destination cooldown floor are read from [proxy.consumer] config and
-// handouts are validated with the destination checker; random provider
-// discovery paths on the hub never invoke that checker.
+// destination cooldown floor are read from [proxy.consumer] config. A handout
+// trusts scan freshness and issues no request of its own; the first real
+// request of the job is the destination check.
 func (s *ServiceContainer) ProxyHub() *proxydomain.ProxyHub {
 	repo := s.ProxyRepository()
 	if repo == nil {
@@ -619,10 +630,23 @@ func (s *ServiceContainer) ProxyHub() *proxydomain.ProxyHub {
 			lockTTL = d
 		}
 	}
-	hub := proxydomain.NewProxyHub(repo, lockTTL, s.destinationCheckerUnlocked(),
-		s.proxyConsumerCooldownUnlocked(), s.proxyScanPolicyUnlocked())
+	hub := proxydomain.NewProxyHub(repo, lockTTL, s.proxyConsumerCooldownUnlocked(), s.proxyScanPolicyUnlocked()).
+		WithDestinationCooldownCap(s.proxyConsumerCooldownMaxUnlocked())
+	if cfg := s.configUnlocked().Proxy; cfg != nil {
+		hub.WithLockRefreshInterval(cfg.Consumer.LockRefreshInterval)
+	}
 	s.mu.Unlock()
 	return hub
+}
+
+// proxyConsumerCooldownMaxUnlocked returns the ceiling the destination
+// cooldown doubles to from [proxy.consumer].cooldown_max, defaulting to
+// fifteen minutes when unset.
+func (s *ServiceContainer) proxyConsumerCooldownMaxUnlocked() time.Duration {
+	if cfg := s.configUnlocked().Proxy; cfg != nil && cfg.Consumer.CooldownMax > 0 {
+		return cfg.Consumer.CooldownMax
+	}
+	return 15 * time.Minute
 }
 
 // proxyConsumerCooldownUnlocked returns the destination cooldown floor from

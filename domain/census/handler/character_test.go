@@ -161,3 +161,55 @@ func TestCharacterCensus_NeverUpsertsHiddenProfile(t *testing.T) {
 		t.Errorf("hidden-profile character was stored: %+v", got)
 	}
 }
+
+func TestCharacterCensus_DoesNotChainAchievementCensusForPrivateCharacterCheckedWithinWindow(t *testing.T) {
+	h, ls, chars := newTestCharacterCensus(t)
+	seedPrivate(t, chars, 42, time.Now().Add(-24*time.Hour))
+	ls.FetchCharacterFunc = func(ctx context.Context, id uint32) (*contract.CharacterProfile, error) {
+		return &contract.CharacterProfile{ID: id, Name: "Char", World: "Ultros", Datacenter: "Primal", Race: "Hyur"}, nil
+	}
+	next, err := h.Handle(context.Background(), characterPayload(42))
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if len(next) != 0 {
+		t.Fatalf("next = %+v, want no jobs: the achievement census would only be skipped", next)
+	}
+	got, _ := chars.Get(context.Background(), 42)
+	if got == nil || got.LastCensusAt == nil || time.Since(*got.LastCensusAt) > time.Minute {
+		t.Fatalf("the character itself must still be refreshed, got %+v", got)
+	}
+	if got.AchievementsCheckedAt == nil || time.Since(*got.AchievementsCheckedAt) < 12*time.Hour {
+		t.Fatalf("a character refresh must not touch achievements_checked_at, got %v", got.AchievementsCheckedAt)
+	}
+}
+
+func TestCharacterCensus_ChainsAchievementCensusForPrivateCharacterWithoutCheckTimeSoItGetsStamped(t *testing.T) {
+	h, ls, chars := newTestCharacterCensus(t)
+	_ = chars.Upsert(context.Background(), contract.CharacterRecord{ID: 44, Name: "Legacy", AchievementsPrivate: true, FirstSeenAt: time.Now()}, nil)
+	ls.FetchCharacterFunc = func(ctx context.Context, id uint32) (*contract.CharacterProfile, error) {
+		return &contract.CharacterProfile{ID: id, Name: "Char", World: "Ultros", Datacenter: "Primal", Race: "Hyur"}, nil
+	}
+	next, err := h.Handle(context.Background(), characterPayload(44))
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if len(next) != 1 || next[0].Type != EventAchievementCensus {
+		t.Fatalf("next = %+v, want the achievement-census job that stamps the flag", next)
+	}
+}
+
+func TestCharacterCensus_ChainsAchievementCensusForPrivateCharacterAfterWindow(t *testing.T) {
+	h, ls, chars := newTestCharacterCensus(t)
+	seedPrivate(t, chars, 43, time.Now().Add(-31*24*time.Hour))
+	ls.FetchCharacterFunc = func(ctx context.Context, id uint32) (*contract.CharacterProfile, error) {
+		return &contract.CharacterProfile{ID: id, Name: "Char", World: "Ultros", Datacenter: "Primal", Race: "Hyur"}, nil
+	}
+	next, err := h.Handle(context.Background(), characterPayload(43))
+	if err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if len(next) != 1 || next[0].Type != EventAchievementCensus {
+		t.Fatalf("next = %+v, want the achievement-census job", next)
+	}
+}

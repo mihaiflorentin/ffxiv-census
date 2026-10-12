@@ -25,7 +25,7 @@ func NewCharacterRepository(driver contract.DatabaseDriver) contract.CharacterRe
 
 const characterColumns = `id, name, world, datacenter, region, race, tribe, gender, grand_company,
 		        fc_id, fc_name, bio, active_job, item_level,
-		        achievements_private, latest_achievement_id, latest_achievement_at,
+		        achievements_private, achievements_checked_at, latest_achievement_id, latest_achievement_at,
 		        first_seen_at, last_census_at, deleted_at`
 
 // Upsert stores one character and its jobs through StoreResult, the only write
@@ -149,11 +149,20 @@ func markInvalidData(err error) error {
 
 // storeAchievementTx writes one achievement census inside tx, with the same
 // effect as AchievementRepository.UpsertCharacterMilestones followed by the
-// summary update (a private profile only flags the character private).
+// summary update (a private profile only flags the character private and
+// records when it was verified; a zero CheckedAt keeps the recorded time).
 func storeAchievementTx(ctx context.Context, tx *sql.Tx, a contract.AchievementWrite) error {
 	if a.Private {
+		var checkedAt *time.Time
+		if !a.CheckedAt.IsZero() {
+			checkedAt = &a.CheckedAt
+		}
 		if _, err := tx.ExecContext(ctx,
-			`UPDATE characters SET achievements_private = $1 WHERE id = $2`, boolInt(true), a.CharacterID); err != nil {
+			`UPDATE characters
+			    SET achievements_private = $1,
+			        achievements_checked_at = COALESCE($2::timestamptz, achievements_checked_at)
+			  WHERE id = $3`,
+			boolInt(true), nullableTime(checkedAt), a.CharacterID); err != nil {
 			return fmt.Errorf("character set achievements private: %w", err)
 		}
 		return nil
@@ -577,7 +586,10 @@ func (r *CharacterRepository) MarkDeleted(ctx context.Context, id uint32, at tim
 	return nil
 }
 
-func (r *CharacterRepository) ListStale(ctx context.Context, cutoff time.Time, limit int) ([]contract.CharacterRecord, error) {
+// ListStaleIDs selects live characters through idx_characters_live_census, a
+// partial index matching this ORDER BY, so the oldest rows come straight off
+// the index instead of a sort of the whole table. Only ids are read.
+func (r *CharacterRepository) ListStaleIDs(ctx context.Context, cutoff time.Time, limit int) ([]uint32, error) {
 	if limit <= 0 {
 		limit = 100
 	}
@@ -585,28 +597,50 @@ func (r *CharacterRepository) ListStale(ctx context.Context, cutoff time.Time, l
 	var err error
 	if cutoff.IsZero() {
 		rows, err = r.driver.FetchMany(ctx,
-			fmt.Sprintf(`SELECT %s FROM characters
-			              ORDER BY last_census_at ASC NULLS FIRST, id ASC
-			              LIMIT $1`, characterColumns), limit)
+			`SELECT id FROM characters
+			  WHERE deleted_at IS NULL
+			  ORDER BY last_census_at ASC NULLS FIRST, id ASC
+			  LIMIT $1`, limit)
 	} else {
 		rows, err = r.driver.FetchMany(ctx,
-			fmt.Sprintf(`SELECT %s FROM characters
-			              WHERE last_census_at < $1 OR last_census_at IS NULL
-			              ORDER BY last_census_at ASC NULLS FIRST, id ASC
-			              LIMIT $2`, characterColumns), cutoff, limit)
+			`SELECT id FROM characters
+			  WHERE deleted_at IS NULL
+			    AND (last_census_at < $1 OR last_census_at IS NULL)
+			  ORDER BY last_census_at ASC NULLS FIRST, id ASC
+			  LIMIT $2`, cutoff, limit)
 	}
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	return scanIDs(rows)
+}
 
-	var out []contract.CharacterRecord
+// ListDeletedIDs selects the re-probe batch through idx_characters_deleted_at,
+// a partial index over deleted rows only. Only ids are read.
+func (r *CharacterRepository) ListDeletedIDs(ctx context.Context, deletedBefore time.Time, limit int) ([]uint32, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	rows, err := r.driver.FetchMany(ctx,
+		`SELECT id FROM characters
+		  WHERE deleted_at IS NOT NULL AND deleted_at < $1
+		  ORDER BY deleted_at ASC, id ASC
+		  LIMIT $2`, deletedBefore, limit)
+	if err != nil {
+		return nil, err
+	}
+	return scanIDs(rows)
+}
+
+func scanIDs(rows *sql.Rows) ([]uint32, error) {
+	defer rows.Close()
+	var out []uint32
 	for rows.Next() {
-		rec, err := scanCharacter(rows)
-		if err != nil {
+		var id uint32
+		if err := rows.Scan(&id); err != nil {
 			return nil, err
 		}
-		out = append(out, *rec)
+		out = append(out, id)
 	}
 	return out, rows.Err()
 }
@@ -1038,14 +1072,14 @@ func scanCharacter(row rowScanner) (*contract.CharacterRecord, error) {
 	var itemLevel sql.NullInt64
 	var achievementsPrivate int
 	var latestAchievementID sql.NullInt64
-	var latestAchievementAt, lastCensusAt, deletedAt sql.NullTime
+	var latestAchievementAt, achievementsCheckedAt, lastCensusAt, deletedAt sql.NullTime
 	var firstSeenAt time.Time
 
 	err := row.Scan(
 		&c.ID, &c.Name, &c.World, &c.Datacenter, &c.Region,
 		&race, &tribe, &c.Gender, &grandCompany,
 		&fcID, &fcName, &bio, &activeJob, &itemLevel,
-		&achievementsPrivate, &latestAchievementID, &latestAchievementAt,
+		&achievementsPrivate, &achievementsCheckedAt, &latestAchievementID, &latestAchievementAt,
 		&firstSeenAt, &lastCensusAt, &deletedAt,
 	)
 	if err != nil {
@@ -1063,6 +1097,7 @@ func scanCharacter(row rowScanner) (*contract.CharacterRecord, error) {
 		c.ItemLevel = int(itemLevel.Int64)
 	}
 	c.AchievementsPrivate = achievementsPrivate == 1
+	c.AchievementsCheckedAt = sqlTimePtr(achievementsCheckedAt)
 	c.LatestAchievementID = sqlUint32Ptr(latestAchievementID)
 	c.LatestAchievementAt = sqlTimePtr(latestAchievementAt)
 	c.FirstSeenAt = firstSeenAt

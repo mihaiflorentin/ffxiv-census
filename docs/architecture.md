@@ -59,7 +59,7 @@ High-level modules (application/domain) depend on abstractions, never concrete i
 
 ## Queue & Ingest Event Pipeline
 
-Durable async work is managed by RabbitMQ (see [docs/queue.md](queue.md) and [docs/events.md](events.md)). Messages are published to the `census` exchange and routed to per-event-type queues. Failed messages are retried with exponential backoff via a dedicated retry exchange; permanently failed messages land in a dead-letter queue. The ingest pipeline consists of three core events:
+Durable async work is managed by RabbitMQ (see [docs/queue.md](queue.md) and [docs/events.md](events.md)). Messages are published to the `census` exchange and routed to per-event-type queues. Failed messages wait in delay-tier queues (5 s, 30 s, 5 min, 1 h) that expire back to the main queue; poison messages and jobs that exhausted their attempts land in a dead queue. The ingest pipeline consists of three core events:
 
 1. **`id-sweep`**: Probes character ID ranges across The Lodestone. Discovered characters are stored through the batching writer and chain downstream `achievement-census` jobs once their batch has committed.
 2. **`character-census`**: Re-censuses known character profiles. A genuine Lodestone 404 marks the character deleted; successful fetches chain `achievement-census`.
@@ -67,11 +67,13 @@ Durable async work is managed by RabbitMQ (see [docs/queue.md](queue.md) and [do
 
 The queue adapter is resolved via `container.Load.Queue()`.
 
+**Proxy discovery is not a queue event.** `proxy discover` (`domain/proxy.Discoverer`, resolved via `container.Load.ProxyDiscoverer()`) fetches the proxy providers' lists directly from the cluster and inserts new proxies in bulk; it publishes nothing and needs no RabbitMQ. See [docs/proxy.md](proxy.md#discovery).
+
 **Write path:** handlers never write census data themselves. They build a `contract.CensusResult` (`Service.PrepareCharacter` / `PrepareMilestoneResults`) and hand it to the per-pod `contract.ResultWriter` (`container.Load.ResultWriter()`), which stores batches in one transaction via `CharacterRepository.StoreResult` and returns to each waiting handler only after the commit. The queue acks a job when its handler returns, so an ack always follows the commit. A result the database rejects is isolated from its batch neighbours, and census batches commit with `synchronous_commit = off`. Details: [docs/queue.md](queue.md#batched-writes-and-acks), [docs/postgres.md](postgres.md).
 
-**Proxy Mode:** The `consume --proxy` flag activates per-goroutine proxy isolation. Each worker goroutine acquires its own proxy from the `ProxyHub`, creates a proxy-aware Lodestone client, and routes ALL requests through the proxy. Only fresh, evidence-backed rows are handed out (claim, destination check, and freshness/ownership revalidation against the database). A typed conclusive proxy failure is persisted as a version-fenced observation via `Proxy.MarkFailed()` before a replacement is acquired; destination rejections such as 429 raise only a destination cooldown and never mark the proxy unhealthy. See [docs/proxy.md](proxy.md) for the full design.
+**Proxy Mode:** The `consume --proxy` flag activates per-goroutine proxy isolation. Each worker goroutine acquires its own proxy from the `ProxyHub`, creates a proxy-aware Lodestone client, and routes ALL requests through the proxy. Only fresh, evidence-backed rows are handed out (claim, then freshness/ownership revalidation against the database; no request is sent to the Lodestone at hand-out, the first real request of the job is the destination check). A typed conclusive proxy failure is persisted as a version-fenced observation via `Proxy.MarkFailed()` before a replacement is acquired; destination rejections such as 429 raise only a destination cooldown and never mark the proxy unhealthy. See [docs/proxy.md](proxy.md) for the full design.
 
-**Graceful Shutdown:** On SIGTERM, workers stop consuming new messages but in-flight deliveries continue processing. The queue adapter handles ack/nack semantics — successfully processed messages are acknowledged; failures trigger retry with backoff or permanent failure routing. Worker errors don't cancel other workers' in-flight jobs — each goroutine exits independently.
+**Graceful Shutdown:** On SIGTERM, workers stop consuming new messages but in-flight deliveries continue processing. The queue adapter handles ack/nack semantics — successfully processed messages are acknowledged; failures go to a delay tier or, for poison messages, the dead queue. Worker errors don't cancel other workers' in-flight jobs — each goroutine exits independently.
 ## Future Hooks
 
 - Add domain service constructors under `container/domain.go` to keep wiring explicit.

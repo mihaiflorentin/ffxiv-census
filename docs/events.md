@@ -9,9 +9,8 @@ The census ingests Lodestone data through a durable, event-driven pipeline. Publ
 | `id-sweep` | Probe a range of character IDs; ingest any that exist | ✅ implemented |
 | `character-census` | Re-census a known character's profile + jobs | ✅ implemented |
 | `achievement-census` | Refresh the globally latest achievement and incrementally fetch tracked milestones | ✅ implemented |
-| `new-proxy` | Register and test a newly discovered proxy | ✅ implemented |
 
-Recurring proxy scans are performed directly by the `proxy scan` database worker, not via queue events. See `docs/proxy.md`.
+Recurring proxy scans are performed directly by the `proxy scan` database worker, and proxy discovery inserts new proxies directly; neither uses queue events. See `docs/proxy.md`.
 
 ## Payloads
 
@@ -20,9 +19,7 @@ Queue job payloads are JSON. Types are declared in `domain/census/handler/event.
 - **id-sweep**: `{"from": 1, "to": 1000, "source": "auto"}` — inclusive range of character IDs to probe. `source` is `"auto"` or `"lodestone"` (both probe The Lodestone); the legacy value `"tomestone"` is tolerated on in-flight messages and behaves as `"auto"`.
 - **character-census**: `{"character_id": 123}` — a character to re-census.
 - **achievement-census**: `{"character_id": 123}` — a character to run an achievement census on.
-- **new-proxy**: `{"protocol": "http", "ip": "1.2.3.4", "port": 8080, "country": "US", "anonymity": "elite", "source": "proxyscrape", "uptime_percent": 95.5}` — a proxy to register and test.
 
-Proxy event types are declared in `domain/proxy/handler/handler.go`. The `new-proxy` event is a leaf event (no chaining).
 
 ## Chaining
 
@@ -34,7 +31,7 @@ Handlers return the downstream jobs they want published; the worker publishes ea
 
 ## Loop safety
 
-Handlers are idempotent (`CharacterRepository.StoreResult` is a conflict-upsert), so a retried `id-sweep` chunk re-probes safely without duplicating chained jobs. RabbitMQ does not deduplicate at the queue level — idempotency is enforced by the database layer. The `proxy discover` command checks PostgreSQL read-only before publishing each `new-proxy` event; existing tuples are counted as `skipped_existing` and never published. Lookup errors fail closed per provider. The consumer independently checks then inserts conflict-safely via `INSERT ... ON CONFLICT DO NOTHING`.
+Handlers are idempotent (`CharacterRepository.StoreResult` is a conflict-upsert), so a retried `id-sweep` chunk re-probes safely without duplicating chained jobs. RabbitMQ does not deduplicate at the queue level — idempotency is enforced by the database layer. `proxy discover` publishes no events: it drops endpoints already in the table with an anti-join and inserts the rest conflict-safely via `INSERT ... ON CONFLICT DO NOTHING` (see [Discovery](proxy.md#discovery)).
 
 ## Ingest behavior
 
@@ -51,7 +48,7 @@ Handlers are idempotent (`CharacterRepository.StoreResult` is a conflict-upsert)
 1. Handlers query **The Lodestone** as the sole source of truth.
 2. A genuine Lodestone 404 marks the character deleted immediately — no second
    provider is consulted for confirmation.
-3. A transient error fails the delivery for retry with backoff.
+3. A transient error fails the delivery into a delay tier (5 s, 30 s, 5 min, 1 h; see [queue.md](queue.md)). Proxy-caused failures do not count as job attempts.
 
 **Shared rules:**
 - Downstream `achievement-census` jobs are uniformly chained using
@@ -67,7 +64,7 @@ Achievement checks always request the achievement list once to refresh global la
 
 `achievement-census` waits for the Lodestone cooldown in-handler: when Lodestone is rate-limited or paused, the handler calls `WaitUntilAvailable(ctx, ProviderLodestone)` to block until the cooldown expires, then retries the fetch inline. This is more efficient than returning an error immediately (which triggers queue retry + backoff).
 
-`WaitUntilAvailable` blocks exactly once per rate-limit cooldown. If the subsequent fetch fails again (new 429), the handler returns an error and the queue's exponential backoff kicks in. The handler does NOT loop on `WaitUntilAvailable`.
+`WaitUntilAvailable` blocks exactly once per rate-limit cooldown. If the subsequent fetch fails again (new 429), the handler returns an error and the delivery goes to a delay tier. The handler does NOT loop on `WaitUntilAvailable`.
 
 One worker goroutine blocks during the wait. With the default `concurrency=4`, the other 3 goroutines continue processing. Kubernetes' 180s termination grace period covers extended Lodestone cooldowns.
 
@@ -96,7 +93,8 @@ When `consume --proxy` is used, the event pipeline runs through proxy-aware clie
 # Manual ID sweep over explicit range.
 ./bin/ffxiv-census publish id-sweep --from 1 --to 50000000 --chunk-size 100 --source auto
 
-# Enqueue the 1000 oldest characters (no age filter, NULL first).
+# Enqueue the 1000 oldest live characters (no age filter, NULL first), plus
+# a re-probe batch of deleted characters (--deleted-limit 10 by default).
 ./bin/ffxiv-census publish character-census --limit 1000
 
 # Re-census characters not seen in 30 days (recheck cron).
@@ -109,4 +107,4 @@ When `consume --proxy` is used, the event pipeline runs through proxy-aware clie
 
 **`publishAll` behaviour:** Each publish call waits for a broker confirmation before returning. If any publish is nacked or the connection drops, the command fails immediately rather than continuing to enqueue jobs that may never be delivered. After all publishes succeed, the queue connection is closed so the process exits cleanly.
 
-**`proxy discover` callback publication:** Providers are invoked sequentially in configured order. Each provider streams records one at a time via a callback (`emit`). Inside the callback, each record is checked read-only against PostgreSQL; existing tuples are skipped and do not consume the publication quota. New records are published immediately as `new-proxy` events — the first queue publish happens before the provider fetches its next record/page. This keeps memory bounded regardless of provider response size. When the `--limit` publication cap is reached, the current provider's stream is aborted and all remaining providers are skipped. When a provider exhausts below the limit, the next provider is invoked to fill the remaining quota. `--limit 0` disables the cap. If a publish fails, that provider is stopped (logged as `proxy.discover.publish_failed`) and the command continues to the next provider. Partial provider failures are tolerated: the command reports per-provider fetched/published counts and returns an error only when every provider fails (`proxy discovery failed: all providers failed (%d errors)`).
+**`proxy discover` (no queue events):** Discovery does not publish events. The `Discoverer` reads each provider's stream, buffers records in chunks, inserts the unknown proxies with one bulk statement per chunk and marks every listed proxy as listed again. The former `new-proxy` event and its consumer were removed; see [Discovery](proxy.md#discovery) for the fair per-run `--limit`, conditional fetch and failure handling.

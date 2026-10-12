@@ -53,6 +53,12 @@ func (f *fakeHTTPClient) GetStream(_ context.Context, url string, _, _ map[strin
 	return consume(404, bytes.NewReader(nil))
 }
 
+func (f *fakeHTTPClient) GetStreamHeaders(ctx context.Context, url string, q, h map[string]string, consume func(int, map[string][]string, io.Reader) error) error {
+	return f.GetStream(ctx, url, q, h, func(status int, body io.Reader) error {
+		return consume(status, nil, body)
+	})
+}
+
 func TestFetchProxies_Success(t *testing.T) {
 	body := `{
 		"data": [

@@ -48,6 +48,48 @@ type ProxyRecord struct {
 	ScanLeaseUntil           *time.Time
 	ClaimedVersion           *int64
 	DestinationCooldownUntil *time.Time
+
+	// DestinationFailures counts consecutive destination failures (challenge,
+	// timeout, 5xx, 429) since the last success. It drives the growing
+	// destination cooldown and ranks recently failing proxies behind clean ones.
+	DestinationFailures int
+
+	// RetiredAt marks a proxy that never worked and kept failing (see
+	// RetirementRule). The background scan skips retired rows, which stay in
+	// the table so the unique key keeps discovery from re-inserting them.
+	// LastListedAt is when a provider last listed the endpoint.
+	RetiredAt    *time.Time
+	LastListedAt *time.Time
+}
+
+// ProxyEndpoint is the unique key of a proxy row: (protocol, ip, port).
+type ProxyEndpoint struct {
+	Protocol string
+	IP       string
+	Port     int
+}
+
+// ListingRule tunes MarkListed. RewriteInterval is the shortest time between
+// two writes to one row. ReviveAfter is how long a proxy must have been
+// retired (counted from retired_at) before a listing revives it; a younger
+// retirement is left alone, so a proxy that is still on a provider list does
+// not flip between retired and live every sweep.
+type ListingRule struct {
+	RewriteInterval time.Duration
+	ReviveAfter     time.Duration
+}
+
+// DefaultListingRule is the rule used when none is configured.
+func DefaultListingRule() ListingRule {
+	return ListingRule{RewriteInterval: 6 * time.Hour, ReviveAfter: 7 * 24 * time.Hour}
+}
+
+// ListedResult reports what MarkListed wrote. Marked counts the rows stamped
+// (known endpoints not stamped within the rewrite interval) and Revived counts
+// those that were retired long enough and are live again.
+type ListedResult struct {
+	Marked  int64
+	Revived int64
 }
 
 // ProxyChecker tests whether a proxy endpoint is reachable and measures latency.
@@ -70,6 +112,41 @@ type ProxyProvider interface {
 	FetchProxies(ctx context.Context, emit func(ProxyRecord) error) error
 }
 
+// ListValidators identify one version of a provider list: the HTTP ETag and
+// Last-Modified the provider sent with it. A server that sends neither has no
+// validators, and its list is always read.
+type ListValidators struct {
+	ETag         string
+	LastModified string
+}
+
+// IsZero reports whether the validators carry nothing to compare.
+func (v ListValidators) IsZero() bool { return v.ETag == "" && v.LastModified == "" }
+
+// ConditionalProvider is a ProxyProvider made of plain lists fetched by URL,
+// which can skip a list the server says has not changed since an earlier run.
+type ConditionalProvider interface {
+	ProxyProvider
+	// FetchProxiesIfChanged behaves like FetchProxies, except that a list whose
+	// known validators the server still accepts (HTTP 304) is skipped without
+	// emitting anything. known returns the validators stored for a list URL.
+	// After the last record of a list that was read completely, listDone is
+	// called with the validators of that copy; the caller persists them only
+	// once the records are safely stored, and an error from listDone aborts the
+	// fetch. Nil known and listDone give plain FetchProxies behaviour.
+	FetchProxiesIfChanged(ctx context.Context, known func(url string) (ListValidators, bool),
+		emit func(ProxyRecord) error, listDone func(url string, v ListValidators) error) error
+}
+
+// ProxyListCache persists the validators of the lists that were last read
+// completely, across discovery runs (each run is a new process).
+type ProxyListCache interface {
+	// LoadListValidators returns the stored validators by list URL.
+	LoadListValidators(ctx context.Context) (map[string]ListValidators, error)
+	// SaveListValidators stores (replaces) the validators of one list URL.
+	SaveListValidators(ctx context.Context, url string, v ListValidators) error
+}
+
 // ProxyRepository persists proxy records.
 type ProxyRepository interface {
 	// Exists returns true if a proxy with the exact (protocol, ip, port) tuple
@@ -80,6 +157,23 @@ type ProxyRepository interface {
 	// actually inserted, and any error. On conflict, returns (0, false, nil)
 	// without modifying the existing row.
 	InsertIfAbsent(ctx context.Context, rec ProxyRecord) (id int64, inserted bool, err error)
+	// InsertNew bulk-inserts the records whose (protocol, ip, port) is not in
+	// the table yet and returns the endpoints it inserted, in input order.
+	// Endpoints already stored (retired ones included) are left untouched, and
+	// duplicates within recs count once. New rows are stamped as listed now.
+	// limit caps how many rows are inserted (0 or less means no cap); the
+	// first new records in input order win. It is one conflict-ignoring
+	// statement, so it costs one round trip however long recs is.
+	InsertNew(ctx context.Context, recs []ProxyRecord, limit int) ([]ProxyEndpoint, error)
+	// MarkListed records that a provider listed the given endpoints again:
+	// it stamps last_listed_at and revives proxies retired for at least
+	// rule.ReviveAfter, resetting their fail_count so they need fresh failures
+	// to be retired again. Endpoints that are not in the table are ignored
+	// (inserting is InsertIfAbsent's job), and a row stamped within
+	// rule.RewriteInterval is left alone, so a busy provider list costs at
+	// most one write per row per interval. Rows locked by a concurrent scan
+	// are skipped, never waited on. The call is bulk-capable.
+	MarkListed(ctx context.Context, endpoints []ProxyEndpoint, rule ListingRule) (ListedResult, error)
 	// Get returns a proxy by ID, or nil (no error) if not found.
 	Get(ctx context.Context, id int64) (*ProxyRecord, error)
 	// ListActive returns up to limit active proxies ordered by latency (lowest first).
@@ -106,13 +200,14 @@ type ProxyRepository interface {
 	// accepted path — the caller owns release.
 	RecordConsumerFailure(ctx context.Context, rec ProxyRecord, owner string, lockTTL time.Duration, update ScanUpdate) (bool, error)
 	// CooldownDestination raises the destination cooldown to at least
-	// now+delay and releases the owned consumer lock. It touches neither
+	// now+delay, increments the consecutive destination failure counter and
+	// releases the owned consumer lock in one statement. It touches neither
 	// general evidence nor the scan version.
 	CooldownDestination(ctx context.Context, id int64, owner string, lockTTL time.Duration, delay time.Duration) error
+	// ResetDestinationFailures zeroes the consecutive destination failure
+	// counter after a success. It is a no-op unless the caller owns the lock
+	// and the counter is non-zero, and keeps the lock.
+	ResetDestinationFailures(ctx context.Context, id int64, owner string) error
 	// ReleaseProxy releases the lock on a proxy owned by the given owner.
 	ReleaseProxy(ctx context.Context, id int64, owner string) error
-	// RandomActive returns a random active proxy, optionally excluding IDs.
-	// Returns nil (no error) if no eligible proxy exists. Does NOT claim or lock
-	// the proxy — used only for discovery/provider scraping, never for Lodestone.
-	RandomActive(ctx context.Context, excludeIDs []int64) (*ProxyRecord, error)
 }
