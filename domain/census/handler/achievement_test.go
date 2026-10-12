@@ -431,19 +431,42 @@ func TestAchievementCensus_UnknownFlagIsCheckedOnceThenFollowsTheRule(t *testing
 	}
 }
 
-func TestAchievementCensus_PrivateFlagWithoutCheckTimeIsCheckedOnce(t *testing.T) {
+func TestAchievementCensus_PrivateFlagWithoutCheckTimeIsStampedWithoutALodestoneRequest(t *testing.T) {
 	h, ls, chars, _ := newTestAchievementCensus(t)
 	// A flag stored before checks were timestamped: private, never stamped.
 	_ = chars.Upsert(context.Background(), contract.CharacterRecord{ID: 703, Name: "Legacy", AchievementsPrivate: true, FirstSeenAt: time.Now()}, nil)
 	fetches := countFetches(ls, &contract.AchievementSummary{Private: true})
 
-	for i := 0; i < 2; i++ {
-		if _, err := h.Handle(context.Background(), achievementPayload(703)); err != nil {
-			t.Fatalf("Handle #%d: %v", i+1, err)
-		}
+	if _, err := h.Handle(context.Background(), achievementPayload(703)); err != nil {
+		t.Fatalf("Handle: %v", err)
+	}
+	if *fetches != 0 {
+		t.Fatalf("Lodestone requests = %d, want 0: the flag is trusted and only stamped", *fetches)
+	}
+	got, _ := chars.Get(context.Background(), 703)
+	if got == nil || !got.AchievementsPrivate || got.AchievementsCheckedAt == nil || time.Since(*got.AchievementsCheckedAt) > time.Minute {
+		t.Fatalf("character = %+v, want it still private and stamped now", got)
+	}
+	stamp := *got.AchievementsCheckedAt
+
+	// The second job is skipped without another write.
+	if _, err := h.Handle(context.Background(), achievementPayload(703)); err != nil {
+		t.Fatalf("second Handle: %v", err)
+	}
+	if *fetches != 0 {
+		t.Fatalf("Lodestone requests after the second job = %d, want 0", *fetches)
+	}
+	if again, _ := chars.Get(context.Background(), 703); !again.AchievementsCheckedAt.Equal(stamp) {
+		t.Fatalf("stamp rewritten by the second job: %v, was %v", again.AchievementsCheckedAt, stamp)
+	}
+
+	// Thirty-one days after the first sighting it is verified for real.
+	seedPrivate(t, chars, 703, time.Now().Add(-31*24*time.Hour))
+	if _, err := h.Handle(context.Background(), achievementPayload(703)); err != nil {
+		t.Fatalf("third Handle: %v", err)
 	}
 	if *fetches != 1 {
-		t.Fatalf("Lodestone requests = %d, want 1", *fetches)
+		t.Fatalf("Lodestone requests after 31 days = %d, want 1", *fetches)
 	}
 }
 

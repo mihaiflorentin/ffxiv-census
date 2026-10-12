@@ -230,25 +230,47 @@ const defaultActivityWindow = 30 * 24 * time.Hour
 // alone before its achievement census runs again.
 const defaultPrivateRecheckWindow = 30 * 24 * time.Hour
 
-// AchievementCensusDue reports whether a character's achievement census should
-// ask the Lodestone. It is not due only for a character flagged private whose
-// flag was verified within the private recheck window. Anything else is due: a
-// character that is not private, whose flag was never verified (including a
-// flag stored before verification times were recorded), or that the census has
-// no row for. On a lookup error it returns true with the error, so a failing
+// AchievementCheck is what an achievement census job should do for a
+// character.
+type AchievementCheck int
+
+const (
+	// AchievementCheckDue: ask the Lodestone.
+	AchievementCheckDue AchievementCheck = iota
+	// AchievementCheckSkip: a private flag verified within the recheck window;
+	// do nothing.
+	AchievementCheckSkip
+	// AchievementCheckStamp: flagged private but never verified (every flag
+	// stored before migration 00022). Trust the flag, record the time without
+	// asking the Lodestone, and recheck after the window.
+	AchievementCheckStamp
+)
+
+// AchievementCensusCheck decides what an achievement census job does for a
+// character. Only a character flagged private is ever skipped: one whose flag
+// was verified within the private recheck window is skipped, one never
+// verified is stamped (see AchievementCheckStamp). Anything else is due: a
+// character that is not private, or that the census has no row for. On a
+// lookup error it returns AchievementCheckDue with the error, so a failing
 // read never hides a character from the census.
-func (s *Service) AchievementCensusDue(ctx context.Context, charID uint32) (bool, error) {
+func (s *Service) AchievementCensusCheck(ctx context.Context, charID uint32) (AchievementCheck, error) {
 	rec, err := s.characters.Get(ctx, charID)
 	if err != nil {
-		return true, err
+		return AchievementCheckDue, err
 	}
-	if rec == nil || !rec.AchievementsPrivate || rec.AchievementsCheckedAt == nil {
-		return true, nil
+	if rec == nil || !rec.AchievementsPrivate {
+		return AchievementCheckDue, nil
+	}
+	if rec.AchievementsCheckedAt == nil {
+		return AchievementCheckStamp, nil
 	}
 	s.mu.RLock()
 	window := s.privateRecheckWindow
 	s.mu.RUnlock()
-	return time.Since(*rec.AchievementsCheckedAt) >= window, nil
+	if time.Since(*rec.AchievementsCheckedAt) >= window {
+		return AchievementCheckDue, nil
+	}
+	return AchievementCheckSkip, nil
 }
 
 // PrepareMilestoneResults filters a fetched achievement summary against the
