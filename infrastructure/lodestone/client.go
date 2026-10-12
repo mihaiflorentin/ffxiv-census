@@ -201,6 +201,13 @@ func NewCustomClient(cfg *config.LodestoneConfig, logger contract.Logger, rateLi
 	return c, nil
 }
 
+// CloseIdleConnections closes the idle keep-alive connections of the transport
+// this client owns. Workers call it when they swap the client's proxy or exit,
+// so the tunnel to the old proxy is not left open until its idle timeout.
+func (c *CustomClient) CloseIdleConnections() {
+	c.httpClient.CloseIdleConnections()
+}
+
 // newProxyTransport creates an HTTP transport that routes through the given
 // proxy via the shared cancellation-safe transport builder.
 func newProxyTransport(proxyURL string) (*http.Transport, error) {

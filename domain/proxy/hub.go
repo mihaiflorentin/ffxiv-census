@@ -38,7 +38,8 @@ func NewProxyHub(repo contract.ProxyRepository, lockTTL time.Duration, checker c
 // destination rejection (CheckTarget) raises the destination cooldown with
 // the Retry-After hint, and local/inconclusive errors release the claim
 // without touching evidence. Database failures propagate as errors — a row is
-// never silently handed out when its state cannot be validated.
+// never silently handed out when its state cannot be validated — and release
+// the claim first so no proxy stays locked until the TTL.
 func (h *ProxyHub) NewProxy(ctx context.Context, owner string) (*Proxy, error) {
 	rec, err := h.repo.ClaimProxy(ctx, owner, h.lockTTL)
 	if err != nil {
@@ -62,6 +63,7 @@ func (h *ProxyHub) NewProxy(ctx context.Context, owner string) (*Proxy, error) {
 		// ipify health window.
 		current, err := h.repo.RefreshConsumerLock(ctx, rec.ID, owner, h.lockTTL)
 		if err != nil {
+			releaseClaim(p, owner)
 			return nil, err
 		}
 		if current == nil {
@@ -84,6 +86,7 @@ func (h *ProxyHub) NewProxy(ctx context.Context, owner string) (*Proxy, error) {
 		// version captured before the check, so a scanner completion in
 		// between rejects it instead of being overwritten.
 		if _, err := p.MarkFailed(ctx, owner, h.lockTTL); err != nil {
+			releaseClaim(p, owner)
 			return nil, err
 		}
 		releaseClaim(p, owner)
@@ -93,6 +96,7 @@ func (h *ProxyHub) NewProxy(ctx context.Context, owner string) (*Proxy, error) {
 		// to at least the Retry-After hint; general evidence is untouched.
 		delay := max(checkErr.RetryAfter, h.destCooldown)
 		if err := p.CooldownDestination(ctx, owner, h.lockTTL, delay); err != nil {
+			releaseClaim(p, owner)
 			return nil, err
 		}
 		return nil, nil
