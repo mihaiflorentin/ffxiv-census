@@ -15,6 +15,7 @@ import (
 	"github.com/mihaiflorentin88/ffxiv-census/infrastructure/postgres"
 	postgresmigration "github.com/mihaiflorentin88/ffxiv-census/infrastructure/postgres/migration"
 	"github.com/mihaiflorentin88/ffxiv-census/infrastructure/postgres/repository"
+	"github.com/mihaiflorentin88/ffxiv-census/infrastructure/postgres/writer"
 	"github.com/mihaiflorentin88/ffxiv-census/infrastructure/provider"
 	proxyinfra "github.com/mihaiflorentin88/ffxiv-census/infrastructure/proxy"
 	"github.com/mihaiflorentin88/ffxiv-census/infrastructure/proxyscrape"
@@ -33,6 +34,7 @@ type InfrastructureContainer struct {
 	queue                 contract.Queue
 	lodestoneClient       contract.LodestoneClient
 	characterRepository   contract.CharacterRepository
+	resultWriter          contract.ResultWriter
 	achievementRepository contract.AchievementRepository
 	censusRunRepository   contract.CensusRunRepository
 	uiStatsRepository     contract.UIStatsRepository
@@ -255,6 +257,31 @@ func (s *ServiceContainer) CharacterRepository() contract.CharacterRepository {
 	}
 	s.infrastructure.characterRepository = repository.NewCharacterRepository(driver)
 	return s.infrastructure.characterRepository
+}
+
+// ResultWriter returns the per-process batching writer that stores finished
+// census results, or nil when the database is unavailable. Consumers must
+// Close it on shutdown, after the worker has stopped, to flush pending
+// results.
+func (s *ServiceContainer) ResultWriter() contract.ResultWriter {
+	repo := s.CharacterRepository()
+	if repo == nil {
+		return nil
+	}
+	registry := s.PrometheusRegistry()
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.infrastructure.resultWriter != nil {
+		return s.infrastructure.resultWriter
+	}
+	var cfg writer.Config
+	if wc := s.configUnlocked().Writer; wc != nil {
+		cfg.BatchSize = wc.BatchSize
+		cfg.FlushInterval = wc.FlushInterval
+	}
+	s.infrastructure.resultWriter = writer.New(repo, cfg, metrics.NewResultWriterObserver(registry))
+	return s.infrastructure.resultWriter
 }
 
 func (s *ServiceContainer) AchievementRepository() contract.AchievementRepository {

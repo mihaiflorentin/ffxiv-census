@@ -21,6 +21,8 @@ type CharacterRepository struct {
 	jobs                     map[uint32][]contract.ClassJobRecord
 	gear                     map[uint32][]contract.CharacterGearRecord
 	UpsertErr                error
+	UpsertBatchErr           error
+	UpsertBatchCalls         int
 	UpsertGearErr            error
 	GetGearErr               error
 	FindIDGapsAfterErr       error
@@ -71,6 +73,24 @@ func (f *CharacterRepository) Upsert(ctx context.Context, rec contract.Character
 	f.characters[rec.ID] = cloneCharacter(rec)
 	// Always replace the job set (SQL deletes then re-inserts; nil -> empty).
 	f.jobs[rec.ID] = append([]contract.ClassJobRecord(nil), jobs...)
+	return nil
+}
+
+// UpsertBatch applies every write; UpsertBatchErr fails the whole batch before
+// anything is stored, like a rolled-back transaction.
+func (f *CharacterRepository) UpsertBatch(ctx context.Context, writes []contract.CharacterWrite) error {
+	f.mu.Lock()
+	f.UpsertBatchCalls++
+	err := f.UpsertBatchErr
+	f.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	for _, w := range writes {
+		if err := f.Upsert(ctx, w.Record, w.Jobs); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

@@ -128,6 +128,12 @@ processJob := func(ctx context.Context, job contract.QueueJob) error {
 err := queue.Consume(ctx, eventTypes, concurrency, processJob)
 ```
 
+### Batched writes and acks
+
+Handlers that store census data do not write directly. The ID sweep handler hands its finished characters to the per-pod `contract.ResultWriter` (`infrastructure/postgres/writer`) and **blocks in `Write` until the batch containing them has committed**. Because the queue acks a delivery only when its handler returns `nil`, the ack always follows the commit, and a failed commit makes `Write` (and so the handler) return the error: the job is not acked and takes the normal retry path through the failed queue. Dependent jobs (achievement census) are chained only after the commit.
+
+The writer flushes when `[writer] batch_size` results (characters) are pending or `[writer] flush_interval` has passed since the first pending result, in ONE transaction (`CharacterRepository.UpsertBatch`). Env overrides: `WRITER_BATCH_SIZE`, `WRITER_FLUSH_INTERVAL`. Handlers wait for a flush, so the number of concurrent consumers bounds how many jobs can share a batch; small batches fall back to the interval. On shutdown the consumer closes the writer after `Consume` has returned (all in-flight handlers finished), which flushes anything still pending. Metrics: `result_writer_batch_size`, `result_writer_flush_duration_seconds`, `result_writer_flush_failures_total`. Character census and achievement census still write directly until they move onto the writer.
+
 Handler panics are caught with `defer/recover`, formatted with stack traces, and returned as errors — the worker goroutine does not crash.
 
 ## Configuration

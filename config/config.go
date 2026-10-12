@@ -25,6 +25,7 @@ type Config struct {
 	Postgres  *PostgresConfig  `mapstructure:"postgres"`
 	RabbitMQ  *RabbitMQConfig  `mapstructure:"rabbitmq"`
 	Queue     *QueueConfig     `mapstructure:"queue"`
+	Writer    *WriterConfig    `mapstructure:"writer"`
 	Lodestone *LodestoneConfig `mapstructure:"lodestone"`
 	Census    *CensusConfig    `mapstructure:"census"`
 	Proxy     *ProxyConfig     `mapstructure:"proxy"`
@@ -35,6 +36,14 @@ type Config struct {
 // its failed queue.
 type QueueConfig struct {
 	MaxAttempts int `mapstructure:"max_attempts"`
+}
+
+// WriterConfig tunes the per-pod batching writer that stores finished census
+// results. A batch flushes when BatchSize results are pending or FlushInterval
+// has passed since its first result, whichever comes first.
+type WriterConfig struct {
+	BatchSize     int           `mapstructure:"batch_size"`
+	FlushInterval time.Duration `mapstructure:"flush_interval"`
 }
 
 type AppConfig struct {

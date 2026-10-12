@@ -75,6 +75,7 @@ that have not earned the first missing milestone produce no new row.
 Four contracts in `port/contract`, each with a PostgreSQL implementation in `infrastructure/postgres/repository/` and an in-memory fake in `mock/repository/`:
 
 - **`CharacterRepository`** — `Upsert` (character + jobs atomically), `Get`, `GetJobs`, `UpsertGear`, `GetGear`, `FindIDGaps`, `MarkDeleted`, `UpdateAchievementSummary`, `SetAchievementsPrivate`, `ListStale`, `List`, `Count`, `CountActive`, `Breakdown`, `NewPerDay`, `MaxID`. The complete persistence and query contract for character data.
+- **`CharacterRepository.UpsertBatch`** — stores several characters and their jobs in one transaction (all or nothing); used by the batching writer.
 - **`AchievementRepository`** — `SyncMilestones` (idempotent registry upsert), `ListMilestones`, `UpsertCharacterMilestones` (batch multi-row INSERT, single round-trip), `ListCharacterMilestones`, `CountExpansions`, `CountExpansionsFiltered`, `NewCharactersPerDay`, `CountChocoboMilestones`.
 - **`CensusRunRepository`** — `Start`, `Finish`.
 - **`UIStatsRepository`** — `LoadCurrent` and `Refresh` for the versioned aggregate read model. Refresh uses a bounded number of census-wide queries outside the HTTP request path and publishes the result atomically.

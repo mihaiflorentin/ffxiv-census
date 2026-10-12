@@ -24,6 +24,17 @@ type IDSweep struct {
 	lodestone contract.LodestoneClient
 	census    *census.Service
 	logger    contract.Logger
+	// writer, when set, stores discovered characters in batches. Handle
+	// waits for the batch to commit before returning, so the worker acks the
+	// job only after its characters are durable. When nil the handler
+	// upserts each character directly (the legacy path).
+	writer contract.ResultWriter
+}
+
+// WithWriter routes this handler's storage through w and returns the handler.
+func (h *IDSweep) WithWriter(w contract.ResultWriter) *IDSweep {
+	h.writer = w
+	return h
 }
 
 func NewIDSweep(
@@ -55,15 +66,22 @@ func (h *IDSweep) Handle(ctx context.Context, payload []byte) ([]contract.QueueJ
 	}
 
 	var next []contract.QueueJob
+	var batch contract.CensusResult
 	// Break-based loop (not `id <= p.To`) so id++ never wraps past MaxUint32.
 	for id := p.From; ; id++ {
 		lChar, err := h.lodestone.FetchCharacter(ctx, id)
 		if err == nil {
-			jobs, serr := h.storeLodestone(ctx, id, lChar)
-			if serr != nil {
-				return nil, serr
+			if h.writer != nil {
+				if serr := h.collectLodestone(ctx, id, lChar, &batch); serr != nil {
+					return nil, serr
+				}
+			} else {
+				jobs, serr := h.storeLodestone(ctx, id, lChar)
+				if serr != nil {
+					return nil, serr
+				}
+				next = append(next, jobs...)
 			}
-			next = append(next, jobs...)
 		} else if errors.Is(err, contract.ErrCharacterNotFound) {
 			if h.logger.Enabled(ctx, slog.LevelDebug) {
 				h.logger.DebugContext(ctx, "handler.id_sweep.probe", slog.Uint64("character_id", uint64(id)), slog.String("source", "lodestone"), slog.String("status", "not_found"))
@@ -80,8 +98,36 @@ func (h *IDSweep) Handle(ctx context.Context, payload []byte) ([]contract.QueueJ
 			break
 		}
 	}
+	if h.writer != nil && batch.Size() > 0 {
+		// Wait for the batch to commit. Dependent jobs are chained (and so
+		// published by the worker) only for characters that are stored.
+		if err := h.writer.Write(ctx, batch); err != nil {
+			h.logger.ErrorContext(ctx, "handler.id_sweep.write_error", slog.Uint64("from", uint64(p.From)), slog.Uint64("to", uint64(p.To)), slog.Int("characters", batch.Size()), slog.Any("error", err))
+			return nil, fmt.Errorf("id-sweep write %d-%d: %w", p.From, p.To, err)
+		}
+		for _, w := range batch.Characters {
+			next = append(next, BuildDependentCharacterJobs(w.Record.ID)...)
+		}
+	}
 	h.logger.InfoContext(ctx, "handler.id_sweep.done", slog.Uint64("from", uint64(p.From)), slog.Uint64("to", uint64(p.To)), slog.Int("discovered", len(next)))
 	return next, nil
+}
+
+// collectLodestone validates a discovered character and adds it to batch.
+// Hidden profiles are skipped like in storeLodestone.
+func (h *IDSweep) collectLodestone(ctx context.Context, id uint32, char *contract.CharacterProfile, batch *contract.CensusResult) error {
+	w, err := h.census.PrepareCharacter(char)
+	if err != nil {
+		if errors.Is(err, census.ErrProfileHidden) {
+			h.logger.InfoContext(ctx, "handler.id_sweep.probe", slog.Uint64("character_id", uint64(id)), slog.String("source", "lodestone"), slog.String("status", "profile_hidden"))
+			return nil
+		}
+		h.logger.ErrorContext(ctx, "handler.id_sweep.store_error", slog.Uint64("character_id", uint64(id)), slog.String("name", char.Name), slog.String("world", char.World), slog.Any("error", err))
+		return fmt.Errorf("id-sweep upsert %d: %w", id, err)
+	}
+	batch.Characters = append(batch.Characters, w)
+	h.logger.InfoContext(ctx, "handler.id_sweep.discovered", slog.Uint64("character_id", uint64(id)), slog.String("name", char.Name), slog.String("world", char.World), slog.String("source", "lodestone"))
+	return nil
 }
 
 // storeLodestone persists a discovered Lodestone character and returns its

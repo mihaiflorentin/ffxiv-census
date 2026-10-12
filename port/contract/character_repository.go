@@ -31,11 +31,22 @@ type DemographicCounts struct {
 	RaceGenders []GroupCount // Key format: "Race|Gender"
 }
 
+// CharacterWrite is one finished character result: the profile row and the
+// full set of jobs the character currently has.
+type CharacterWrite struct {
+	Record CharacterRecord
+	Jobs   []ClassJobRecord
+}
+
 // CharacterRepository persists character snapshots and their job levels.
 type CharacterRepository interface {
 	// Upsert replaces the character row and its jobs in one transaction.
 	// first_seen_at is preserved on conflict; deleted_at is cleared.
 	Upsert(ctx context.Context, rec CharacterRecord, jobs []ClassJobRecord) error
+	// UpsertBatch stores several characters and their jobs in ONE transaction
+	// with the same semantics as Upsert for each element. It is atomic: on
+	// error nothing in the batch is committed. An empty batch is a no-op.
+	UpsertBatch(ctx context.Context, writes []CharacterWrite) error
 	// UpsertGear replaces all gear slots for a character in one transaction.
 	UpsertGear(ctx context.Context, charID uint32, gear []CharacterGearRecord) error
 	// GetGear returns the character's equipped gear slots (empty if none).

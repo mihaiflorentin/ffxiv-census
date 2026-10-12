@@ -164,18 +164,28 @@ func (s *Service) GetCharacter(ctx context.Context, charID uint32) (*contract.Ch
 // datacenter. A profile without usable race data returns ErrProfileHidden and
 // is not persisted; an existing row keeps its last known good data.
 func (s *Service) UpsertCharacter(ctx context.Context, char *contract.CharacterProfile) error {
+	w, err := s.PrepareCharacter(char)
+	if err != nil {
+		return err
+	}
+	return s.characters.Upsert(ctx, w.Record, w.Jobs)
+}
+
+// PrepareCharacter validates a Lodestone character and converts it into the
+// write that stores it, without storing anything. Handlers hand the result to
+// a contract.ResultWriter. It returns ErrProfileHidden for a profile without
+// usable race data, exactly like UpsertCharacter.
+func (s *Service) PrepareCharacter(char *contract.CharacterProfile) (contract.CharacterWrite, error) {
 	if char == nil {
-		return errors.New("cannot upsert nil character")
+		return contract.CharacterWrite{}, errors.New("cannot upsert nil character")
 	}
 	if hiddenRace(char.Race) {
-		return ErrProfileHidden
+		return contract.CharacterWrite{}, ErrProfileHidden
 	}
 	if strings.TrimSpace(char.Name) == "" {
-		return fmt.Errorf("cannot upsert character %d: name is empty", char.ID)
+		return contract.CharacterWrite{}, fmt.Errorf("cannot upsert character %d: name is empty", char.ID)
 	}
-	rec := profileToRecord(char)
-	jobs := profileToJobs(char)
-	return s.characters.Upsert(ctx, rec, jobs)
+	return contract.CharacterWrite{Record: profileToRecord(char), Jobs: profileToJobs(char)}, nil
 }
 
 // MaxCharacterID returns the maximum character ID known to the census.

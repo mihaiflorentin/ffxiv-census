@@ -25,6 +25,15 @@ const characterColumns = `id, name, world, datacenter, region, race, tribe, gend
 		        first_seen_at, last_census_at, deleted_at`
 
 func (r *CharacterRepository) Upsert(ctx context.Context, rec contract.CharacterRecord, jobs []contract.ClassJobRecord) error {
+	return r.UpsertBatch(ctx, []contract.CharacterWrite{{Record: rec, Jobs: jobs}})
+}
+
+// UpsertBatch stores every write in ONE transaction: all characters and jobs
+// commit together or none do. An empty batch is a no-op.
+func (r *CharacterRepository) UpsertBatch(ctx context.Context, writes []contract.CharacterWrite) error {
+	if len(writes) == 0 {
+		return nil
+	}
 	db, err := r.driver.Acquire(ctx)
 	if err != nil {
 		return err
@@ -35,6 +44,16 @@ func (r *CharacterRepository) Upsert(ctx context.Context, rec contract.Character
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	for _, w := range writes {
+		if err := upsertCharacterTx(ctx, tx, w.Record, w.Jobs); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// upsertCharacterTx writes one character row and its jobs inside tx.
+func upsertCharacterTx(ctx context.Context, tx *sql.Tx, rec contract.CharacterRecord, jobs []contract.ClassJobRecord) error {
 	maxLevel := maxJobLevel(jobs)
 	query := `INSERT INTO characters (
 			id, name, world, datacenter, region, race, tribe, gender, grand_company,
@@ -94,7 +113,7 @@ func (r *CharacterRepository) Upsert(ctx context.Context, rec contract.Character
 			return fmt.Errorf("character upsert insert jobs: %w", err)
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 // jobColumns splits jobs into parallel column arrays for unnest. A repeated
