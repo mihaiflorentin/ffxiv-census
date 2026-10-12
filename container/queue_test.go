@@ -7,7 +7,7 @@ import (
 func TestServiceContainer_Queue(t *testing.T) {
 	Load = NewServiceContainer()
 	if db := Load.Database(); db != nil {
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 	}
 
 	q := Load.Queue()
@@ -19,7 +19,7 @@ func TestServiceContainer_Queue(t *testing.T) {
 func TestServiceContainer_QueueCached(t *testing.T) {
 	Load = NewServiceContainer()
 	if db := Load.Database(); db != nil {
-		defer db.Close()
+		defer func() { _ = db.Close() }()
 	}
 
 	first := Load.Queue()

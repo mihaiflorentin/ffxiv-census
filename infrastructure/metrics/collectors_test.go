@@ -30,7 +30,7 @@ func TestRegistry_BuiltInCollectors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to open sqlite: %v", err)
 	}
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 
 	metrics.RegisterSQLiteMetrics(reg, db)
 

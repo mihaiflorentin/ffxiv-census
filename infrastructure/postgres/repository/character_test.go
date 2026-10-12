@@ -227,10 +227,6 @@ func TestCharacterRepository_ListAndCount(t *testing.T) {
 	}
 }
 
-func stringPtr(s string) *string {
-	return &s
-}
-
 func TestCharacterRepository_Count_SinceFilter(t *testing.T) {
 	driver := newTestDriver(t)
 	repo := repository.NewCharacterRepository(driver)

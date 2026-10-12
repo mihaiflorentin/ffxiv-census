@@ -4,7 +4,7 @@ Middlewares live in `cmd/http/middleware` and compose the HTTP pipeline in `cmd/
 
 Default order:
 
-1. **Logging** — emits single-line structured logs via `LoggingColorSimple` (overridable in config).
+1. **Logging** — emits single-line structured logs via `LoggingColored` (overridable in config; `color-simple` is an alias for `color`).
 2. **Auth** *(optional)* — validates `X-Auth-Token` if enabled in `config.toml`.
 3. **Max Requests** — gracefully drains the server after a configurable number of requests.
 4. **Metrics** *(optional)* — forwards timings to StatsD.

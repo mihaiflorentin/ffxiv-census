@@ -33,7 +33,7 @@ var httpCmd = &cobra.Command{
 
 		// Initialize PostgreSQL driver (triggers runtime migrations)
 		if driver := container.Load.Database(); driver != nil {
-			defer driver.Close()
+			defer func() { _ = driver.Close() }()
 		}
 
 		if err := httpserver.StartServer(ctx, port, poolSize, certFile, keyFile, profile, maxRequests); err != nil {

@@ -94,12 +94,12 @@ func TestNewConfig_EnvOverrides(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			oldVal, exists := os.LookupEnv(tt.envKey)
-			os.Setenv(tt.envKey, tt.envVal)
+			_ = os.Setenv(tt.envKey, tt.envVal)
 			defer func() {
 				if exists {
-					os.Setenv(tt.envKey, oldVal)
+					_ = os.Setenv(tt.envKey, oldVal)
 				} else {
-					os.Unsetenv(tt.envKey)
+					_ = os.Unsetenv(tt.envKey)
 				}
 			}()
 

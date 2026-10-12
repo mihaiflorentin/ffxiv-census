@@ -66,11 +66,11 @@ func runExport(ctx context.Context, output, format string, useGzip bool, filter 
 		if err != nil {
 			return fmt.Errorf("create output file %q: %w", output, err)
 		}
-		defer f.Close()
+		defer func() { _ = f.Close() }()
 		dest = f
 	}
 
-	var out io.Writer = dest
+	out := io.Writer(dest)
 	var gzWriter *gzip.Writer
 	if useGzip {
 		gzWriter = gzip.NewWriter(dest)

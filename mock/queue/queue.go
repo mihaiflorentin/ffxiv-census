@@ -26,9 +26,6 @@ type Option func(*Fake)
 // hand instead of sleeping.
 func WithClock(now func() time.Time) Option { return func(f *Fake) { f.now = now } }
 
-// WithTiers overrides the delay tiers (default contract.DefaultRetryTiers).
-func WithTiers(tiers []time.Duration) Option { return func(f *Fake) { f.tiers = tiers } }
-
 // WithMaxAttempts overrides the attempt cap that dead-parks a job (default 50).
 func WithMaxAttempts(n int) Option { return func(f *Fake) { f.maxAttempts = n } }
 

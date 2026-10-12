@@ -121,17 +121,6 @@ func (h *ProxyHub) NotifyAvailable() {
 	}
 }
 
-// WaitAvailable blocks until a proxy-available signal arrives or ctx is done.
-// Returns ctx.Err() if the context is cancelled before a signal arrives.
-func (h *ProxyHub) WaitAvailable(ctx context.Context) error {
-	select {
-	case <-h.notify:
-		return nil
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
 // NotifyCh returns the notification channel. Workers select on this alongside
 // their backoff timer to wake immediately when a proxy becomes available.
 func (h *ProxyHub) NotifyCh() <-chan struct{} {

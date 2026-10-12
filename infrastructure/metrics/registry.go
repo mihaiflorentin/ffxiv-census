@@ -218,8 +218,8 @@ func (r *Registry) Gather() string {
 		c := r.counters[name]
 		c.mu.RLock()
 		if len(c.values) > 0 {
-			sb.WriteString(fmt.Sprintf("# HELP %s %s\n", c.name, c.help))
-			sb.WriteString(fmt.Sprintf("# TYPE %s %s\n", c.name, TypeCounter))
+			fmt.Fprintf(&sb, "# HELP %s %s\n", c.name, c.help)
+			fmt.Fprintf(&sb, "# TYPE %s %s\n", c.name, TypeCounter)
 			var keys []string
 			for k := range c.values {
 				keys = append(keys, k)
@@ -228,9 +228,9 @@ func (r *Registry) Gather() string {
 			for _, k := range keys {
 				val := c.values[k]
 				if k == "" {
-					sb.WriteString(fmt.Sprintf("%s %g\n", c.name, val))
+					fmt.Fprintf(&sb, "%s %g\n", c.name, val)
 				} else {
-					sb.WriteString(fmt.Sprintf("%s{%s} %g\n", c.name, k, val))
+					fmt.Fprintf(&sb, "%s{%s} %g\n", c.name, k, val)
 				}
 			}
 		}
@@ -247,8 +247,8 @@ func (r *Registry) Gather() string {
 		g := r.gauges[name]
 		g.mu.RLock()
 		if len(g.values) > 0 {
-			sb.WriteString(fmt.Sprintf("# HELP %s %s\n", g.name, g.help))
-			sb.WriteString(fmt.Sprintf("# TYPE %s %s\n", g.name, TypeGauge))
+			fmt.Fprintf(&sb, "# HELP %s %s\n", g.name, g.help)
+			fmt.Fprintf(&sb, "# TYPE %s %s\n", g.name, TypeGauge)
 			var keys []string
 			for k := range g.values {
 				keys = append(keys, k)
@@ -257,9 +257,9 @@ func (r *Registry) Gather() string {
 			for _, k := range keys {
 				val := g.values[k]
 				if k == "" {
-					sb.WriteString(fmt.Sprintf("%s %g\n", g.name, val))
+					fmt.Fprintf(&sb, "%s %g\n", g.name, val)
 				} else {
-					sb.WriteString(fmt.Sprintf("%s{%s} %g\n", g.name, k, val))
+					fmt.Fprintf(&sb, "%s{%s} %g\n", g.name, k, val)
 				}
 			}
 		}
@@ -276,8 +276,8 @@ func (r *Registry) Gather() string {
 		h := r.histograms[name]
 		h.mu.RLock()
 		if len(h.totals) > 0 {
-			sb.WriteString(fmt.Sprintf("# HELP %s %s\n", h.name, h.help))
-			sb.WriteString(fmt.Sprintf("# TYPE %s %s\n", h.name, TypeHistogram))
+			fmt.Fprintf(&sb, "# HELP %s %s\n", h.name, h.help)
+			fmt.Fprintf(&sb, "# TYPE %s %s\n", h.name, TypeHistogram)
 			var keys []string
 			for k := range h.totals {
 				keys = append(keys, k)
@@ -295,20 +295,20 @@ func (r *Registry) Gather() string {
 					if k != "" {
 						bucketLabel = k + "," + bucketLabel
 					}
-					sb.WriteString(fmt.Sprintf("%s_bucket{%s} %d\n", h.name, bucketLabel, count))
+					fmt.Fprintf(&sb, "%s_bucket{%s} %d\n", h.name, bucketLabel, count)
 				}
 
 				infLabel := `le="+Inf"`
 				if k != "" {
 					infLabel = k + "," + infLabel
 				}
-				sb.WriteString(fmt.Sprintf("%s_bucket{%s} %d\n", h.name, infLabel, total))
+				fmt.Fprintf(&sb, "%s_bucket{%s} %d\n", h.name, infLabel, total)
 				if k != "" {
-					sb.WriteString(fmt.Sprintf("%s_sum{%s} %g\n", h.name, k, sum))
-					sb.WriteString(fmt.Sprintf("%s_count{%s} %d\n", h.name, k, total))
+					fmt.Fprintf(&sb, "%s_sum{%s} %g\n", h.name, k, sum)
+					fmt.Fprintf(&sb, "%s_count{%s} %d\n", h.name, k, total)
 				} else {
-					sb.WriteString(fmt.Sprintf("%s_sum %g\n", h.name, sum))
-					sb.WriteString(fmt.Sprintf("%s_count %d\n", h.name, total))
+					fmt.Fprintf(&sb, "%s_sum %g\n", h.name, sum)
+					fmt.Fprintf(&sb, "%s_count %d\n", h.name, total)
 				}
 			}
 		}

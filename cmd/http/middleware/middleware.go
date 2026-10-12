@@ -10,23 +10,6 @@ import (
 	"github.com/mihaiflorentin88/ffxiv-census/infrastructure/logging"
 )
 
-type Recorder struct {
-	http.ResponseWriter
-	StatusCode int
-}
-
-func (r *Recorder) WriteHeader(code int) {
-	r.StatusCode = code
-	r.ResponseWriter.WriteHeader(code)
-}
-
-func NewRecorder(w http.ResponseWriter) *Recorder {
-	return &Recorder{
-		ResponseWriter: w,
-		StatusCode:     http.StatusOK,
-	}
-}
-
 type Middleware struct {
 	middleware []func(handler http.Handler) http.Handler
 }

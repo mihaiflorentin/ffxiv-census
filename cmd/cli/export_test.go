@@ -56,7 +56,7 @@ func TestCLI_Export(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gzip reader: %v", err)
 	}
-	defer gzReader.Close()
+	defer func() { _ = gzReader.Close() }()
 
 	reader := csv.NewReader(gzReader)
 	records, err := reader.ReadAll()

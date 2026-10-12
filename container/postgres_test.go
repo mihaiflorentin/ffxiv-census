@@ -11,7 +11,7 @@ func TestServiceContainer_DatabaseDriver(t *testing.T) {
 	if driver == nil {
 		t.Skip("postgres not available")
 	}
-	defer driver.Close()
+	defer func() { _ = driver.Close() }()
 }
 
 func TestServiceContainer_DatabaseDriverCached(t *testing.T) {
@@ -22,7 +22,7 @@ func TestServiceContainer_DatabaseDriverCached(t *testing.T) {
 		t.Skip("postgres not available")
 	}
 	second := Load.Database()
-	defer second.Close()
+	defer func() { _ = second.Close() }()
 	if first != second {
 		t.Fatal("expected cached driver instance")
 	}

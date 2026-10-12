@@ -73,10 +73,6 @@ func Info(event string, message string) {
 	Log(slog.LevelInfo, event, message)
 }
 
-func Debug(event string, message string) {
-	Log(slog.LevelDebug, event, message)
-}
-
 func Warn(event string, message string) {
 	Log(slog.LevelWarn, event, message)
 }

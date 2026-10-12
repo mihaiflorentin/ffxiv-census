@@ -172,7 +172,7 @@ func TestCensusController_Export_Gzip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("gzip reader: %v", err)
 	}
-	defer gzReader.Close()
+	defer func() { _ = gzReader.Close() }()
 
 	decompressed, err := io.ReadAll(gzReader)
 	if err != nil {

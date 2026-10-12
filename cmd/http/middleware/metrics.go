@@ -20,11 +20,6 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
-// Metrics creates a middleware tracking HTTP requests with StatsD.
-func Metrics(client contract.StatsdClient) func(next http.Handler) http.Handler {
-	return MetricsWithRegistry(client, nil)
-}
-
 // MetricsWithRegistry creates a middleware tracking HTTP requests with StatsD and Prometheus.
 func MetricsWithRegistry(client contract.StatsdClient, registry *metrics.Registry) func(next http.Handler) http.Handler {
 	var httpRequestsTotal *metrics.Counter

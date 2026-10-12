@@ -69,7 +69,7 @@ func runMigrateQueue(dryRun bool) error {
 	if err != nil {
 		return fmt.Errorf("fetch queue_jobs: %w", err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	var jobs []pgQueueJob
 	for rows.Next() {

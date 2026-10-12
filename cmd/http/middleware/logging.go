@@ -2,12 +2,10 @@ package middleware
 
 import (
 	"bytes"
-	"fmt"
 	"io"
 	"log"
 	"log/slog"
 	"net/http"
-	"strings"
 	"sync"
 	"time"
 
@@ -158,72 +156,4 @@ func LoggingColored(next http.Handler) http.Handler {
 		log.Println("---------------------------------------------")
 		lrw.finish()
 	})
-}
-
-func LoggingColorSimple(next http.Handler) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		start := time.Now()
-
-		var reqBody []byte
-		if r.Body != nil {
-			var buf bytes.Buffer
-			tee := io.TeeReader(r.Body, &buf)
-			tmp, _ := io.ReadAll(tee)
-			if len(tmp) > maxLogBody {
-				reqBody = append(tmp[:maxLogBody], []byte("…[truncated]")...)
-			} else {
-				reqBody = tmp
-			}
-			r.Body = io.NopCloser(&buf)
-		}
-
-		lrw := newLoggingResponseWriter(w)
-		next.ServeHTTP(lrw, r)
-		duration := time.Since(start)
-
-		var icon string
-		switch {
-		case lrw.statusCode >= 200 && lrw.statusCode < 300:
-			icon = "🟢"
-		case lrw.statusCode >= 300 && lrw.statusCode < 400:
-			icon = "🔵"
-		case lrw.statusCode >= 400:
-			icon = "🔴"
-		default:
-			icon = "🟡"
-		}
-
-		msg := fmt.Sprintf("%s %s status=%d%s latency=%v remote=%s agent=%q req=%q err=%q",
-			r.Method,
-			truncatePath(r.URL.String()),
-			lrw.statusCode,
-			icon,
-			duration,
-			r.RemoteAddr,
-			r.UserAgent(),
-			inlinePayload(string(reqBody)),
-			inlinePayload(func() string {
-				if lrw.statusCode >= 300 {
-					return lrw.body.String()
-				}
-				return ""
-			}()),
-		)
-		logging.Info("http.access", msg)
-		lrw.finish()
-	})
-}
-
-func truncatePath(path string) string {
-	if len(path) > 60 {
-		return path[:57] + "..."
-	}
-	return path
-}
-
-func inlinePayload(body string) string {
-	if body == "" {
-		return ""
-	}
-	return strings.Join(strings.Fields(body), " ")
 }

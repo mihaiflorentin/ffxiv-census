@@ -492,11 +492,8 @@ func (r *CharacterRepository) FindIDGapsAfter(ctx context.Context, afterID, maxI
 // FillGapsCursor returns the last ID queued by the fill-gaps scanner. On
 // first use the state row is created with 0 (nothing scanned yet).
 func (r *CharacterRepository) FillGapsCursor(ctx context.Context) (uint32, error) {
-	if _, err := r.driver.Execute(ctx, `
-		INSERT INTO fill_gaps_state (singleton, last_queued_id)
-		SELECT TRUE, 0
-		ON CONFLICT (singleton) DO NOTHING`); err != nil {
-		return 0, fmt.Errorf("initialize fill gaps cursor: %w", err)
+	if err := r.initFillGapsState(ctx); err != nil {
+		return 0, err
 	}
 	row, err := r.driver.FetchOne(ctx, `SELECT last_queued_id FROM fill_gaps_state WHERE singleton = TRUE`)
 	if err != nil {
@@ -512,11 +509,27 @@ func (r *CharacterRepository) FillGapsCursor(ctx context.Context) (uint32, error
 	return uint32(last), nil
 }
 
+// initFillGapsState creates the singleton state row (cursor 0) if it is missing.
+func (r *CharacterRepository) initFillGapsState(ctx context.Context) error {
+	if _, err := r.driver.Execute(ctx, `
+		INSERT INTO fill_gaps_state (singleton, last_queued_id)
+		SELECT TRUE, 0
+		ON CONFLICT (singleton) DO NOTHING`); err != nil {
+		return fmt.Errorf("initialize fill gaps cursor: %w", err)
+	}
+	return nil
+}
+
 // AdvanceFillGapsCursor swaps the cursor from expected to next via a
 // compare-and-set. A stale advance is idempotent when the stored cursor is
 // already at or beyond next (never rewinds), and errors otherwise. next = 0
 // is the legitimate wrap-around reset.
 func (r *CharacterRepository) AdvanceFillGapsCursor(ctx context.Context, expected, next uint32) error {
+	// Without the row the UPDATE matches nothing, and the fallback below would
+	// create it at 0 and report a stale advance as done.
+	if err := r.initFillGapsState(ctx); err != nil {
+		return err
+	}
 	result, err := r.driver.Execute(ctx, `
 		UPDATE fill_gaps_state
 		SET last_queued_id = $1, updated_at = NOW()
@@ -535,7 +548,7 @@ func (r *CharacterRepository) AdvanceFillGapsCursor(ctx context.Context, expecte
 	if err != nil {
 		return err
 	}
-	if current == expected || current >= next {
+	if current >= next {
 		return nil
 	}
 	return fmt.Errorf("fill gaps cursor changed concurrently: expected %d, current %d, next %d", expected, current, next)
