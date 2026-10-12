@@ -41,7 +41,6 @@ func TestCanonicalEventType(t *testing.T) {
 		{in: "id-sweep.failed", want: "id-sweep"},
 		{in: "character-census.failed", want: "character-census"},
 		{in: "achievement-census", want: "achievement-census"},
-		{in: "new-proxy.failed", want: "new-proxy"},
 	}
 	for _, tt := range tests {
 		if got := canonicalEventType(tt.in); got != tt.want {
@@ -128,6 +127,9 @@ func TestKnownEventType(t *testing.T) {
 	}
 	if knownEventType("census.id-sweep") {
 		t.Fatal("knownEventType(\"census.id-sweep\") = true, want false")
+	}
+	if knownEventType("new-proxy") {
+		t.Fatal("knownEventType(\"new-proxy\") = true: discovery inserts directly, the event is retired")
 	}
 	if knownEventType("no-such-event") {
 		t.Fatal("knownEventType(\"no-such-event\") = true, want false")

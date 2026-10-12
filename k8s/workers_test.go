@@ -16,7 +16,7 @@ func TestProxyWorkersPostgresPoolOverrides(t *testing.T) {
 	}
 	src := string(values)
 
-	consumers := []string{"proxy-id-sweep", "proxy-character-census", "proxy-achievement-census", "proxy-new"}
+	consumers := []string{"proxy-id-sweep", "proxy-character-census", "proxy-achievement-census"}
 	for _, name := range consumers {
 		section := workerSection(t, src, name)
 		assertWorkerEnvValue(t, name, section, "POSTGRES_MAX_OPEN_CONNS", "3")
@@ -126,7 +126,7 @@ func TestMetricsPortOnlyOnConsumeWorkers(t *testing.T) {
 			t.Fatalf("worker %s: missing metricsPort", name)
 		}
 	}
-	for _, name := range []string{"proxy-new", "proxy-scan"} {
+	for _, name := range []string{"proxy-scan"} {
 		if strings.Contains(workerSection(t, src, name), "metricsPort") {
 			t.Fatalf("worker %s: proxy commands have no --metrics-port flag", name)
 		}

@@ -713,7 +713,6 @@ func eventTypes() []string {
 		"id-sweep",
 		"character-census",
 		"achievement-census",
-		"new-proxy",
 	}
 }
 

@@ -398,3 +398,51 @@ func TestDiscoverer_NewProxyEntersBackgroundScanOnly(t *testing.T) {
 		t.Fatalf("new proxy not in the background scan queue: %d leases, %v", len(leases), err)
 	}
 }
+
+func TestFakeProvider_FetchProxies(t *testing.T) {
+	proxies := []contract.ProxyRecord{
+		{Protocol: "http", IP: "1.2.3.4", Port: 8080, Source: "test"},
+		{Protocol: "socks5", IP: "5.6.7.8", Port: 1080, Source: "test"},
+	}
+	p := mockproxy.NewFakeProvider("test", proxies)
+
+	var got []contract.ProxyRecord
+	err := p.FetchProxies(context.Background(), func(rec contract.ProxyRecord) error {
+		got = append(got, rec)
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("FetchProxies: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 proxies, got %d", len(got))
+	}
+}
+
+func TestFakeProvider_FetchProxies_Error(t *testing.T) {
+	p := mockproxy.NewFakeProvider("test", nil)
+	p.SetError(errors.New("provider unavailable"))
+
+	err := p.FetchProxies(context.Background(), func(_ contract.ProxyRecord) error {
+		return nil
+	})
+	if err == nil {
+		t.Fatal("expected error from provider")
+	}
+}
+
+func TestDiscoverer_KnownProxiesDoNotUseTheBudget(t *testing.T) {
+	repo := repository.NewFakeProxyRepository(contract.ProxyScanPolicy{})
+	for _, rec := range listing("alpha", 5) {
+		repo.Seed(rec)
+	}
+	d := newDiscoverer(repo, mockproxy.NewFakeProvider("alpha", listing("alpha", 20)))
+
+	res, err := d.Run(context.Background(), 10)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if n, _ := repo.Count(context.Background()); res.Inserted != 10 || n != 15 {
+		t.Fatalf("Inserted = %d, stored = %d; want 10 new on top of the 5 known", res.Inserted, n)
+	}
+}
