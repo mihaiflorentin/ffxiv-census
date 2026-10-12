@@ -11,15 +11,19 @@ import (
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
-// A handler never stores a character itself: without a result writer the job
+// A handler never stores anything itself: without a result writer the job
 // fails (and is retried) instead of silently writing outside the batch path.
 func TestHandlers_WithoutWriterFailTheJob(t *testing.T) {
 	ls := mocklodestone.NewFake()
 	ls.FetchCharacterFunc = func(_ context.Context, id uint32) (*contract.CharacterProfile, error) {
 		return &contract.CharacterProfile{ID: id, Name: "A", World: "Odin", Datacenter: "Light", Race: "Hyur"}, nil
 	}
+	ls.FetchAchievementsFunc = func(context.Context, uint32, []uint32) (*contract.AchievementSummary, error) {
+		return &contract.AchievementSummary{}, nil
+	}
 	chars := mockrepo.NewCharacterFake()
-	svc := census.NewService(chars, mockrepo.NewAchievementFake(), mockrepo.NewCensusRunFake())
+	achievements := mockrepo.NewAchievementFake()
+	svc := census.NewService(chars, achievements, mockrepo.NewCensusRunFake())
 	cases := []struct {
 		name    string
 		handler Handler
@@ -27,6 +31,7 @@ func TestHandlers_WithoutWriterFailTheJob(t *testing.T) {
 	}{
 		{"id-sweep", NewIDSweep(ls, svc, nil), []byte(`{"from":1,"to":1}`)},
 		{"character-census", NewCharacterCensus(ls, svc, nil), characterPayload(1)},
+		{"achievement-census", NewAchievementCensus(ls, svc, nil), achievementPayload(1)},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -36,17 +41,9 @@ func TestHandlers_WithoutWriterFailTheJob(t *testing.T) {
 			if rec, _ := chars.Get(context.Background(), 1); rec != nil {
 				t.Fatal("character stored without a writer")
 			}
+			if len(chars.StoredAchievements) != 0 {
+				t.Fatalf("achievements stored without a writer: %+v", chars.StoredAchievements)
+			}
 		})
-	}
-}
-
-func TestAchievementCensus_WithoutWriterFailsTheJob(t *testing.T) {
-	h, ls, _, _ := newTestAchievementCensus(t)
-	h.writer = nil
-	ls.FetchAchievementsFunc = func(context.Context, uint32, []uint32) (*contract.AchievementSummary, error) {
-		return &contract.AchievementSummary{}, nil
-	}
-	if _, err := h.Handle(context.Background(), achievementPayload(1)); !errors.Is(err, ErrNoWriter) {
-		t.Fatalf("Handle error = %v, want ErrNoWriter", err)
 	}
 }
