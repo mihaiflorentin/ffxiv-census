@@ -99,7 +99,20 @@ type ProxyScanPolicy struct {
 	LeaseDuration, MinRepeatInterval, InconclusiveRetry time.Duration
 	DeadAfter                                           time.Duration
 	FailThreshold                                       int
+	Retirement                                          RetirementRule
 }
+
+// RetirementRule decides which proxies leave the background scan for good.
+// A proxy is retired when it never worked (no last-alive time), has failed at
+// least MinFailures times and was first seen at least MinAge ago. The zero
+// value disables retirement.
+type RetirementRule struct {
+	MinFailures int
+	MinAge      time.Duration
+}
+
+// Enabled reports whether the rule can retire anything.
+func (r RetirementRule) Enabled() bool { return r.MinFailures > 0 }
 
 // ScanLease is the fenced claim a dispatcher holds for one scan attempt.
 // Token and Version must match at completion; an unexpired lease is required.
@@ -123,6 +136,9 @@ type ScanUpdate struct {
 	FreshnessTTL  time.Duration
 	DeadAfter     time.Duration
 	FailThreshold int
+	// Retirement is applied to conclusive failures: the failing attempt that
+	// satisfies the rule retires the proxy in the same write.
+	Retirement RetirementRule
 }
 
 // GuardSnapshot is one consistent endpoint-guard observation. A guard
@@ -140,6 +156,26 @@ type ProxyEndpointGuard interface {
 	Snapshot() GuardSnapshot
 	// Run maintains the guard state until ctx is cancelled.
 	Run(ctx context.Context) error
+}
+
+// RetireBatch is the result of one bounded retirement sweep step. NextID is
+// the cursor for the following step (the highest row ID examined); Done
+// reports that the step found no rows past the cursor, so a full pass is over.
+type RetireBatch struct {
+	NextID  int64
+	Retired int64
+	Done    bool
+}
+
+// ProxyRetirementStore retires proxies that match a RetirementRule in
+// bounded, resumable steps, so the first pass over a very large table never
+// holds a long transaction or a table lock.
+type ProxyRetirementStore interface {
+	// RetireStale examines at most batch rows with an ID above afterID in ID
+	// order, retires the ones matching the rule and returns the cursor for the
+	// next step. Already retired rows are left untouched, so a sweep is safe
+	// to repeat and to run from several replicas at once.
+	RetireStale(ctx context.Context, rule RetirementRule, afterID int64, batch int) (RetireBatch, error)
 }
 
 // ProxyScanStore leases scan work and persists fenced scan observations.

@@ -49,14 +49,16 @@ func NewProxyRepository(driver contract.DatabaseDriver, policy contract.ProxySca
 const proxyColumns = `id, protocol, ip, port, country, anonymity, latency_ms, uptime_percent,
 	status, last_scanned_at, last_alive_at, first_seen_at, source, fail_count, locked_by, locked_at, created_at, updated_at,
 	general_healthy, last_completed_at, last_verified_at, next_attempt_at, scan_not_before, recovery_step,
-	observation_version, scan_token, scan_lease_until, claimed_version, destination_cooldown_until`
+	observation_version, scan_token, scan_lease_until, claimed_version, destination_cooldown_until,
+	retired_at, last_listed_at`
 
 // proxyColumnsClaimed mirrors proxyColumns with the p alias used by the
 // claiming UPDATE ... RETURNING in listForScan and ClaimScans.
 const proxyColumnsClaimed = `p.id, p.protocol, p.ip, p.port, p.country, p.anonymity, p.latency_ms, p.uptime_percent,
 	p.status, p.last_scanned_at, p.last_alive_at, p.first_seen_at, p.source, p.fail_count, p.locked_by, p.locked_at, p.created_at, p.updated_at,
 	p.general_healthy, p.last_completed_at, p.last_verified_at, p.next_attempt_at, p.scan_not_before, p.recovery_step,
-	p.observation_version, p.scan_token, p.scan_lease_until, p.claimed_version, p.destination_cooldown_until`
+	p.observation_version, p.scan_token, p.scan_lease_until, p.claimed_version, p.destination_cooldown_until,
+	p.retired_at, p.last_listed_at`
 
 // freshPredicate is the single general-health availability predicate shared
 // by ListActive, RandomActive, CountByStatus, ClaimProxy and
@@ -72,6 +74,7 @@ func scanProxy(row rowScanner) (*contract.ProxyRecord, error) {
 	var lastScannedAt, lastAliveAt, lockedAt sql.NullTime
 	var lastCompletedAt, lastVerifiedAt, nextAttemptAt, scanNotBefore sql.NullTime
 	var scanLeaseUntil, destinationCooldownUntil sql.NullTime
+	var retiredAt, lastListedAt sql.NullTime
 	var claimedVersion sql.NullInt64
 
 	// Keep this column order exactly in sync with proxyColumns and
@@ -85,6 +88,7 @@ func scanProxy(row rowScanner) (*contract.ProxyRecord, error) {
 		&p.GeneralHealthy, &lastCompletedAt, &lastVerifiedAt, &nextAttemptAt,
 		&scanNotBefore, &p.RecoveryStep, &p.ObservationVersion, &scanToken,
 		&scanLeaseUntil, &claimedVersion, &destinationCooldownUntil,
+		&retiredAt, &lastListedAt,
 	)
 	if err != nil {
 		return nil, err
@@ -106,6 +110,8 @@ func scanProxy(row rowScanner) (*contract.ProxyRecord, error) {
 	p.ScanLeaseUntil = sqlTimePtr(scanLeaseUntil)
 	p.ClaimedVersion = sqlInt64Ptr(claimedVersion)
 	p.DestinationCooldownUntil = sqlTimePtr(destinationCooldownUntil)
+	p.RetiredAt = sqlTimePtr(retiredAt)
+	p.LastListedAt = sqlTimePtr(lastListedAt)
 	return &p, nil
 }
 
@@ -159,6 +165,73 @@ func (r *ProxyRepository) InsertIfAbsent(ctx context.Context, rec contract.Proxy
 		return 0, false, fmt.Errorf("proxy insert if absent: %w", err)
 	}
 	return newID, true, nil
+}
+
+const (
+	// listedRewriteInterval is the shortest time between two writes to the
+	// same row from MarkListed.
+	listedRewriteInterval = time.Hour
+	// markListedChunk bounds the endpoints one statement handles, so a very
+	// long provider list becomes several short transactions.
+	markListedChunk = 5000
+)
+
+// MarkListed stamps last_listed_at and revives retired rows for endpoints a
+// provider listed again. Rows stamped within listedRewriteInterval are left
+// alone and rows locked by a concurrent scan are skipped, so discovery never
+// waits on the scanner and writes each row at most once per hour. Unknown
+// endpoints are ignored.
+func (r *ProxyRepository) MarkListed(ctx context.Context, endpoints []contract.ProxyEndpoint) (contract.ListedResult, error) {
+	var total contract.ListedResult
+	for start := 0; start < len(endpoints); start += markListedChunk {
+		end := min(start+markListedChunk, len(endpoints))
+		res, err := r.markListedChunk(ctx, endpoints[start:end])
+		if err != nil {
+			return total, err
+		}
+		total.Marked += res.Marked
+		total.Revived += res.Revived
+	}
+	return total, nil
+}
+
+func (r *ProxyRepository) markListedChunk(ctx context.Context, endpoints []contract.ProxyEndpoint) (contract.ListedResult, error) {
+	protocols := make([]string, len(endpoints))
+	ips := make([]string, len(endpoints))
+	ports := make([]int32, len(endpoints))
+	for i, e := range endpoints {
+		protocols[i], ips[i], ports[i] = e.Protocol, e.IP, int32(e.Port)
+	}
+	db, err := r.driver.Acquire(ctx)
+	if err != nil {
+		return contract.ListedResult{}, err
+	}
+	var res contract.ListedResult
+	err = db.QueryRowContext(ctx, `WITH input AS (
+			SELECT DISTINCT protocol, ip, port
+			FROM unnest($1::text[], $2::text[], $3::int[]) AS t(protocol, ip, port)
+		), target AS (
+			SELECT p.id, p.retired_at IS NOT NULL AS was_retired
+			FROM proxies p
+			JOIN input i ON p.protocol = i.protocol AND p.ip = i.ip AND p.port = i.port
+			WHERE p.last_listed_at IS NULL
+			   OR p.last_listed_at <= statement_timestamp() - ($4 * interval '1 second')
+			FOR UPDATE OF p SKIP LOCKED
+		), upd AS (
+			UPDATE proxies p
+			SET last_listed_at = statement_timestamp(),
+				retired_at = NULL,
+				updated_at = statement_timestamp()
+			FROM target t
+			WHERE p.id = t.id
+			RETURNING t.was_retired
+		)
+		SELECT count(*), count(*) FILTER (WHERE was_retired) FROM upd`,
+		protocols, ips, ports, listedRewriteInterval.Seconds()).Scan(&res.Marked, &res.Revived)
+	if err != nil {
+		return contract.ListedResult{}, fmt.Errorf("proxy mark listed: %w", err)
+	}
+	return res, nil
 }
 
 func (r *ProxyRepository) Get(ctx context.Context, id int64) (*contract.ProxyRecord, error) {
@@ -221,8 +294,9 @@ func (r *ProxyRepository) Count(ctx context.Context) (int64, error) {
 }
 
 // CountByStatus classifies rows by general evidence: active means the fresh
-// predicate holds; a historically active but non-fresh row counts as stale.
-// The historical inactive/dead categories are preserved.
+// predicate holds; a retired row counts as retired whatever its stored status;
+// a historically active but non-fresh row counts as stale. The historical
+// inactive/dead categories are preserved for the remaining rows.
 func (r *ProxyRepository) CountByStatus(ctx context.Context) (map[string]int64, error) {
 	db, err := r.driver.Acquire(ctx)
 	if err != nil {
@@ -230,6 +304,7 @@ func (r *ProxyRepository) CountByStatus(ctx context.Context) (map[string]int64, 
 	}
 	rows, err := db.QueryContext(ctx, `SELECT CASE
 			WHEN `+fmt.Sprintf(freshPredicate, 1)+` THEN 'active'
+			WHEN retired_at IS NOT NULL THEN 'retired'
 			WHEN status = 'active' THEN 'stale'
 			ELSE status
 		END AS bucket, COUNT(*)
