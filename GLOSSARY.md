@@ -65,13 +65,13 @@ The character-data source: The Lodestone, the only one. Fetches happen per event
 _Avoid_: source, dual-source
 
 **Proxy provider**:
-An external service publishing lists of free proxies, fetched by proxy discovery. Not a provider of character data.
+An external service publishing lists of free proxies, fetched directly by proxy discovery. Not a provider of character data.
 _Avoid_: provider (for proxy lists)
 
 ## Queue and events
 
 **Event type**:
-The named kind of work a job carries — currently ID sweep, character census, achievement census, and new-proxy. It routes the job to its queue and its event handler.
+The named kind of work a job carries — currently ID sweep, character census and achievement census. It routes the job to its queue and its event handler.
 _Avoid_: job type, routing key, event (bare)
 
 **Queue job**:
@@ -129,12 +129,8 @@ The maintained set of free proxies that census workers rotate through as outboun
 _Avoid_: pool, proxies (bare)
 
 **Proxy discovery**:
-The continuous fetch of proxy lists from proxy providers, registering only addresses not already in the pool.
+The recurring cron run that fetches proxy lists straight from the proxy providers (never through the pool), registers the addresses not already in the pool with bulk inserts, and marks every listed address as listed again. Its per-run limit is split fairly across providers, and lists a provider reports as unchanged are skipped.
 _Avoid_: streaming discovery
-
-**Rotating discovery client**:
-The HTTP client used only to fetch proxy lists, routed through random pool proxies. It is forbidden for provider traffic.
-_Avoid_: rotating proxy client, discovery HTTP client
 
 **Proxy scan**:
 The recurring re-test of pool proxies that keeps their general-health evidence current. It reads proxies straight from the database, not through the queue, and is spread across replicas by scan leases.

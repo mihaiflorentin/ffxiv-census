@@ -8,36 +8,33 @@ The proxy feature is a separate bounded context (`domain/proxy/`) with its own C
 
 | Layer | Path | Purpose |
 |-------|------|---------|
-| Port contracts | `port/contract/proxy.go` | `ProxyProvider`, `ProxyRepository`, `ProxyRecord` (scheduling columns) |
+| Port contracts | `port/contract/proxy.go` | `ProxyProvider`, `ConditionalProvider`, `ProxyListCache`, `ProxyRepository` (`InsertNew`, `MarkListed`), `ProxyRecord` (scheduling columns) |
 | Port contracts | `port/contract/proxy_scan.go` | `ProxyScanStore`, `ProxyRetirementStore`, `RetirementRule`, `ProxyScanPolicy`, `ScanLease`, `ScanUpdate`, `ProxyChecker` typed errors, `ProxyEndpointGuard` |
-| Domain service | `domain/proxy/service.go` | New-proxy ingestion |
+| Domain discovery | `domain/proxy/discovery.go` | `Discoverer` — bulk, fair, direct discovery (see [Discovery](#discovery)) |
 | Domain objects | `domain/proxy/proxy.go` | `Proxy` — consumer lifecycle over `RefreshConsumerLock`, fenced `MarkFailed`, `CooldownDestination`, `ResetDestinationFailures` |
 | Domain cooldown | `domain/proxy/cooldown.go` | `DestinationBackoff` — floor doubled per consecutive failure, capped, never below `Retry-After` |
 | Domain scheduling | `domain/proxy/scheduling.go` | `ClassifyCheck`, `MakeScanUpdate`, `MakeConsumerFailureUpdate`, `RecoveryDelay` |
-| Domain hub | `domain/proxy/hub.go` | `ProxyHub` — tested, fenced, owner-locked handout (`NewProxy`), random discovery selection |
+| Domain hub | `domain/proxy/hub.go` | `ProxyHub` — tested, fenced, owner-locked handout (`NewProxy`) |
 | Domain scanner | `domain/proxy/worker/scan.go` | Single-dispatcher lease-based scan worker |
 | Domain admission | `domain/proxy/worker/admission.go` | Persistent round-robin admission state |
 | Domain retirement | `domain/proxy/worker/retire.go` | `RetirementSweep` — paced, batched retirement of rows already over the thresholds |
-| Domain consumer | `domain/proxy/worker/worker.go` | `new-proxy` event consumer |
 | Infrastructure | `infrastructure/proxy/health.go` | General checker: complete-response GET through the proxy to the health target (default The Lodestone) |
 | Infrastructure | `infrastructure/proxy/checker.go` | Destination checker: complete-response GET to The Lodestone with `Retry-After` parsing |
 | Infrastructure | `infrastructure/proxy/guard.go` | `EndpointGuard` — per-replica egress circuit breaker |
-| Infrastructure | `infrastructure/proxyscrape/`, `infrastructure/geonode/`, … | Discovery providers (streaming) |
+| Infrastructure | `infrastructure/proxyscrape/`, `infrastructure/geonode/`, `infrastructure/textproxy/`, … | Discovery providers (streaming; `textproxy` is a `ConditionalProvider`) |
+| Infrastructure | `infrastructure/httpclient/list_client.go` | Direct HTTP client for provider lists: User-Agent, timeout, body size limit |
 | Infrastructure | `infrastructure/httpclient/proxy_client.go` | Proxy transport construction (HTTP, HTTPS, SOCKS4, SOCKS5), cancellation-safe |
 | Infrastructure | `infrastructure/postgres/repository/proxy.go`, `proxy_scan.go` | One adapter serving both `ProxyRepository` and `ProxyScanStore` |
-| Mock | `mock/repository/proxy.go`, `mock/proxy/provider.go` | In-memory fakes for tests |
+| Mock | `mock/repository/proxy.go`, `mock/proxy/provider.go`, `mock/proxy/listprovider.go` | In-memory fakes for tests (`FakeListProvider` and `FakeListCache` for conditional fetch) |
 
 ## CLI
 
 ```bash
-# Discover proxies from configured providers, publish new-proxy events
+# Fetch the providers' lists directly and register new proxies in bulk
 ./bin/ffxiv-census proxy discover [--limit 0]   # 0 = unlimited
 
 # Run a long-running guarded, lease-based scan worker
 ./bin/ffxiv-census proxy scan -c 150            # -c = total per-replica check concurrency
-
-# Consume new-proxy events (long-running)
-./bin/ffxiv-census proxy consume -c 30
 
 # Retire proxies that never worked and kept failing: one full sweep, then exit
 ./bin/ffxiv-census proxy retire
@@ -92,9 +89,9 @@ Shutdown releases leases it still owns on bounded fresh contexts after a ≤5 s 
 Production holds about 1.85M proxies with status `dead` and a 0.03 % yield, and with only a 1 s repeat floor the background queue cycled all of them forever (about 3.7M row updates per pass). A **retired proxy** leaves that sweep:
 
 - **Rule.** A proxy is retired when it never worked (`last_alive_at IS NULL`), has failed at least `after_failures` times (default 10) and was first seen at least `after_days` days ago (default 14). A proxy that worked even once is never retired, however long it has been failing. Both thresholds are configuration (`[proxy.retire]`).
-- **Rows stay.** Retirement sets `retired_at`; the row is not deleted. The unique key `(protocol, ip, port)` therefore keeps blocking re-insertion: `InsertIfAbsent` returns `(0, false)` and `Exists` returns true for a retired tuple.
+- **Rows stay.** Retirement sets `retired_at`; the row is not deleted. The unique key `(protocol, ip, port)` therefore keeps blocking re-insertion: `InsertNew` skips the tuple, `InsertIfAbsent` returns `(0, false)` and `Exists` returns true for a retired tuple.
 - **Where it is applied.** (1) In the normal completion path: a conclusive failure that satisfies the rule sets `retired_at` in the same `UPDATE` as the failure transition, so it costs no extra write (an existing `retired_at` is kept). (2) By the `RetirementSweep`, for rows that were already over the thresholds when the feature shipped and rows that only crossed the age threshold with time. A success clears `retired_at`, so a row retired while a scan was in flight and then proven working is live again.
-- **Revival.** `ProxyRepository.MarkListed(endpoints)` records that a provider listed the endpoints again: it stamps `last_listed_at` and clears `retired_at`. Unknown endpoints are ignored (inserting is `InsertIfAbsent`'s job), duplicates in one call count once, and a row stamped within the last hour is skipped, so a busy list costs at most one write per row per hour (the rate limit also applies to the revival itself). Rows locked by a concurrent scan are skipped rather than waited on. The call takes any number of endpoints and works in chunks of 5000 per statement. A revived row keeps its failure count, so if it is still dead the next failed scan retires it again: one probe per re-listing, at most once per hour. Discovery calls `MarkListed` as part of the discovery rework (ticket #42); until then retired rows can only be revived by calling the operation directly.
+- **Revival.** `ProxyRepository.MarkListed(endpoints)` records that a provider listed the endpoints again: it stamps `last_listed_at` and clears `retired_at`. Unknown endpoints are ignored (inserting is `InsertNew`'s job), duplicates in one call count once, and a row stamped within the last hour is skipped, so a busy list costs at most one write per row per hour (the rate limit also applies to the revival itself). Rows locked by a concurrent scan are skipped rather than waited on. The call takes any number of endpoints and works in chunks of 5000 per statement. A revived row keeps its failure count, so if it is still dead the next failed scan retires it again: one probe per re-listing, at most once per hour. Discovery calls `MarkListed` for every proxy a provider lists, new or known (see [Discovery](#discovery)), so a retired proxy that a provider lists again is revived.
 - **Counting.** `CountByStatus` reports retired rows in their own `retired` bucket instead of their stored status.
 
 **First pass over existing rows.** The migration (`00021`) only adds the nullable columns and the index; it does not retire anything, because one `UPDATE` over ~1.85M rows would hold a long write transaction (and a burst of WAL) on every replica that boots and runs migrations. The `proxy scan` command instead starts a `RetirementSweep` alongside the scanner. It walks the table in ID order in windows of `sweep_batch` rows (default 5000), retires the matching rows of each window with one short statement, rests 100 ms between windows, and repeats a full pass every `sweep_interval` (default 1 h). The first pass over 1.85M rows is about 370 statements. The sweep is resumable and idempotent (`retired_at IS NULL` in the predicate), safe to run from all five replicas at once, and stops promptly on shutdown. `proxy retire` runs one full pass by hand.
@@ -180,7 +177,7 @@ A timeout the caller's own context imposed is not typed as `CheckDeadline`, so s
 
 `NotifyAvailable` (wired as the scan worker's success notifier) wakes waiting consumers as soon as a scanner accepts a success.
 
-`RandomActive`/`SwapActive` remain for the discovery pipeline only: unlocked, untested random selection over the fresh pool. They must not be used for Lodestone APIs.
+`ProxyHub.RandomActive`, `RandomActiveExcluding` and `SwapActive` (and `ProxyRepository.RandomActive`) were used only by the removed rotating discovery client. Nothing calls them any more; they are dead code awaiting the cleanup ticket and must not be used for Lodestone APIs.
 
 ### Removed interfaces
 
@@ -283,13 +280,21 @@ Smoke: valid bodies activated rows on all four protocols (~105 ms latency record
 
 The scanner rewrite changes evidence columns, predicates, and consumer fencing; old and new binaries must not run against the same proxies concurrently. Roll out as a stop-the-world cutover, executed only with user authorization (the README release workflow governs image build and tag steps):
 
-1. Stop the old proxy writers and consumers: `proxy-scan`, `proxy-new`, all `--proxy` census consumers, and `proxy-discover` CronJobs. Old live readers that serve proxy data (currently none — `cmd/http` exposes no proxy view) stop with them.
+1. Stop the old proxy writers and consumers: `proxy-scan`, `proxy-new` (retired later by the direct-discovery change; it no longer exists), all `--proxy` census consumers, and `proxy-discover` CronJobs. Old live readers that serve proxy data (currently none — `cmd/http` exposes no proxy view) stop with them.
 2. Migrate the schema with the new binary (`00017_proxy_scan_scheduling.sql` is embedded and self-applies on first database use). The migration adds columns and indexes; it does not backfill success — every row starts with `general_healthy = false` and will be proven fresh only by a new scan.
 3. Start the new `proxy-scan` replicas. Watch `proxy_scan.completion` events, guard transitions, and `CountByStatus` until the fresh `active` count reflects real, recent evidence.
-4. Start the new consumers (`proxy-new`, `--proxy` census consumers) and any proxy readers. Consumers must be the new binary: a pre-rewrite consumer cannot present an observation version and will have its failure writes fenced off.
+4. Start the new consumers (`--proxy` census consumers) and any proxy readers. Consumers must be the new binary: a pre-rewrite consumer cannot present an observation version and will have its failure writes fenced off.
 
 There is no rolling mixed-binary cutover, no automatic destructive rollback (roll forward by redeploying the previous release the same way), and no synthetic backfill of availability.
 
 ## Discovery
 
-`proxy discover` streams provider responses directly to RabbitMQ (bounded memory), deduplicates each tuple with a read-only `Exists` check before publication (retired proxies still exist, so they are never re-registered), and treats `--limit` as a global publication cap. Providers run sequentially in configured order; a provider lookup error fails that provider closed without publishing. The rotating discovery HTTP client uses `RandomActive` (fresh pool, ID exclusions) and swaps on 403/429/5xx or transport failure without marking proxies — provider blocks say nothing about general health.
+`proxy discover` runs the `Discoverer` use case (`domain/proxy/discovery.go`), a cron job every two minutes with `--limit 400`. It reads the providers itself and inserts what it finds; there is no queue hop, so a run needs no RabbitMQ and the `new-proxy` event, its handler, the `proxy consume` command and the `proxy-new` deployment are gone.
+
+- **Direct fetch.** Provider lists and APIs (ProxyScrape, Geonode, PubProxy, the plain-text GitHub lists) are fetched straight from the cluster, never through the Lodestone proxy pool, so list downloads no longer use the pool's bandwidth and request budget. The client (`infrastructure/httpclient/list_client.go`) sends a project `User-Agent`, gives each request a 30 s timeout and fails a body longer than 64 MiB with `ErrBodyTooLarge`. The former rotating discovery client and its use of `RandomActive` for lists are removed.
+- **Set-based dedup and bulk insert.** Records are buffered in chunks of 2000 (so a huge list never sits in memory whole). Per chunk, `ProxyRepository.InsertNew` runs one statement: it collapses duplicates inside the chunk, drops endpoints already in the table with an anti-join (retired proxies included, so they are never registered twice), caps the rows at the remaining share and inserts the rest with `INSERT ... ON CONFLICT (protocol, ip, port) DO NOTHING`, which only guards against two discovery runs racing. Known endpoints are filtered before the insert because a conflicting candidate still draws a `serial` id; re-reading mostly-known lists every two minutes would otherwise use up the 32-bit id space. Nothing reads the table once per list line any more. New rows are inserted with no evidence, so the background scan owns their verification, and are stamped `last_listed_at` at insert.
+- **Re-listing.** Every endpoint a provider lists, new or known, goes through `MarkListed` per chunk (at most once per hour per row, 5000 endpoints per statement), which stamps `last_listed_at` and revives a retired proxy. A retired proxy is never re-inserted, only revived.
+- **Fair budget.** `--limit` is the number of new proxies one run may register (0 = no limit), split across the providers: the providers are read in a random order each run, and each read gets `ceil(remaining budget / providers still to read)` as its share. A provider that finds fewer new proxies than its share leaves the rest to the providers after it. A provider that used its whole share is read again with whatever budget is left (at most three passes per run), so the budget is spent even when the small providers come last. Within a plain-text provider the protocol lists are read in random order too, so map order never decides who gets the budget. No provider is starved by an earlier one, and the share a failed provider would have used goes to the others.
+- **Skipping unchanged lists.** The plain-text GitHub lists support conditional GET. After a list has been read to its last line and its proxies are stored, discovery saves its `ETag` and `Last-Modified` in the `proxy_list_validators` table (migration `00024`, one row per list URL); the next run sends `If-None-Match` / `If-Modified-Since` and a `304 Not Modified` skips the list with no database work. Every cron run is a new process, so an in-memory cache would never hit, which is why the validators live in the database. A list that the budget cut short, or whose records could not be stored, is not saved and is read again next run. A list a skipped run did not re-list is not marked listed again, so a proxy that is still on an unchanged list is not revived every hour; it is revived when the list changes and still holds it. The JSON APIs (ProxyScrape, Geonode, PubProxy) send no usable validators and are always read. If the table cannot be read or written, discovery logs a warning and reads every list.
+- **Failures.** A failing provider is logged (`proxy.discover.provider_failed`) and the others still run; the command fails only when every provider failed. Chunks stored before a provider failed stay stored.
+- **Logs.** `proxy.discover.provider_done` per provider and pass with `listed`, `inserted`, `share`, `capped` and `duration`, and `proxy.discover.complete` with the run totals.

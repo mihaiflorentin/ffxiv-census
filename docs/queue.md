@@ -10,8 +10,7 @@ The adapter declares the full topology idempotently on connection. All exchanges
 census (exchange, direct)
   ├─ routing key "id-sweep"           → census.id-sweep           (queue)
   ├─ routing key "character-census"   → census.character-census   (queue)
-  ├─ routing key "achievement-census" → census.achievement-census (queue)
-  └─ routing key "new-proxy"          → census.new-proxy          (queue)
+  └─ routing key "achievement-census" → census.achievement-census (queue)
 
 census.<type>.failed (queue, per event type)
   └─ x-dead-letter-exchange = census
@@ -212,8 +211,6 @@ workers:
       command: [/app/ffxiv-census, consume, character-census, --proxy, -c, "15"]
     - name: proxy-achievement-census
       command: [/app/ffxiv-census, consume, achievement-census, --proxy, -c, "25"]
-    - name: proxy-new
-      command: [/app/ffxiv-census, proxy, consume, -c, "30"]
     - name: census-retry
       command: [/app/ffxiv-census, consume, failed, --events, "id-sweep,character-census,achievement-census", -c, "1"]
 ```
@@ -281,7 +278,6 @@ kubectl scale deploy/ffxiv-census-worker-achievement-census --replicas=0
 kubectl scale deploy/ffxiv-census-worker-proxy-id-sweep --replicas=0
 kubectl scale deploy/ffxiv-census-worker-proxy-character-census --replicas=0
 kubectl scale deploy/ffxiv-census-worker-proxy-achievement-census --replicas=0
-kubectl scale deploy/ffxiv-census-worker-proxy-new --replicas=0
 kubectl scale deploy/ffxiv-census-worker-proxy-scan --replicas=0
 
 # Suspend cronjobs
@@ -301,7 +297,6 @@ kubectl scale deploy/ffxiv-census-worker-achievement-census --replicas=1
 kubectl scale deploy/ffxiv-census-worker-proxy-id-sweep --replicas=1
 kubectl scale deploy/ffxiv-census-worker-proxy-character-census --replicas=1
 kubectl scale deploy/ffxiv-census-worker-proxy-achievement-census --replicas=1
-kubectl scale deploy/ffxiv-census-worker-proxy-new --replicas=1
 kubectl scale deploy/ffxiv-census-worker-proxy-scan --replicas=1
 
 # Resume cronjobs
@@ -313,14 +308,13 @@ kubectl patch cronjob proxy-scan -p '{"spec":{"suspend":false}}'
 
 ## Event Types
 
-The queue carries events for census and proxy contexts. See `docs/events.md` for payloads and chaining details.
+The queue carries the census events. See `docs/events.md` for payloads and chaining details.
 
 | Context | Events | Consumer Command |
 |---------|--------|-----------------|
 | Census | `id-sweep`, `character-census`, `achievement-census` | `ffxiv-census consume` |
-| Proxy | `new-proxy` | `ffxiv-census proxy consume` |
 
-Proxy scans are performed directly by the `proxy scan` database worker, not via RabbitMQ events. Application consumers fail fast when RabbitMQ closes their delivery channels; Kubernetes restarts them automatically.
+Proxy scans are performed directly by the `proxy scan` database worker, and proxy discovery inserts new proxies directly (`proxy discover`); neither uses RabbitMQ events. The former `new-proxy` event, its queues and the `proxy consume` command were removed. A broker that still has the old `census.new-proxy`, `census.new-proxy.failed` and `census.new-proxy.dead` queues keeps them (the adapter no longer declares or consumes them); delete them once empty. Application consumers fail fast when RabbitMQ closes their delivery channels; Kubernetes restarts them automatically.
 
 **Handler chaining:** When a handler succeeds, it returns downstream jobs. The worker publishes each downstream job individually:
 - `id-sweep` → `achievement-census` (per discovered character)

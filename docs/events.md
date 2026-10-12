@@ -9,9 +9,8 @@ The census ingests Lodestone data through a durable, event-driven pipeline. Publ
 | `id-sweep` | Probe a range of character IDs; ingest any that exist | ✅ implemented |
 | `character-census` | Re-census a known character's profile + jobs | ✅ implemented |
 | `achievement-census` | Refresh the globally latest achievement and incrementally fetch tracked milestones | ✅ implemented |
-| `new-proxy` | Register and test a newly discovered proxy | ✅ implemented |
 
-Recurring proxy scans are performed directly by the `proxy scan` database worker, not via queue events. See `docs/proxy.md`.
+Recurring proxy scans are performed directly by the `proxy scan` database worker, and proxy discovery inserts new proxies directly; neither uses queue events. See `docs/proxy.md`.
 
 ## Payloads
 
@@ -20,9 +19,7 @@ Queue job payloads are JSON. Types are declared in `domain/census/handler/event.
 - **id-sweep**: `{"from": 1, "to": 1000, "source": "auto"}` — inclusive range of character IDs to probe. `source` is `"auto"` or `"lodestone"` (both probe The Lodestone); the legacy value `"tomestone"` is tolerated on in-flight messages and behaves as `"auto"`.
 - **character-census**: `{"character_id": 123}` — a character to re-census.
 - **achievement-census**: `{"character_id": 123}` — a character to run an achievement census on.
-- **new-proxy**: `{"protocol": "http", "ip": "1.2.3.4", "port": 8080, "country": "US", "anonymity": "elite", "source": "proxyscrape", "uptime_percent": 95.5}` — a proxy to register and test.
 
-Proxy event types are declared in `domain/proxy/handler/handler.go`. The `new-proxy` event is a leaf event (no chaining).
 
 ## Chaining
 
@@ -110,4 +107,4 @@ When `consume --proxy` is used, the event pipeline runs through proxy-aware clie
 
 **`publishAll` behaviour:** Each publish call waits for a broker confirmation before returning. If any publish is nacked or the connection drops, the command fails immediately rather than continuing to enqueue jobs that may never be delivered. After all publishes succeed, the queue connection is closed so the process exits cleanly.
 
-**`proxy discover` callback publication:** Providers are invoked sequentially in configured order. Each provider streams records one at a time via a callback (`emit`). Inside the callback, each record is checked read-only against PostgreSQL; existing tuples are skipped and do not consume the publication quota. New records are published immediately as `new-proxy` events — the first queue publish happens before the provider fetches its next record/page. This keeps memory bounded regardless of provider response size. When the `--limit` publication cap is reached, the current provider's stream is aborted and all remaining providers are skipped. When a provider exhausts below the limit, the next provider is invoked to fill the remaining quota. `--limit 0` disables the cap. If a publish fails, that provider is stopped (logged as `proxy.discover.publish_failed`) and the command continues to the next provider. Partial provider failures are tolerated: the command reports per-provider fetched/published counts and returns an error only when every provider fails (`proxy discovery failed: all providers failed (%d errors)`).
+**`proxy discover` (no queue events):** Discovery does not publish events. The `Discoverer` reads each provider's stream, buffers records in chunks, inserts the unknown proxies with one bulk statement per chunk and marks every listed proxy as listed again. The former `new-proxy` event and its consumer were removed; see [Discovery](proxy.md#discovery) for the fair per-run `--limit`, conditional fetch and failure handling.
