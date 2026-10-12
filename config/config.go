@@ -208,6 +208,10 @@ type ProxyConsumerConfig struct {
 	TestURL            string        `mapstructure:"test_url"`
 	TestTimeout        time.Duration `mapstructure:"test_timeout"`
 	Cooldown           time.Duration `mapstructure:"cooldown"`
+	// LockRefreshInterval is the most often a worker re-validates and
+	// extends the lock of a proxy it holds. It must stay below half of
+	// lock_ttl so the lock cannot expire between refreshes.
+	LockRefreshInterval time.Duration `mapstructure:"lock_refresh_interval"`
 }
 
 type ProxyProviderConfig struct {
@@ -369,7 +373,29 @@ func validateProxySettings(cfg *Config) error {
 	if err := validatePositiveDuration("proxy.consumer.test_timeout", proxy.Consumer.TestTimeout); err != nil {
 		return err
 	}
-	return validatePositiveDuration("proxy.consumer.cooldown", proxy.Consumer.Cooldown)
+	if err := validatePositiveDuration("proxy.consumer.cooldown", proxy.Consumer.Cooldown); err != nil {
+		return err
+	}
+	return validateLockRefreshInterval(proxy.Consumer)
+}
+
+// validateLockRefreshInterval requires the consumer lock refresh interval to
+// stay below half of lock_ttl, so a held lock always has at least half its
+// lifetime left when the next refresh is due. An empty or malformed lock_ttl
+// is compared at the 5m the container falls back to.
+func validateLockRefreshInterval(consumer ProxyConsumerConfig) error {
+	if err := validatePositiveDuration("proxy.consumer.lock_refresh_interval", consumer.LockRefreshInterval); err != nil {
+		return err
+	}
+	lockTTL := 5 * time.Minute
+	if d, err := time.ParseDuration(consumer.LockTTL); err == nil && d > 0 {
+		lockTTL = d
+	}
+	if consumer.LockRefreshInterval >= lockTTL/2 {
+		return fmt.Errorf("config: proxy.consumer.lock_refresh_interval (%s) must be below half of lock_ttl (%s)",
+			consumer.LockRefreshInterval, lockTTL)
+	}
+	return nil
 }
 
 func NewConfig() (*Config, error) {

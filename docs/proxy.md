@@ -132,7 +132,7 @@ When every scanner stops, fresh lists, counts, and acquisitions decay to zero wi
 
 Every goroutine owns exactly one proxy (`census-consume-<host>-p<pid>-w<workerID>`). Per job:
 
-- `Proxy.CanUse` revalidates through `RefreshConsumerLock` — the historical local-status shortcut is gone; a lock lost or a freshness lapse mid-job is detected against the database.
+- `Proxy.CanUse` revalidates through `RefreshConsumerLock` — the historical local-status shortcut is gone; a lock lost or a freshness lapse is detected against the database. The refresh is throttled: a worker revalidates and extends the lock of its held proxy at most once per `proxy.consumer.lock_refresh_interval` (default 100 s), not on every job, because refreshing on every job was about 95% of the consumer-side writes on the proxies table. A lost lock, a lapsed freshness or a destination cooldown is therefore noticed within that interval, and the first job on a newly acquired proxy refreshes. A proxy-caused failure (dial failure, destination rejection or timeout) forces a refresh before the next job. The interval must stay below half of `lock_ttl` (checked at startup), so the lock always has at least half its lifetime left when the next refresh is due.
 - A typed conclusive proxy failure is persisted by `Proxy.MarkFailed` → `RecordConsumerFailure` under a CAS on the version captured **before** the job's I/O, the owner, and a still-valid lock; a stale observation is rejected and only its own lock is released. The failure transition mirrors the scanner's (recovery delay, common-cooldown move, dead thresholds) and invalidates any older scan lease.
 - A typed destination rejection (`CheckTarget`, e.g. 429 with `Retry-After`) applies `CooldownDestination` and returns the delivery for a normal queue retry — no identity rotation, no failure history. Provider 429 handling keeps its existing limiter pause and never rotates the proxy.
 - Local errors and cancellation release without evidence writes. A database error while persisting a check outcome or revalidating the lock also releases the claim before the error propagates, so a failed acquisition never leaves a proxy locked until the TTL.
@@ -177,11 +177,12 @@ request_timeout      = "30s"                                   # proxy-aware cli
 test_url             = "https://na.finalfantasyxiv.com/lodestone/"  # destination check
 test_timeout         = "10s"
 cooldown             = "60s"                                   # destination cooldown floor
+lock_refresh_interval = "100s"                                 # max one lock refresh per held proxy (< lock_ttl / 2)
 ```
 
 `request_timeout` (30s) bounds how long one consumer HTTP attempt may hang on a stalled proxy. It stays deliberately more generous than the scanner's `test_timeout` (10s): a slow-but-alive proxy that answers a character page in 10–25s still completes, and failures fall through to queue retries rather than wasting an otherwise working identity.
 
-Every field overrides through an environment variable named by upper-casing the key path with `.` → `_` (viper `AutomaticEnv`): `PROXY_TEST_URL`, `PROXY_SCAN_LEASE_DURATION`, `PROXY_SCAN_WEIGHT_BACKGROUND`, `PROXY_CONSUMER_LOCK_TTL`, and so on. Startup validation fails closed on impossible combinations (freshness vs verification+timeout, lease vs timeout, weights sum, nonpositive durations).
+Every field overrides through an environment variable named by upper-casing the key path with `.` → `_` (viper `AutomaticEnv`): `PROXY_TEST_URL`, `PROXY_SCAN_LEASE_DURATION`, `PROXY_SCAN_WEIGHT_BACKGROUND`, `PROXY_CONSUMER_LOCK_TTL`, and so on. Startup validation fails closed on impossible combinations (freshness vs verification+timeout, lease vs timeout, weights sum, nonpositive durations, `lock_refresh_interval` not below half of `lock_ttl`).
 
 ## Kubernetes deployment
 

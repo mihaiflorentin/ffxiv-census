@@ -561,3 +561,26 @@ func TestProxyHub_SwapActive_NilCurrent(t *testing.T) {
 		t.Fatal("expected proxy, got nil")
 	}
 }
+
+func TestProxyHub_LockRefreshInterval(t *testing.T) {
+	repo := repository.NewFakeProxyRepository(consumerPolicy)
+	newHub := func(ttl time.Duration) *ProxyHub {
+		return NewProxyHub(repo, ttl, nil, 0, consumerPolicy)
+	}
+	cases := []struct {
+		name string
+		hub  *ProxyHub
+		want time.Duration
+	}{
+		{"default with the standard lock ttl", newHub(5 * time.Minute), 100 * time.Second},
+		{"default shrinks below half of a short lock ttl", newHub(time.Minute), 20 * time.Second},
+		{"configured value", newHub(5 * time.Minute).WithLockRefreshInterval(45 * time.Second), 45 * time.Second},
+		{"zero keeps the default", newHub(5 * time.Minute).WithLockRefreshInterval(0), 100 * time.Second},
+		{"half of the ttl is rejected", newHub(5 * time.Minute).WithLockRefreshInterval(150 * time.Second), 100 * time.Second},
+	}
+	for _, tc := range cases {
+		if got := tc.hub.LockRefreshInterval(); got != tc.want {
+			t.Errorf("%s: LockRefreshInterval = %s, want %s", tc.name, got, tc.want)
+		}
+	}
+}

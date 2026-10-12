@@ -629,6 +629,9 @@ func (s *ServiceContainer) ProxyHub() *proxydomain.ProxyHub {
 	}
 	hub := proxydomain.NewProxyHub(repo, lockTTL, s.destinationCheckerUnlocked(),
 		s.proxyConsumerCooldownUnlocked(), s.proxyScanPolicyUnlocked())
+	if cfg := s.configUnlocked().Proxy; cfg != nil {
+		hub.WithLockRefreshInterval(cfg.Consumer.LockRefreshInterval)
+	}
 	s.mu.Unlock()
 	return hub
 }

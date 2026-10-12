@@ -31,7 +31,7 @@ Previous versions used MySQL, then SQLite. The project now runs on PostgreSQL. T
 
 **Proxy accessors:**
 - `ProxyRepository()` — proxy persistence layer; the returned adapter serves both `contract.ProxyRepository` and the scan-store contract (`contract.ProxyScanStore`) used by the scanner
-- `ProxyHub()` — creates a proxy acquisition hub from `[proxy.consumer].lock_ttl`, the destination checker, the destination cooldown floor and the shared scan policy. The owner is constructed by the CLI command (e.g. `census-consume-<hostname>-p<pid>-w<workerID>`) and passed to `RunEventsWithProxy`, not to the hub accessor
+- `ProxyHub()` — creates a proxy acquisition hub from `[proxy.consumer].lock_ttl`, the destination checker, the destination cooldown floor, `[proxy.consumer].lock_refresh_interval` and the shared scan policy. The owner is constructed by the CLI command (e.g. `census-consume-<hostname>-p<pid>-w<workerID>`) and passed to `RunEventsWithProxy`, not to the hub accessor
 - `ProxyCensusHandlers(lodestone, rateLimiter)` — handler registry wired to a proxy-aware Lodestone client. Used by `consume --proxy` — each goroutine creates its own handlers with its own proxy-aware client
 - `ProxyScrapeProvider()` / `GeonodeProvider()` — proxy discovery providers
 - `ProxyChecker()` — general availability checker: proxied GET against the configured health target (`[proxy].test_url`, default The Lodestone) requiring HTTP 200 and a complete non-empty body; used by the scan worker for every general check, so an active proxy is proven usable for Lodestone traffic
