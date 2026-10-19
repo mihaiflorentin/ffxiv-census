@@ -1050,6 +1050,21 @@ func (r *CharacterRepository) IDSweepCursor(ctx context.Context) (uint32, error)
 	return uint32(nextID), nil
 }
 
+// RewindIDSweepCursor moves the cursor back to next via a compare-and-set; a
+// stale rewind (cursor no longer equal to expected) changes nothing.
+func (r *CharacterRepository) RewindIDSweepCursor(ctx context.Context, expected, next uint32) error {
+	if next == 0 {
+		return fmt.Errorf("invalid id sweep cursor rewind: %d -> %d", expected, next)
+	}
+	if _, err := r.driver.Execute(ctx, `
+		UPDATE id_sweep_state
+		SET next_id = $1, updated_at = NOW()
+		WHERE singleton = TRUE AND next_id = $2`, next, expected); err != nil {
+		return fmt.Errorf("rewind id sweep cursor: %w", err)
+	}
+	return nil
+}
+
 func (r *CharacterRepository) AdvanceIDSweepCursor(ctx context.Context, expected, next uint32) error {
 	if expected == 0 || next <= expected {
 		return fmt.Errorf("invalid id sweep cursor advance: %d -> %d", expected, next)

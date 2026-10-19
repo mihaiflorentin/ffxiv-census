@@ -193,6 +193,31 @@ func TestCharacterRepository_IDSweepCursorNeverRewinds(t *testing.T) {
 	}
 }
 
+func TestCharacterRepository_RewindIDSweepCursor(t *testing.T) {
+	driver := newTestDriver(t)
+	repo := repository.NewCharacterRepository(driver)
+	ctx := context.Background()
+
+	if _, err := repo.IDSweepCursor(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AdvanceIDSweepCursor(ctx, 1, 501); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.RewindIDSweepCursor(ctx, 1, 10); err != nil {
+		t.Fatal("stale rewind should be a no-op:", err)
+	}
+	if got, _ := repo.IDSweepCursor(ctx); got != 501 {
+		t.Fatalf("stale rewind moved cursor to %d, want 501", got)
+	}
+	if err := repo.RewindIDSweepCursor(ctx, 501, 10); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := repo.IDSweepCursor(ctx); got != 10 {
+		t.Fatalf("cursor = %d, want 10", got)
+	}
+}
+
 func TestCharacterRepository_ListAndCount(t *testing.T) {
 	driver := newTestDriver(t)
 	repo := repository.NewCharacterRepository(driver)

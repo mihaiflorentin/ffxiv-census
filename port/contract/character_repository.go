@@ -125,4 +125,8 @@ type CharacterRepository interface {
 	// expected. A stale advance is idempotent when the stored cursor is already
 	// at or beyond next, and must never move the cursor backward.
 	AdvanceIDSweepCursor(ctx context.Context, expected, next uint32) error
+	// RewindIDSweepCursor moves the cursor back to next only when it still
+	// equals expected; a stale rewind is a no-op. Used when the cursor has run
+	// past the live ID frontier.
+	RewindIDSweepCursor(ctx context.Context, expected, next uint32) error
 }

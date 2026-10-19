@@ -196,7 +196,7 @@ workers:
     # --- Proxy consumers (per-event-type with proxy rotation) ---
     - name: proxy-id-sweep
       metricsPort: 9090
-      replicaCount: 2
+      replicaCount: 1
       command:
         - /app/ffxiv-census
         - consume
@@ -234,7 +234,7 @@ workers:
           value: "2"
     - name: proxy-achievement-census
       metricsPort: 9090
-      replicaCount: 2
+      replicaCount: 1
       command:
         - /app/ffxiv-census
         - consume
@@ -327,7 +327,7 @@ cronjobs:
         - id-sweep
         - --auto
         - --count
-        - "1200"
+        - "50"
         - --chunk-size
         - "1"
 

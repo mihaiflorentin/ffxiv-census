@@ -306,7 +306,7 @@ func TestWorldDrilldownHandler(t *testing.T) {
 	}
 }
 
-func TestDashboardHandler_SyncNotice(t *testing.T) {
+func TestDashboardHandler_NoSyncNotice(t *testing.T) {
 	rig := newTestRig(t)
 
 	req := httptest.NewRequest(http.MethodGet, "/ui/dashboard", nil)
@@ -316,16 +316,8 @@ func TestDashboardHandler_SyncNotice(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
 	}
-
-	body := rec.Body.String()
-	if !strings.Contains(body, "Data sync in progress") {
-		t.Errorf("expected body to contain 'Data sync in progress', got:\n%s", body)
-	}
-	if !strings.Contains(body, "January 2027") {
-		t.Errorf("expected body to contain 'January 2027', got:\n%s", body)
-	}
-	if !strings.Contains(body, `class="alert alert-info"`) {
-		t.Errorf("expected body to contain 'alert alert-info', got:\n%s", body)
+	if strings.Contains(rec.Body.String(), "Data sync in progress") {
+		t.Error("dashboard still shows the data sync notice")
 	}
 }
 

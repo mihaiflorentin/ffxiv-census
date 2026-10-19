@@ -107,6 +107,9 @@ The auto-forward cursor initializes from `MAX(characters.id) + 1` on first use a
 then advances independently of discoveries, so an empty range cannot pin later
 cron runs to the same IDs. It advances only after every queue publish succeeds;
 a partial failure safely retries the full range on the next run.
+It never runs more than `--lookahead` IDs (default 10000) past the highest stored
+ID; past that frontier it rewinds to `MAX(characters.id) + 1`, so newly created
+characters keep being found.
 
 #### `publish character-census`
 Enqueues the oldest `last_census_at` live characters (NULL first) for re-census. Deleted characters are skipped. By default (`--older-than 0`), all live characters are eligible and results are ordered oldest-first; pass a positive `--older-than` to filter by age. Each run also re-probes a small batch of deleted characters so that ones that come back are found: `--deleted-limit` (default 10, `0` disables) caps the batch and `--deleted-older-than` (default `720h`) is how long a character must have been deleted before it is re-probed.

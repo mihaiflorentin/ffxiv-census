@@ -90,13 +90,22 @@ func publishAll(q contract.Queue, logger contract.Logger, ctx context.Context, j
 }
 
 type idSweepCursor interface {
+	MaxID(ctx context.Context) (uint32, error)
 	IDSweepCursor(ctx context.Context) (uint32, error)
 	AdvanceIDSweepCursor(ctx context.Context, expected, next uint32) error
+	RewindIDSweepCursor(ctx context.Context, expected, next uint32) error
 }
 
-func publishAutoIDSweep(ctx context.Context, cursor idSweepCursor, q contract.Queue, logger contract.Logger, count, chunkSize uint32, source string) error {
+// publishAutoIDSweep probes the newest IDs. The cursor never runs more than
+// lookahead IDs past the highest stored character (the frontier); once it
+// passes the frontier it rewinds to MaxID + 1, so characters created after a
+// pass are picked up on the next one.
+func publishAutoIDSweep(ctx context.Context, cursor idSweepCursor, q contract.Queue, logger contract.Logger, count, chunkSize, lookahead uint32, source string) error {
 	if count == 0 {
 		return fmt.Errorf("--count / --batch-size must be > 0")
+	}
+	if lookahead == 0 {
+		return fmt.Errorf("--lookahead must be > 0")
 	}
 	from, err := cursor.IDSweepCursor(ctx)
 	if err != nil {
@@ -105,7 +114,22 @@ func publishAutoIDSweep(ctx context.Context, cursor idSweepCursor, q contract.Qu
 	if from == 0 || count > ^uint32(0)-from {
 		return fmt.Errorf("id sweep range overflows uint32: from=%d count=%d", from, count)
 	}
-	to := from + count - 1
+	maxID, err := cursor.MaxID(ctx)
+	if err != nil {
+		return fmt.Errorf("lookup max character id: %w", err)
+	}
+	frontier := ^uint32(0)
+	if lookahead <= ^uint32(0)-maxID {
+		frontier = maxID + lookahead
+	}
+	if from > frontier {
+		if err := cursor.RewindIDSweepCursor(ctx, from, maxID+1); err != nil {
+			return fmt.Errorf("rewind id sweep cursor to %d: %w", maxID+1, err)
+		}
+		logger.InfoContext(ctx, "publish.id_sweep.rewound", slog.Uint64("from_id", uint64(from)), slog.Uint64("next_id", uint64(maxID+1)))
+		from = maxID + 1
+	}
+	to := min(from+count-1, frontier)
 	next := to + 1
 	jobs := buildIDSweepJobs(from, to, chunkSize, source)
 	if _, err := publishAll(q, logger, ctx, jobs); err != nil {
@@ -219,6 +243,7 @@ var publishIDSweepCmd = &cobra.Command{
 		daemon, _ := cmd.Flags().GetBool("daemon")
 		daemonInterval, _ := cmd.Flags().GetDuration("daemon-interval")
 		minID, _ := cmd.Flags().GetUint32("min-id")
+		lookahead, _ := cmd.Flags().GetUint32("lookahead")
 		if daemon && daemonInterval <= 0 {
 			return fmt.Errorf("invalid --daemon-interval %v: must be positive", daemonInterval)
 		}
@@ -248,7 +273,7 @@ var publishIDSweepCmd = &cobra.Command{
 			if fillGaps {
 				return publishFillGapsIDSweep(cmd.Context(), repo, q, logger, count, chunkSize, source, minID)
 			} else if auto || (from == 0 && to == 0) {
-				return publishAutoIDSweep(cmd.Context(), repo, q, logger, count, chunkSize, source)
+				return publishAutoIDSweep(cmd.Context(), repo, q, logger, count, chunkSize, lookahead, source)
 			} else {
 				maxIDFunc := func() (uint32, error) {
 					return repo.MaxID(cmd.Context())
@@ -490,6 +515,7 @@ func init() {
 	publishIDSweepCmd.Flags().Bool("fill-gaps", false, "scan unscanned holes between 1 and MaxID")
 	publishIDSweepCmd.Flags().Bool("daemon", false, "run continuous auto-sweep loop")
 	publishIDSweepCmd.Flags().Duration("daemon-interval", 30*time.Second, "tick interval for daemon checks")
+	publishIDSweepCmd.Flags().Uint32("lookahead", 10000, "with --auto, how far past the highest stored ID to probe before rewinding to it")
 	publishIDSweepCmd.Flags().Uint32("min-id", 0, "manual gap scan start for --fill-gaps (skips the persistent cursor)")
 	publishCmd.AddCommand(publishCharacterCensusCmd)
 	publishCharacterCensusCmd.Flags().Duration("older-than", 0, "positive duration filters by age; zero or negative selects oldest entries without age cutoff")

@@ -851,4 +851,16 @@ func (f *CharacterRepository) AdvanceIDSweepCursor(ctx context.Context, expected
 	return fmt.Errorf("id sweep cursor changed concurrently: expected %d, current %d, next %d", expected, f.idSweepCursor, next)
 }
 
+func (f *CharacterRepository) RewindIDSweepCursor(ctx context.Context, expected, next uint32) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if next == 0 {
+		return fmt.Errorf("invalid id sweep cursor rewind: %d -> %d", expected, next)
+	}
+	if f.idSweepCursor == expected {
+		f.idSweepCursor = next
+	}
+	return nil
+}
+
 var _ contract.CharacterRepository = (*CharacterRepository)(nil)

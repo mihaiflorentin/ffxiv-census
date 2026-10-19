@@ -360,7 +360,10 @@ The automatic ID-sweep publisher persists its next unscanned ID in
 `id_sweep_state`. After every chunk in a range receives broker confirmation, the
 cursor advances beyond that range even when no character was found. A partial
 publish failure does not advance it, so the next invocation retries rather than
-leaving an ID hole. Completion logs expose `from_id`, `to_id`, and `next_id`.
+leaving an ID hole. The cursor stays within `--lookahead` IDs (default 10000)
+of the highest stored character; once it passes that frontier it rewinds to
+`MAX(characters.id) + 1` (logged as `publish.id_sweep.rewound`). Completion logs
+expose `from_id`, `to_id`, and `next_id`.
 
 ## Contract
 

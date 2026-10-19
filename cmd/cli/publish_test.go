@@ -196,7 +196,19 @@ func (q *errorQueue) Close() error                                       { retur
 
 type fakeIDSweepCursor struct {
 	next         uint32
+	maxID        uint32
 	advanceCalls [][2]uint32
+}
+
+func (f *fakeIDSweepCursor) MaxID(context.Context) (uint32, error) {
+	return f.maxID, nil
+}
+
+func (f *fakeIDSweepCursor) RewindIDSweepCursor(_ context.Context, expected, next uint32) error {
+	if f.next == expected {
+		f.next = next
+	}
+	return nil
 }
 
 func (f *fakeIDSweepCursor) IDSweepCursor(context.Context) (uint32, error) {
@@ -213,13 +225,13 @@ func (f *fakeIDSweepCursor) AdvanceIDSweepCursor(_ context.Context, expected, ne
 }
 
 func TestPublishAutoIDSweep_AdvancesAcrossEmptyDiscoveryBatches(t *testing.T) {
-	cursor := &fakeIDSweepCursor{next: 1584839}
+	cursor := &fakeIDSweepCursor{next: 1584839, maxID: 1584838}
 	q := &errorQueue{}
 	var logs bytes.Buffer
 	logger := slog.New(slog.NewTextHandler(&logs, nil))
 
 	for range 2 {
-		if err := publishAutoIDSweep(context.Background(), cursor, q, logger, 550, 550, "auto"); err != nil {
+		if err := publishAutoIDSweep(context.Background(), cursor, q, logger, 550, 550, 10000, "auto"); err != nil {
 			t.Fatalf("publishAutoIDSweep: %v", err)
 		}
 	}
@@ -248,11 +260,11 @@ func TestPublishAutoIDSweep_AdvancesAcrossEmptyDiscoveryBatches(t *testing.T) {
 }
 
 func TestPublishAutoIDSweep_PublishFailureDoesNotAdvanceCursor(t *testing.T) {
-	cursor := &fakeIDSweepCursor{next: 1001}
+	cursor := &fakeIDSweepCursor{next: 1001, maxID: 1000}
 	q := &errorQueue{failOn: 2}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	err := publishAutoIDSweep(context.Background(), cursor, q, logger, 300, 100, "auto")
+	err := publishAutoIDSweep(context.Background(), cursor, q, logger, 300, 100, 10000, "auto")
 	if err == nil {
 		t.Fatal("expected publish error")
 	}
@@ -262,10 +274,49 @@ func TestPublishAutoIDSweep_PublishFailureDoesNotAdvanceCursor(t *testing.T) {
 }
 
 func TestPublishAutoIDSweep_RejectsUint32Overflow(t *testing.T) {
-	cursor := &fakeIDSweepCursor{next: ^uint32(0) - 4}
-	err := publishAutoIDSweep(context.Background(), cursor, &errorQueue{}, slog.New(slog.NewTextHandler(io.Discard, nil)), 10, 1, "auto")
+	cursor := &fakeIDSweepCursor{next: ^uint32(0) - 4, maxID: ^uint32(0) - 5}
+	err := publishAutoIDSweep(context.Background(), cursor, &errorQueue{}, slog.New(slog.NewTextHandler(io.Discard, nil)), 10, 1, 10000, "auto")
 	if err == nil {
 		t.Fatal("expected overflow error")
+	}
+}
+
+func TestPublishAutoIDSweep_ClampsBatchAtFrontier(t *testing.T) {
+	cursor := &fakeIDSweepCursor{next: 1095, maxID: 1000}
+	q := &errorQueue{}
+
+	if err := publishAutoIDSweep(context.Background(), cursor, q, slog.New(slog.NewTextHandler(io.Discard, nil)), 50, 1, 100, "auto"); err != nil {
+		t.Fatalf("publishAutoIDSweep: %v", err)
+	}
+
+	if len(q.jobs) != 6 {
+		t.Fatalf("published jobs = %d, want 6 (IDs 1095..1100)", len(q.jobs))
+	}
+	if cursor.next != 1101 {
+		t.Fatalf("cursor = %d, want 1101", cursor.next)
+	}
+}
+
+func TestPublishAutoIDSweep_RewindsToNewestCharacterPastFrontier(t *testing.T) {
+	cursor := &fakeIDSweepCursor{next: 67834638, maxID: 62692885}
+	q := &errorQueue{}
+
+	if err := publishAutoIDSweep(context.Background(), cursor, q, slog.New(slog.NewTextHandler(io.Discard, nil)), 50, 50, 10000, "auto"); err != nil {
+		t.Fatalf("publishAutoIDSweep: %v", err)
+	}
+
+	if len(q.jobs) != 1 {
+		t.Fatalf("published jobs = %d, want 1", len(q.jobs))
+	}
+	var payload handler.IDSweepPayload
+	if err := json.Unmarshal(q.jobs[0].Payload, &payload); err != nil {
+		t.Fatal(err)
+	}
+	if payload.From != 62692886 || payload.To != 62692935 {
+		t.Errorf("range = [%d,%d], want [62692886,62692935]", payload.From, payload.To)
+	}
+	if cursor.next != 62692936 {
+		t.Fatalf("cursor = %d, want 62692936", cursor.next)
 	}
 }
 

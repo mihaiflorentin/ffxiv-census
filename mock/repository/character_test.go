@@ -38,6 +38,30 @@ func TestMockCharacterRepository_IDSweepCursor(t *testing.T) {
 	}
 }
 
+func TestMockCharacterRepository_RewindIDSweepCursor(t *testing.T) {
+	repo := NewCharacterFake()
+	ctx := context.Background()
+	if _, err := repo.IDSweepCursor(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AdvanceIDSweepCursor(ctx, 1, 500); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.RewindIDSweepCursor(ctx, 1, 10); err != nil {
+		t.Fatalf("stale rewind should be a no-op: %v", err)
+	}
+	if err := repo.RewindIDSweepCursor(ctx, 500, 10); err != nil {
+		t.Fatal(err)
+	}
+	got, err := repo.IDSweepCursor(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != 10 {
+		t.Fatalf("cursor = %d, want 10", got)
+	}
+}
+
 func TestMockCharacterRepository_ListFilter(t *testing.T) {
 	repo := NewCharacterFake()
 	ctx := context.Background()
