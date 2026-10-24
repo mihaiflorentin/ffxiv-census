@@ -103,6 +103,7 @@ func TestSitemapHandler(t *testing.T) {
 		base + "/ui/expansions",
 		base + "/ui/methodology",
 		base + "/ui/privacy",
+		base + "/ui/rankings",
 		base + "/ui/worlds/Balmung",
 		base + "/ui/worlds/Ragnarok",
 	}
@@ -139,6 +140,7 @@ func TestSitemapHandler_DegradedStillServesStaticURLs(t *testing.T) {
 		base + "/ui/expansions",
 		base + "/ui/methodology",
 		base + "/ui/privacy",
+		base + "/ui/rankings",
 	}
 
 	// Degraded mode must still answer 200: nil stats service...

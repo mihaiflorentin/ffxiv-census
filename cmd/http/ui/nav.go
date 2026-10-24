@@ -15,6 +15,7 @@ type NavItem struct {
 var primaryNav = []NavItem{
 	{Key: "dashboard", Label: "Dashboard", Href: "/"},
 	{Key: "worlds", Label: "Worlds", Href: "/ui/worlds"},
+	{Key: "rankings", Label: "Rankings", Href: "/ui/rankings"},
 	{Key: "races", Label: "Races", Href: "/ui/races"},
 	{Key: "grand-companies", Label: "Grand Companies", Href: "/ui/grand-companies"},
 	{Key: "expansions", Label: "Expansions", Href: "/ui/expansions"},

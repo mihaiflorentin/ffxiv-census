@@ -21,6 +21,8 @@ type UIController struct {
 	baseURL          string
 	pageTemplates    map[string]*template.Template
 	partialTemplates map[string]*template.Template
+	// rankings memoises the Rankings boards per snapshot.
+	rankings *census.RankingsMemo
 }
 
 // NewUIController constructs a new UI controller.
@@ -32,6 +34,7 @@ func NewUIController(svc *census.Service, q contract.Queue, stats *census.UIStat
 		baseURL:          strings.TrimRight(baseURL, "/"),
 		pageTemplates:    make(map[string]*template.Template),
 		partialTemplates: make(map[string]*template.Template),
+		rankings:         census.NewRankingsMemo(),
 	}
 	for _, page := range []string{
 		"templates/dashboard.html",
@@ -42,6 +45,7 @@ func NewUIController(svc *census.Service, q contract.Queue, stats *census.UIStat
 		"templates/expansions.html",
 		"templates/methodology.html",
 		"templates/privacy.html",
+		"templates/rankings.html",
 		"templates/character.html",
 		"templates/characters_list.html",
 		notFoundTemplate,
