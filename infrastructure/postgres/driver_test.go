@@ -52,7 +52,11 @@ func TestMigrateUpWaitsForTheDatabaseMigrationLock(t *testing.T) {
 		t.Fatalf("MigrateUp after the lock was released: %v", err)
 	}
 	var held int
-	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory' AND classid::bigint = $1 AND objid::bigint = $2`,
+	// pg_locks is cluster-wide; other packages migrate their own temporary
+	// databases concurrently, so count only this database's holders.
+	if err := db.QueryRowContext(ctx, `SELECT count(*) FROM pg_locks WHERE locktype = 'advisory'
+		AND database = (SELECT oid FROM pg_database WHERE datname = current_database())
+		AND classid::bigint = $1 AND objid::bigint = $2`,
 		postgres.MigrationLockID>>32, postgres.MigrationLockID&0xffffffff).Scan(&held); err != nil {
 		t.Fatal(err)
 	}
