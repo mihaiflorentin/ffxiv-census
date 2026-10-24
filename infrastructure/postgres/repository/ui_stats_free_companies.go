@@ -274,8 +274,8 @@ func readFreeCompanyNames(ctx context.Context, tx *sql.Tx, ids []string) (map[st
 	return names, nil
 }
 
-// freeCompanyCompanies counts the companies stored across every world.
-func freeCompanyCompanies(boards *contract.StatsFreeCompanies) int64 {
+// storedFreeCompanyCount is how many Free Companies the boards store across every world.
+func storedFreeCompanyCount(boards *contract.StatsFreeCompanies) int64 {
 	var n int64
 	for _, w := range boards.Worlds {
 		n += int64(len(w.Companies))
@@ -304,7 +304,7 @@ func publishFreeCompanyBoards(ctx context.Context, tx *sql.Tx, snapshot *contrac
 			refresh_duration_ms = excluded.refresh_duration_ms,
 			payload = excluded.payload`,
 		freeCompaniesSnapshotKey, snapshot.SchemaVersion, boards.BuiltAt, boards.ActivitySince, snapshot.MaxLevel,
-		freeCompanyCompanies(boards), duration.Milliseconds(), payload); err != nil {
+		storedFreeCompanyCount(boards), duration.Milliseconds(), payload); err != nil {
 		return fmt.Errorf("publish Free Company boards: %w", err)
 	}
 	return nil

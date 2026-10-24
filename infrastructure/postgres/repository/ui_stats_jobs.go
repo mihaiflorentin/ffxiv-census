@@ -15,9 +15,9 @@ import (
 // bit) and counts the characters whose masks are set. It never reads the
 // job table. The section is kept per world only.
 
-// fineExtra adds columns to a fine-grain query after the fineCounts columns:
+// extraColumnScanner scans the columns a fine-grain query carries after the fineCounts columns:
 // dest returns fresh scan targets for one row and add folds the scanned row in.
-type fineExtra interface {
+type extraColumnScanner interface {
 	dest() []any
 	add(key fineKey, counts fineCounts)
 }
