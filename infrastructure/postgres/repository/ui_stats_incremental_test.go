@@ -27,6 +27,7 @@ func comparableSnapshot(s *contract.UIStatsSnapshot) *contract.UIStatsSnapshot {
 	}
 	c.PrivacyBuiltAt = time.Time{}
 	c.FreeCompaniesBuiltAt = time.Time{}
+	c.LevelsBuiltAt = time.Time{}
 	c.Groups = append([]contract.ScopedGroupCount(nil), s.Groups...)
 	sort.Slice(c.Groups, func(i, j int) bool {
 		a, b := c.Groups[i], c.Groups[j]

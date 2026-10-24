@@ -63,12 +63,13 @@ func runRefreshUIStats(mode contract.UIStatsRefreshMode) error {
 }
 
 // uiStatsRefreshOptions builds a refresh request from the census service's
-// configured windows and maximum level.
+// configured windows, maximum level and expansions (the level bands).
 func uiStatsRefreshOptions(svc *census.Service, timeout time.Duration, mode contract.UIStatsRefreshMode) contract.UIStatsRefreshOptions {
 	return contract.UIStatsRefreshOptions{
 		ActivitySince:           svc.ActivitySince(),
 		NewCharactersWindowDays: census.WindowDays(svc.NewCharactersWindow()),
 		MaxLevel:                svc.MaxLevel(),
+		LevelBands:              census.LevelBands(svc.Expansions(), svc.MaxLevel()),
 		Timeout:                 timeout,
 		Mode:                    mode,
 	}

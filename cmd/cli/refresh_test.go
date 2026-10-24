@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -50,6 +51,16 @@ func TestUIStatsRefreshOptionsCarryTheServiceWindows(t *testing.T) {
 	}
 	if opts.MaxLevel != 100 || opts.Timeout != time.Hour || opts.Mode != contract.UIStatsRefreshIncremental {
 		t.Fatalf("options = %#v", opts)
+	}
+}
+
+func TestUIStatsRefreshOptionsCarryTheConfiguredLevelBands(t *testing.T) {
+	svc := census.NewService(nil, nil, nil)
+	expansions := append(append([]census.ExpansionConfig(nil), census.DefaultExpansions...), census.ExpansionConfig{Name: "Next", LevelCap: 110})
+	svc.SetConfig(110, expansions)
+	opts := uiStatsRefreshOptions(svc, time.Hour, contract.UIStatsRefreshFull)
+	if want := census.LevelBands(expansions, 110); !reflect.DeepEqual(opts.LevelBands, want) {
+		t.Fatalf("level bands = %v, want %v", opts.LevelBands, want)
 	}
 }
 

@@ -1,7 +1,9 @@
 package repository
 
 import (
+	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
@@ -17,6 +19,9 @@ import (
 //   - A new count (a filtered COUNT or a SUM in the fine-grain query): add a
 //     field to fineCounts, its term to fineCounts.plus, its column to each
 //     fine-grain query and to the Scan in queryFineGrain.
+//   - The level band counts are a variable run of columns (one per band,
+//     see levelCountColumns) ending each fine-grain query's fineCounts
+//     columns; queryFineGrain takes the band count to scan them.
 //   - A new dimension (say Grand Company): add the column to fineKey,
 //     fineGrainKeyColumns, fineGrainGroupBy and the Scan, then one entry in
 //     rollupDimensions. A dimension that only exists globally (a cross such
@@ -48,6 +53,10 @@ type fineCounts struct {
 	Private, Unchecked int64
 	// InFreeCompany is the characters in any Free Company.
 	InFreeCompany int64
+	// NoLevels and Levels are the level band counts (see
+	// levelCountColumns), kept on the summary and the location groups only.
+	NoLevels int64
+	Levels   []int64
 }
 
 func (c fineCounts) plus(o fineCounts) fineCounts {
@@ -55,11 +64,38 @@ func (c fineCounts) plus(o fineCounts) fineCounts {
 		Total: c.Total + o.Total, Active: c.Active + o.Active, MaxLevel: c.MaxLevel + o.MaxLevel,
 		Private: c.Private + o.Private, Unchecked: c.Unchecked + o.Unchecked,
 		InFreeCompany: c.InFreeCompany + o.InFreeCompany,
+		NoLevels:      c.NoLevels + o.NoLevels, Levels: addLevels(c.Levels, o.Levels),
 	}
 }
 
+// levelsAtLeastZero raises negative level band counts to zero. The
+// incremental delta takes a deleted character from the band of its current
+// level, which may not be the band that counted it (it levelled since the
+// nightly rebuild); the band stays at zero until that rebuild.
+func (c fineCounts) levelsAtLeastZero() fineCounts {
+	c.NoLevels = max(c.NoLevels, 0)
+	for i, v := range c.Levels {
+		c.Levels[i] = max(v, 0)
+	}
+	return c
+}
+
+// addLevels adds two runs of level band counts into a new slice.
+func addLevels(a, b []int64) []int64 {
+	if len(a) == 0 && len(b) == 0 {
+		return nil
+	}
+	out := make([]int64, max(len(a), len(b)))
+	copy(out, a)
+	for i, v := range b {
+		out[i] += v
+	}
+	return out
+}
+
 func (c fineCounts) statsSummary() contract.StatsSummary {
-	return contract.StatsSummary{Total: c.Total, Active: c.Active, MaxLevel: c.MaxLevel, Private: c.Private, Unchecked: c.Unchecked, InFreeCompany: c.InFreeCompany}
+	return contract.StatsSummary{Total: c.Total, Active: c.Active, MaxLevel: c.MaxLevel, Private: c.Private, Unchecked: c.Unchecked, InFreeCompany: c.InFreeCompany,
+		Levels: c.Levels, NoLevels: c.NoLevels}
 }
 
 // privacyCountColumns are the achievement privacy counts of a fine-grain
@@ -71,9 +107,46 @@ const privacyCountColumns = `COUNT(*) FILTER (WHERE achievements_private = 1) AS
 // inFreeCompanyColumn counts the characters in any Free Company.
 const inFreeCompanyColumn = `COUNT(*) FILTER (WHERE fc_id IS NOT NULL) AS in_free_company`
 
+// levelCountColumns are the level band counts of a fine-grain query:
+// no_levels (highest job level below the first band) then one count per
+// band, each measure FILTERed by max_job_level against bounds bound as
+// parameters $first, $first+1, ... (returned as args, in order). measure is
+// the aggregate counted ("COUNT(*)", or "SUM(sign)" over a delta).
+func levelCountColumns(measure string, bands []contract.StatsLevelBand, first int) (string, []any) {
+	var cols []string
+	var args []any
+	param := func(v uint32) string {
+		args = append(args, int64(v))
+		return fmt.Sprintf("$%d", first+len(args)-1)
+	}
+	count := func(cond, name string) {
+		cols = append(cols, fmt.Sprintf("COALESCE(%s FILTER (WHERE %s), 0) AS %s", measure, cond, name))
+	}
+	count("max_job_level < "+param(bands[0].Min), "no_levels")
+	for i, b := range bands {
+		name := fmt.Sprintf("level_band_%d", i)
+		if b.Max == 0 {
+			count("max_job_level >= "+param(b.Min), name)
+		} else {
+			count(fmt.Sprintf("max_job_level BETWEEN %s AND %s", param(b.Min), param(b.Max)), name)
+		}
+	}
+	return strings.Join(cols, ",\n\t\t       "), args
+}
+
+// zeroLevelColumns are levelCountColumns' columns as zeros, for a
+// fine-grain query that does not count level bands.
+func zeroLevelColumns(bands int) string {
+	cols := make([]string, bands+1)
+	for i := range cols {
+		cols[i] = "0"
+	}
+	return strings.Join(cols, ", ")
+}
+
 // isLocationGroup reports whether key is a location group (the global-scope
-// region, datacenter or world totals), the only groups that carry the at cap
-// and privacy counts.
+// region, datacenter or world totals), the only groups that carry the at cap,
+// privacy and level band counts.
 func isLocationGroup(key groupKey) bool {
 	if key.Scope != (contract.StatsScope{}) {
 		return false
@@ -90,6 +163,7 @@ func scopedGroupCount(key groupKey, c fineCounts) contract.ScopedGroupCount {
 	g := contract.ScopedGroupCount{Scope: key.Scope, Dimension: key.Dimension, Key: key.Key, Total: c.Total, Active: c.Active}
 	if isLocationGroup(key) {
 		g.MaxLevel, g.Private, g.Unchecked, g.InFreeCompany = c.MaxLevel, c.Private, c.Unchecked, c.InFreeCompany
+		g.Levels, g.NoLevels = c.Levels, c.NoLevels
 	}
 	return g
 }
@@ -164,6 +238,9 @@ func (r *statsRollup) add(k fineKey, c fineCounts) {
 }
 
 func (r *statsRollup) addGroup(key groupKey, c fineCounts) {
+	if !isLocationGroup(key) {
+		c.Levels, c.NoLevels = nil, 0
+	}
 	r.groups[key] = r.groups[key].plus(c)
 }
 

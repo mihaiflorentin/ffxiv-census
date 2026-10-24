@@ -139,7 +139,7 @@ func TestUIStatsRepositoryRefreshAndLoadCurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Summary != (contract.StatsSummary{Total: 3, Active: 2, MaxLevel: 1}) {
+	if s := loaded.Summary; s.Total != 3 || s.Active != 2 || s.MaxLevel != 1 || s.Private != 0 || s.Unchecked != 0 || s.InFreeCompany != 0 {
 		t.Fatalf("summary = %#v", loaded.Summary)
 	}
 	globalRaces := census.SnapshotGroups(loaded, "race", contract.StatsScope{})

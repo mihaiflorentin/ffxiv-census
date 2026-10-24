@@ -903,7 +903,16 @@
       "key": "Chaos",
       "total": 2,
       "active": 1,
-      "max_level": 1
+      "max_level": 1,
+      "levels": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1
+      ]
     },
     {
       "scope": {},
@@ -912,7 +921,17 @@
       "total": 4,
       "active": 2,
       "max_level": 2,
-      "unchecked": 1
+      "unchecked": 1,
+      "levels": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "no_levels": 1
     },
     {
       "scope": {},
@@ -920,7 +939,16 @@
       "key": "Elemental",
       "total": 1,
       "active": 1,
-      "max_level": 1
+      "max_level": 1,
+      "levels": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1
+      ]
     },
     {
       "scope": {},
@@ -928,7 +956,17 @@
       "key": "Light",
       "total": 1,
       "active": 0,
-      "unchecked": 1
+      "unchecked": 1,
+      "levels": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "no_levels": 1
     },
     {
       "scope": {},
@@ -1098,7 +1136,17 @@
       "total": 3,
       "active": 1,
       "max_level": 1,
-      "unchecked": 1
+      "unchecked": 1,
+      "levels": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1
+      ],
+      "no_levels": 1
     },
     {
       "scope": {},
@@ -1106,7 +1154,16 @@
       "key": "JP",
       "total": 1,
       "active": 1,
-      "max_level": 1
+      "max_level": 1,
+      "levels": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1
+      ]
     },
     {
       "scope": {},
@@ -1115,7 +1172,17 @@
       "total": 4,
       "active": 2,
       "max_level": 2,
-      "unchecked": 1
+      "unchecked": 1,
+      "levels": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        2
+      ],
+      "no_levels": 1
     },
     {
       "scope": {},
@@ -1172,7 +1239,17 @@
       "key": "Balmung",
       "total": 3,
       "active": 2,
-      "max_level": 1
+      "max_level": 1,
+      "levels": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        1
+      ],
+      "no_levels": 1
     },
     {
       "scope": {},
@@ -1181,7 +1258,16 @@
       "total": 1,
       "active": 0,
       "max_level": 1,
-      "unchecked": 1
+      "unchecked": 1,
+      "levels": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1
+      ]
     },
     {
       "scope": {},
@@ -1189,7 +1275,17 @@
       "key": "Lich",
       "total": 1,
       "active": 0,
-      "unchecked": 1
+      "unchecked": 1,
+      "levels": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "no_levels": 1
     },
     {
       "scope": {},
@@ -1197,7 +1293,16 @@
       "key": "Ragnarok",
       "total": 2,
       "active": 1,
-      "max_level": 1
+      "max_level": 1,
+      "levels": [
+        0,
+        1,
+        0,
+        0,
+        0,
+        0,
+        1
+      ]
     },
     {
       "scope": {},
@@ -1205,7 +1310,16 @@
       "key": "Tonberry",
       "total": 1,
       "active": 1,
-      "max_level": 1
+      "max_level": 1,
+      "levels": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        1
+      ]
     }
   ],
   "expansions": null,
@@ -1215,7 +1329,17 @@
     "total": 8,
     "active": 4,
     "max_level": 4,
-    "unchecked": 2
+    "unchecked": 2,
+    "levels": [
+      0,
+      1,
+      0,
+      0,
+      0,
+      1,
+      4
+    ],
+    "no_levels": 2
   },
   "jobs": {
     "built_at": "0001-01-01T00:00:00Z",
@@ -1644,5 +1768,42 @@
     ]
   },
   "privacy_built_at": "0001-01-01T00:00:00Z",
-  "free_companies_built_at": "0001-01-01T00:00:00Z"
+  "free_companies_built_at": "0001-01-01T00:00:00Z",
+  "level_bands": [
+    {
+      "name": "A Realm Reborn",
+      "min": 1,
+      "max": 49
+    },
+    {
+      "name": "Heavensward",
+      "min": 50,
+      "max": 59
+    },
+    {
+      "name": "Stormblood",
+      "min": 60,
+      "max": 69
+    },
+    {
+      "name": "Shadowbringers",
+      "min": 70,
+      "max": 79
+    },
+    {
+      "name": "Endwalker",
+      "min": 80,
+      "max": 89
+    },
+    {
+      "name": "Dawntrail",
+      "min": 90,
+      "max": 99
+    },
+    {
+      "name": "Level cap",
+      "min": 100
+    }
+  ],
+  "levels_built_at": "0001-01-01T00:00:00Z"
 }

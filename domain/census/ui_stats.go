@@ -32,7 +32,8 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 		return errors.New("UI statistics summary subset exceeds total")
 	}
 	if !validLocationCounts(snapshot.Summary.Total, snapshot.Summary.MaxLevel, snapshot.Summary.Private, snapshot.Summary.Unchecked) ||
-		!validSubset(snapshot.Summary.InFreeCompany, snapshot.Summary.Total) {
+		!validSubset(snapshot.Summary.InFreeCompany, snapshot.Summary.Total) ||
+		!validLevelCounts(snapshot, snapshot.Summary.NoLevels, snapshot.Summary.Levels) {
 		return errors.New("invalid UI statistics summary privacy counts")
 	}
 	seenGroups := make(map[string]struct{}, len(snapshot.Groups))
@@ -40,6 +41,7 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 		if group.Dimension == "" || group.Total < 0 || group.Active < 0 || group.Active > group.Total ||
 			!validLocationCounts(group.Total, group.MaxLevel, group.Private, group.Unchecked) ||
 			!validSubset(group.InFreeCompany, group.Total) ||
+			!validLevelCounts(snapshot, group.NoLevels, group.Levels) ||
 			group.NewCharacters < 0 || group.NewCharactersPrevious < 0 || !nonNegative(group.NewCharactersWeekly) {
 			return errors.New("invalid UI statistics group")
 		}
@@ -90,6 +92,16 @@ func nonNegative(counts []int64) bool {
 // validSubset reports whether part is a count of some of total's characters.
 func validSubset(part, total int64) bool {
 	return part >= 0 && part <= total
+}
+
+// validLevelCounts reports whether level band counts are none negative and,
+// when present, one per level band of the snapshot. Their sum is not held to
+// the total: the incremental refresh lets it drift until the nightly rebuild.
+func validLevelCounts(snapshot *contract.UIStatsSnapshot, noLevels int64, levels []int64) bool {
+	if noLevels < 0 || !nonNegative(levels) {
+		return false
+	}
+	return len(levels) == 0 || len(levels) == len(snapshot.LevelBands)
 }
 
 // validLocationCounts reports whether the at cap and privacy counts fit

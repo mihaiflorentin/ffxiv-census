@@ -38,6 +38,11 @@ type StatsSummary struct {
 	// InFreeCompany is the characters in any Free Company. Rebuilt nightly
 	// with the Free Company boards; see UIStatsSnapshot.FreeCompaniesBuiltAt.
 	InFreeCompany int64 `json:"in_free_company,omitempty"`
+	// Levels counts the characters per level band (UIStatsSnapshot.LevelBands,
+	// in that order) by highest job level; NoLevels the characters with no
+	// stored job levels. Rebuilt nightly; see UIStatsSnapshot.LevelsBuiltAt.
+	Levels   []int64 `json:"levels,omitempty"`
+	NoLevels int64   `json:"no_levels,omitempty"`
 }
 
 type ScopedGroupCount struct {
@@ -53,6 +58,10 @@ type ScopedGroupCount struct {
 	Private       int64 `json:"private,omitempty"`
 	Unchecked     int64 `json:"unchecked,omitempty"`
 	InFreeCompany int64 `json:"in_free_company,omitempty"`
+	// Levels and NoLevels are the level band counts of the location groups
+	// only; see StatsSummary.
+	Levels   []int64 `json:"levels,omitempty"`
+	NoLevels int64   `json:"no_levels,omitempty"`
 	// NewCharacters and NewCharactersPrevious are set on the global-scope
 	// world groups only (schema 4): characters who earned their first company
 	// chocobo in the current and the previous new-characters window.
@@ -63,6 +72,15 @@ type ScopedGroupCount struct {
 	// covering the current window (census.NewCharactersBounds.Weeks). Set on
 	// the global-scope world groups only (schema 4).
 	NewCharactersWeekly []int64 `json:"new_characters_weekly,omitempty"`
+}
+
+// StatsLevelBand is one level band of the Levels figures: the characters
+// whose highest job level lies in [Min, Max]. Max 0 means no upper bound
+// (the level-cap band). See census.LevelBands.
+type StatsLevelBand struct {
+	Name string `json:"name"`
+	Min  uint32 `json:"min"`
+	Max  uint32 `json:"max,omitempty"`
 }
 
 type ScopedExpansionCount struct {
@@ -107,6 +125,12 @@ type UIStatsSnapshot struct {
 	// Company counts ran. The incremental refresh carries it forward; zero
 	// means there are no Free Company figures yet.
 	FreeCompaniesBuiltAt time.Time `json:"free_companies_built_at"`
+	// LevelBands are the level bands the Levels counts were built with
+	// (census.LevelBands); LevelsBuiltAt is when the full rebuild that
+	// counted them ran. The incremental refresh carries both forward; zero
+	// means the snapshot has no level figures.
+	LevelBands    []StatsLevelBand `json:"level_bands,omitempty"`
+	LevelsBuiltAt time.Time        `json:"levels_built_at"`
 }
 
 // UIStatsRefreshMode selects how a refresh builds the snapshot.
@@ -127,7 +151,11 @@ type UIStatsRefreshOptions struct {
 	// census service holds the default).
 	NewCharactersWindowDays int
 	MaxLevel                uint32
-	Timeout                 time.Duration
+	// LevelBands are the level bands to count (census.LevelBands of the
+	// configured expansions); empty means the default expansions' bands at
+	// MaxLevel.
+	LevelBands []StatsLevelBand
+	Timeout    time.Duration
 	// Mode defaults to UIStatsRefreshFull. An incremental request falls back
 	// to a full rebuild when there is no usable previous snapshot or the
 	// incremental result fails validation.
