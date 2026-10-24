@@ -202,9 +202,9 @@ func WorldsForRegion(region string) []string {
 	return worlds
 }
 
-// canonicalWorld resolves a world name to its canonical spelling,
+// CanonicalWorld resolves a world name to its canonical spelling,
 // case-insensitively; unknown names pass through unchanged.
-func canonicalWorld(world string) string {
+func CanonicalWorld(world string) string {
 	if _, ok := worldDatacenters[world]; ok {
 		return world
 	}

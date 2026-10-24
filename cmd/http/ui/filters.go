@@ -1,9 +1,31 @@
 package ui
 
 import (
+	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
 )
+
+// placeFilter is the region / datacenter / world selection of a request,
+// resolved once to canonical names ("na" -> "NA", "chaos" -> "Chaos") so the
+// figures, pills, selects, chips and scope text all agree. Unknown values
+// pass through unchanged.
+type placeFilter struct {
+	Region     string
+	Datacenter string
+	World      string
+}
+
+func parsePlaceFilter(r *http.Request) placeFilter {
+	q := r.URL.Query()
+	return placeFilter{
+		Region:     census.CanonicalRegion(strings.TrimSpace(q.Get("region"))),
+		Datacenter: census.CanonicalDatacenter(strings.TrimSpace(q.Get("dc"))),
+		World:      census.CanonicalWorld(strings.TrimSpace(q.Get("world"))),
+	}
+}
 
 // FilterBar is the view model of the shared filter bar used by the Races and
 // Worlds pages (templates/components/filters.html). Every control carries a

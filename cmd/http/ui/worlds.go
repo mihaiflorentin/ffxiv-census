@@ -44,8 +44,8 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	selectedRegion := strings.TrimSpace(r.URL.Query().Get("region"))
-	selectedDC := strings.TrimSpace(r.URL.Query().Get("dc"))
+	place := parsePlaceFilter(r)
+	selectedRegion, selectedDC := place.Region, place.Datacenter
 
 	var allWorlds []WorldDetailRow
 	var totalChars, activeChars int64

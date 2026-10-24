@@ -100,9 +100,8 @@ func (c *UIController) Races(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	selectedRegion := strings.TrimSpace(r.URL.Query().Get("region"))
-	selectedDC := strings.TrimSpace(r.URL.Query().Get("dc"))
-	selectedWorld := strings.TrimSpace(r.URL.Query().Get("world"))
+	place := parsePlaceFilter(r)
+	selectedRegion, selectedDC, selectedWorld := place.Region, place.Datacenter, place.World
 
 	scope := contract.StatsScope{}
 	scopeText := "across every region"

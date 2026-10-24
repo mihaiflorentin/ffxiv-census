@@ -182,7 +182,7 @@ func worldSet(scope contract.StatsScope) map[string]struct{} {
 	set := make(map[string]struct{})
 	switch {
 	case scope.World != "":
-		set[canonicalWorld(scope.World)] = struct{}{}
+		set[CanonicalWorld(scope.World)] = struct{}{}
 	case scope.Datacenter != "":
 		for _, world := range WorldsForDatacenter(scope.Datacenter) {
 			set[world] = struct{}{}

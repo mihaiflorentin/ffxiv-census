@@ -169,7 +169,7 @@ func (c *UIController) WorldDrilldown(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	region := strings.TrimSpace(r.URL.Query().Get("region"))
+	region := parsePlaceFilter(r).Region
 	if region == "" {
 		region = "NA"
 	}
