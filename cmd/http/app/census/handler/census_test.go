@@ -109,6 +109,9 @@ func TestCensusController_Latest(t *testing.T) {
 	if body.MaxLevelCharacters != 1 {
 		t.Errorf("max_level_characters = %d, want 1", body.MaxLevelCharacters)
 	}
+	if body.ActivityWindowDays != 90 {
+		t.Errorf("activity_window_days = %d, want the default 90", body.ActivityWindowDays)
+	}
 }
 
 func TestCensusController_LatestUsesStatsSnapshot(t *testing.T) {
@@ -116,7 +119,7 @@ func TestCensusController_LatestUsesStatsSnapshot(t *testing.T) {
 	statsRepo := mockrepo.NewUIStatsFake(&contract.UIStatsSnapshot{
 		SchemaVersion:    contract.UIStatsSchemaVersion,
 		GeneratedAt:      generated,
-		ActivitySince:    generated.Add(-30 * 24 * time.Hour),
+		ActivitySince:    generated.Add(-45 * 24 * time.Hour),
 		MaxLevel:         100,
 		SourceCharacters: 80,
 		Summary:          contract.StatsSummary{Total: 80, Active: 20, MaxLevel: 10},
@@ -130,6 +133,10 @@ func TestCensusController_LatestUsesStatsSnapshot(t *testing.T) {
 	decodeJSON(t, doGET(t, controller.Latest, "/api/v1/census/latest"), &body)
 	if body.TotalCharacters != 80 || body.ActiveCharacters != 20 || body.MaxLevelCharacters != 10 {
 		t.Fatalf("summary = %#v", body)
+	}
+	// The snapshot was built with a 45-day activity window.
+	if body.ActivityWindowDays != 45 {
+		t.Fatalf("activity_window_days = %d, want 45", body.ActivityWindowDays)
 	}
 }
 

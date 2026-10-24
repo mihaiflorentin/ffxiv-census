@@ -81,6 +81,8 @@ func runExport(ctx context.Context, output, format string, useGzip bool, filter 
 	}
 
 	svc := container.Load.CensusService()
+	// "Active" follows the configured census activity window.
+	activeSince := svc.ActivitySince()
 	count := 0
 
 	switch format {
@@ -109,11 +111,7 @@ func runExport(ctx context.Context, output, format string, useGzip bool, filter 
 			if rec.LatestAchievementID != nil {
 				latestAchID = strconv.FormatUint(uint64(*rec.LatestAchievementID), 10)
 			}
-			isActive := false
-			if rec.LatestAchievementAt != nil {
-				cutoff := time.Now().UTC().Add(-30 * 24 * time.Hour)
-				isActive = !rec.LatestAchievementAt.Before(cutoff)
-			}
+			isActive := rec.LatestAchievementAt != nil && !rec.LatestAchievementAt.Before(activeSince)
 			lastCensus := ""
 			if rec.LastCensusAt != nil {
 				lastCensus = rec.LastCensusAt.UTC().Format(time.RFC3339)

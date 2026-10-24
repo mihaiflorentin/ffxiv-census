@@ -224,7 +224,9 @@ func profileToJobs(char *contract.CharacterProfile) []contract.ClassJobRecord {
 	return jobs
 }
 
-const defaultActivityWindow = 30 * 24 * time.Hour
+// defaultActivityWindow is how far back a latest public achievement counts as
+// active. A full census pass takes months, so the window is wide.
+const defaultActivityWindow = 90 * 24 * time.Hour
 
 // defaultPrivateRecheckWindow is how long a character found private is left
 // alone before its achievement census runs again.
@@ -322,7 +324,7 @@ func (s *Service) PrepareMilestoneResults(ctx context.Context, charID uint32, su
 }
 
 // IsActive reports whether a latest-achievement timestamp falls within the
-// census activity window (default 30 days, overridable via SetActivityWindow).
+// census activity window (default 90 days, overridable via SetActivityWindow).
 func (s *Service) IsActive(latestAt time.Time) bool {
 	s.mu.RLock()
 	window := s.activityWindow
@@ -350,6 +352,14 @@ func (s *Service) SetPrivateRecheckWindow(d time.Duration) {
 		s.privateRecheckWindow = d
 		s.mu.Unlock()
 	}
+}
+
+// ActivityWindow returns how far back a latest public achievement counts as
+// active.
+func (s *Service) ActivityWindow() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.activityWindow
 }
 
 // ActivitySince returns the UTC instant marking the start of the activity

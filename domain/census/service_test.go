@@ -322,10 +322,13 @@ func TestService_IsActive(t *testing.T) {
 	svc, _ := newTestService(t)
 	now := time.Now().UTC()
 	if !svc.IsActive(now.Add(-time.Hour)) {
-		t.Error("achievement 1h ago should be active within 30d window")
+		t.Error("achievement 1h ago should be active within the default 90d window")
 	}
-	if svc.IsActive(now.Add(-31 * 24 * time.Hour)) {
-		t.Error("achievement 31d ago should not be active")
+	if !svc.IsActive(now.Add(-60 * 24 * time.Hour)) {
+		t.Error("achievement 60d ago should be active within the default 90d window")
+	}
+	if svc.IsActive(now.Add(-91 * 24 * time.Hour)) {
+		t.Error("achievement 91d ago should not be active")
 	}
 }
 
@@ -1007,5 +1010,16 @@ func TestService_GetCharacter(t *testing.T) {
 	}
 	if missing != nil {
 		t.Errorf("expected nil for missing character, got %+v", missing)
+	}
+}
+
+func TestService_ActivityWindowDefaultsTo90Days(t *testing.T) {
+	svc := NewService(nil, nil, nil)
+	if got := svc.ActivityWindow(); got != 90*24*time.Hour {
+		t.Fatalf("ActivityWindow() = %v, want 90 days", got)
+	}
+	svc.SetActivityWindow(45 * 24 * time.Hour)
+	if got := svc.ActivityWindow(); got != 45*24*time.Hour {
+		t.Fatalf("ActivityWindow() after override = %v, want 45 days", got)
 	}
 }

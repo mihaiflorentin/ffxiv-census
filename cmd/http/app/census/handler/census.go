@@ -51,7 +51,10 @@ func (c *CensusController) Latest(w http.ResponseWriter, r *http.Request) {
 		if total > 0 {
 			ratio = float64(active) / float64(total)
 		}
-		writeJSON(w, http.StatusOK, response.CensusSummary{TotalCharacters: total, ActiveCharacters: active, ActiveRatio: ratio, MaxLevelCharacters: maxLevelCount})
+		writeJSON(w, http.StatusOK, response.CensusSummary{
+			TotalCharacters: total, ActiveCharacters: active, ActiveRatio: ratio, MaxLevelCharacters: maxLevelCount,
+			ActivityWindowDays: census.SnapshotActivityWindowDays(snapshot),
+		})
 		return
 	}
 	if c.svc == nil {
@@ -72,6 +75,7 @@ func (c *CensusController) Latest(w http.ResponseWriter, r *http.Request) {
 		ActiveCharacters:   active,
 		ActiveRatio:        ratio,
 		MaxLevelCharacters: maxLevelCount,
+		ActivityWindowDays: census.WindowDays(c.svc.ActivityWindow()),
 	})
 }
 
@@ -134,7 +138,7 @@ func (c *CensusController) List(w http.ResponseWriter, r *http.Request) {
 	}
 	items := make([]response.CharacterListItem, 0, len(chars))
 	for i := range chars {
-		items = append(items, toCharacterListItem(&chars[i]))
+		items = append(items, toCharacterListItem(&chars[i], c.svc.ActivitySince()))
 	}
 	writeJSON(w, http.StatusOK, response.PaginatedCharacters{
 		Items:  items,
@@ -165,7 +169,7 @@ func (c *CensusController) Get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "character not found")
 		return
 	}
-	writeJSON(w, http.StatusOK, toCharacterDetail(detail))
+	writeJSON(w, http.StatusOK, toCharacterDetail(detail, c.svc.ActivitySince()))
 }
 
 // Breakdown serves GET /api/v1/stats/breakdown?by=race|world|datacenter|region.
@@ -315,12 +319,10 @@ func (c *CensusController) Expansion(w http.ResponseWriter, r *http.Request) {
 
 // toCharacterListItem maps a persisted character record to the API list item.
 // Every field the DTO declares is copied; pointer fields pass through as-is.
-func toCharacterListItem(rec *contract.CharacterRecord) response.CharacterListItem {
-	isActive := false
-	if rec.LatestAchievementAt != nil {
-		cutoff := time.Now().UTC().Add(-30 * 24 * time.Hour)
-		isActive = !rec.LatestAchievementAt.Before(cutoff)
-	}
+// A character is active when its latest achievement is at or after
+// activeSince, the start of the census activity window.
+func toCharacterListItem(rec *contract.CharacterRecord, activeSince time.Time) response.CharacterListItem {
+	isActive := rec.LatestAchievementAt != nil && !rec.LatestAchievementAt.Before(activeSince)
 	return response.CharacterListItem{
 		ID:                  rec.ID,
 		Name:                rec.Name,
@@ -340,9 +342,9 @@ func toCharacterListItem(rec *contract.CharacterRecord) response.CharacterListIt
 }
 
 // toCharacterDetail maps the domain aggregate to the API detail payload.
-func toCharacterDetail(d *census.CharacterDetail) response.CharacterDetail {
+func toCharacterDetail(d *census.CharacterDetail, activeSince time.Time) response.CharacterDetail {
 	out := response.CharacterDetail{
-		Character:  toCharacterListItem(&d.Character),
+		Character:  toCharacterListItem(&d.Character, activeSince),
 		Jobs:       make([]response.CharacterJobDetail, 0, len(d.Jobs)),
 		Milestones: make([]response.CharacterMilestoneDetail, 0, len(d.Milestones)),
 	}
