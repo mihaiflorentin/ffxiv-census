@@ -22,12 +22,20 @@ type statsRepoStub struct {
 	freeCompanies      *contract.StatsFreeCompanies
 	freeCompaniesErr   error
 	freeCompaniesCalls int
+	// freeCompaniesBlock, when set, holds every LoadFreeCompanies until closed.
+	freeCompaniesBlock chan struct{}
 }
 
 func (s *statsRepoStub) LoadFreeCompanies(context.Context) (*contract.StatsFreeCompanies, error) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.freeCompaniesCalls++
+	block := s.freeCompaniesBlock
+	s.mu.Unlock()
+	if block != nil {
+		<-block
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.freeCompaniesErr != nil {
 		return nil, s.freeCompaniesErr
 	}
