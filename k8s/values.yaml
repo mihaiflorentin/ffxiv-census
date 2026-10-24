@@ -315,7 +315,7 @@ cronjobs:
         - publish
         - character-census
         - --limit
-        - "300"
+        - "500"
         - --older-than
         - "0"
 
