@@ -5,7 +5,7 @@
     {{with .Data.RealmTally.Segments}}
     <p class="realm-tally-lede">Split by home region. Select a region to see its worlds.</p>
     <div class="realm-band-wrap">
-        <svg class="realm-band" width="100%" height="56" role="group" aria-label="Population by region">
+        <svg class="realm-band" data-entrance width="100%" height="56" role="group" aria-label="Population by region">
             <rect class="realm-band-track" x="0" y="0" width="100%" height="100%"/>
             {{range .}}
             <a class="realm-segment chart-slot-{{.Slot}}" href="{{.Href}}" aria-label="{{.Name}}: {{formatNumber .Total}} characters, {{.Share}} of the census" data-region="{{.Name}}" data-count="{{formatNumber .Total}}" data-share="{{.Share}}">

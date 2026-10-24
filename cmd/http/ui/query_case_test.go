@@ -49,7 +49,11 @@ func TestFilterQueryValuesAreCaseInsensitive(t *testing.T) {
 func TestLowerCaseRegionMarksItsPillAndChip(t *testing.T) {
 	doc := renderPage(t, "/ui/worlds?region=na")
 	var current []string
-	for _, a := range findAll(doc, byAtom(atom.A)) {
+	forms := findAll(doc, byAtom(atom.Form))
+	if len(forms) != 1 {
+		t.Fatalf("expected one filter form, got %d", len(forms))
+	}
+	for _, a := range findAll(forms[0], byAtom(atom.A)) {
 		if v, _ := attr(a, "aria-current"); v == "true" {
 			current = append(current, textOf(a))
 		}

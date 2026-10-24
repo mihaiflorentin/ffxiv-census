@@ -14,11 +14,13 @@
     <meta name="theme-color" content="#0D1220">
     <link rel="icon" type="image/png" href="/favicon.ico">
     <link rel="preload" href="/ui/assets/fonts/manrope-latin-var.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/ui/assets/fonts/saira-latin-var.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="/ui/assets/styles.css">
     <script src="/ui/assets/htmx.min.js"></script>
     <script src="/ui/assets/chart.umd.min.js"></script>
     <script type="application/json" id="census-taxonomy">{{censusTaxonomy}}</script>
     <script src="/ui/assets/chart-theme.js"></script>
+    <script src="/ui/assets/census.js" defer></script>
 </head>
 <body>
     <a class="skip-link" href="#main">Skip to content</a>
@@ -34,21 +36,10 @@
                 <span class="brand-wordmark">FFXIV Census</span>
             </a>
 
-            <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-controls="primary-nav">
-            <label for="nav-toggle" class="nav-toggle-label">
-                <svg class="nav-toggle-icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" focusable="false">
-                    <path d="M3 5h14M3 10h14M3 15h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                </svg>
-                <span>Menu</span>
-            </label>
-
-            <nav id="primary-nav" class="primary-nav" aria-label="Primary">
+            <nav id="primary-nav" class="primary-nav" aria-label="Primary" data-current-into-view>
                 <ul class="primary-nav-list">
-                    <li><a href="/"{{if eq .ActiveNav "dashboard"}} aria-current="page"{{end}}>Dashboard</a></li>
-                    <li><a href="/ui/races"{{if eq .ActiveNav "races"}} aria-current="page"{{end}}>Races</a></li>
-                    <li><a href="/ui/worlds"{{if eq .ActiveNav "worlds"}} aria-current="page"{{end}}>Worlds</a></li>
-                    <li><a href="/ui/expansions"{{if eq .ActiveNav "expansions"}} aria-current="page"{{end}}>Expansions</a></li>
-                    <li><a href="/ui/methodology"{{if eq .ActiveNav "methodology"}} aria-current="page"{{end}}>Methodology</a></li>
+                    {{range primaryNav}}<li><a href="{{.Href}}"{{if eq $.ActiveNav .Key}} aria-current="page"{{end}}>{{.Label}}</a></li>
+                    {{end}}
                 </ul>
             </nav>
         </div>
@@ -72,6 +63,8 @@
         </div>
         {{end}}
     </main>
+
+    <div id="census-announcer" class="visually-hidden" aria-live="polite"></div>
 
     <footer class="site-footer">
         <div class="site-footer-inner">

@@ -22,7 +22,18 @@ type WorldsViewData struct {
 	Scope   string
 	Worlds  []WorldDetailRow
 	Filters FilterBar
+	// Rank is the measure the rankings are ordered by ("characters" or
+	// "active"); RankSwitch flips between the two.
+	Rank       string
+	RankSwitch Switch
 }
+
+const (
+	worldsRankCharacters = "characters"
+	worldsRankActive     = "active"
+	// worldRankingsRegion is the id of the region the rank switch swaps.
+	worldRankingsRegion = "world-rankings"
+)
 
 // WorldDetailRow represents one row in the global worlds table.
 type WorldDetailRow struct {
@@ -86,8 +97,19 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 		activeChars += wRow.Active
 	}
 
-	sort.Slice(filteredWorlds, func(i, j int) bool {
-		return filteredWorlds[i].Total > filteredWorlds[j].Total
+	rank := worldsRankCharacters
+	if strings.EqualFold(r.URL.Query().Get("sort"), worldsRankActive) {
+		rank = worldsRankActive
+	}
+	sort.SliceStable(filteredWorlds, func(i, j int) bool {
+		a, b := filteredWorlds[i], filteredWorlds[j]
+		if rank == worldsRankActive && a.Active != b.Active {
+			return a.Active > b.Active
+		}
+		if a.Total != b.Total {
+			return a.Total > b.Total
+		}
+		return a.World < b.World
 	})
 
 	var regionList []string
@@ -108,7 +130,7 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 
 	newWindow := census.NewCharactersWindow(snapshot, contract.StatsScope{Region: selectedRegion, Datacenter: selectedDC})
 
-	c.render(w, "templates/worlds.html", statsPageData("Worlds Census", "worlds", "/ui/worlds", "Final Fantasy XIV world rankings: total and active character counts for every world and datacenter, with region filters and 30-day activity ratios.", state, WorldsViewData{
+	data := statsPageData("Worlds Census", "worlds", "/ui/worlds", "Final Fantasy XIV world rankings: total and active character counts for every world and datacenter, with region filters and 30-day activity ratios.", state, WorldsViewData{
 		TotalCharacters:    totalChars,
 		ActiveCharacters:   activeChars,
 		NewCharacters30d:   newWindow.Current,
@@ -118,7 +140,43 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 		SelectedDC:         selectedDC,
 		Worlds:             filteredWorlds,
 		Filters:            worldsFilterBar(regionList, dcList, selectedRegion, selectedDC),
-	}))
+		Rank:               rank,
+		RankSwitch:         worldsRankSwitch(selectedRegion, selectedDC, rank),
+	})
+	if wantsSwitchRegion(r, worldRankingsRegion) {
+		c.renderRegion(w, "templates/worlds.html", "world-rankings", data)
+		return
+	}
+	c.render(w, "templates/worlds.html", data)
+}
+
+// worldsRankSwitch builds the "Characters / Active players" switch for the
+// world rankings. Both links keep the region and datacenter filters.
+func worldsRankSwitch(region, dc, rank string) Switch {
+	href := func(sortBy string) string {
+		q := url.Values{}
+		if region != "" {
+			q.Set("region", region)
+		}
+		if dc != "" {
+			q.Set("dc", dc)
+		}
+		if sortBy != worldsRankCharacters {
+			q.Set("sort", sortBy)
+		}
+		if len(q) == 0 {
+			return "/ui/worlds"
+		}
+		return "/ui/worlds?" + q.Encode()
+	}
+	return Switch{
+		Label:  "Rank worlds by",
+		Target: worldRankingsRegion,
+		Options: []SwitchOption{
+			{Label: "Characters", Href: href(worldsRankCharacters), Current: rank == worldsRankCharacters},
+			{Label: "Active players", Href: href(worldsRankActive), Current: rank == worldsRankActive},
+		},
+	}
 }
 
 // worldsFilterBar builds the Worlds filter bar: region pills (links that drop

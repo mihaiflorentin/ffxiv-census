@@ -147,6 +147,9 @@ func roleColor(role string) string {
 // templateFuncs is the standard FuncMap registered across all UI templates.
 var templateFuncs = template.FuncMap{
 	"censusTaxonomy": censusTaxonomy,
+	"primaryNav":     func() []NavItem { return primaryNav },
+	"nightly":        nightly,
+	"nextRefresh":    nextRefresh,
 	"emptyState":     emptyState,
 	"emptyStateLink": emptyStateLink,
 	"formatNumber":   formatNumber,

@@ -149,19 +149,20 @@ func TestPageShellLandmarks(t *testing.T) {
 			if len(navs) != 1 {
 				t.Fatalf("expected one primary nav in header, got %d", len(navs))
 			}
-			navLinks := map[string]bool{}
+			var navOrder []string
 			var current []string
 			for _, a := range findAll(navs[0], byAtom(atom.A)) {
 				href, _ := attr(a, "href")
-				navLinks[href] = true
+				navOrder = append(navOrder, href)
 				if v, ok := attr(a, "aria-current"); ok && v == "page" {
 					current = append(current, href)
 				}
 			}
-			for _, want := range []string{"/", "/ui/races", "/ui/worlds", "/ui/expansions", "/ui/methodology"} {
-				if !navLinks[want] {
-					t.Errorf("primary nav missing link to %q", want)
-				}
+			// The spec's order is Dashboard, Worlds, Rankings, Races, Grand
+			// Companies, Jobs, Expansions, Methodology; a page is linked only
+			// once it exists.
+			if want := []string{"/", "/ui/worlds", "/ui/races", "/ui/expansions", "/ui/methodology"}; strings.Join(navOrder, " ") != strings.Join(want, " ") {
+				t.Errorf("primary nav links %v, want %v in that order", navOrder, want)
 			}
 			if len(current) != 1 || current[0] != tc.currentNav {
 				t.Errorf("aria-current=page got %v, want only %q", current, tc.currentNav)
@@ -205,44 +206,5 @@ func TestPageShellLandmarks(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-// TestPhoneNavWorksWithoutJavaScript verifies the collapsed phone menu is a
-// native form-control disclosure (a labelled checkbox toggled by its label),
-// so it opens and closes with no script and no inline event handlers.
-func TestPhoneNavWorksWithoutJavaScript(t *testing.T) {
-	rig := newTestRig(t)
-	mux := http.NewServeMux()
-	rig.ctrl.RegisterRoutes(mux)
-
-	doc := parseHTML(t, serveMuxGet(t, mux, "/ui/races").Body.String())
-	header := findAll(doc, byAtom(atom.Header))[0]
-
-	if scripts := findAll(header, byAtom(atom.Script)); len(scripts) > 0 {
-		t.Error("header must not depend on script")
-	}
-	for _, n := range findAll(header, func(*html.Node) bool { return true }) {
-		for _, a := range n.Attr {
-			if strings.HasPrefix(a.Key, "on") {
-				t.Errorf("header element <%s> has inline handler %s", n.Data, a.Key)
-			}
-		}
-	}
-
-	toggles := findAll(header, func(n *html.Node) bool {
-		typ, _ := attr(n, "type")
-		return n.DataAtom == atom.Input && typ == "checkbox"
-	})
-	if len(toggles) != 1 {
-		t.Fatalf("expected one checkbox menu toggle in header, got %d", len(toggles))
-	}
-	id, _ := attr(toggles[0], "id")
-	labels := findAll(header, func(n *html.Node) bool {
-		f, _ := attr(n, "for")
-		return n.DataAtom == atom.Label && f == id && id != ""
-	})
-	if len(labels) != 1 || !strings.Contains(strings.ToLower(textOf(labels[0])), "menu") {
-		t.Fatalf("menu toggle %q needs a visible label naming the menu", id)
 	}
 }
