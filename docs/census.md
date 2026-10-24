@@ -128,7 +128,7 @@ The `CharacterFilter` struct (`port/contract/character_repository.go`) controls 
 | `SortBy` | `string` | Column to sort by: `"id"`, `"name"`, `"world"`, `"created_at"`, `"updated_at"`, `"achievement_points"` |
 | `SortOrder` | `string` | `"asc"` (default) or `"desc"` |
 
-**Active filtering**: To filter by the activity window (e.g. "active in last 30 days"), set `Since` to the window start time. `ActiveOnly` alone does not include the activity window — it only checks `deleted_at IS NULL`.
+**Active filtering**: To filter by the activity window (e.g. "active in the last 90 days"), set `Since` to the window start time. `ActiveOnly` alone does not include the activity window — it only checks `deleted_at IS NULL`.
 
 ## CensusService
 
@@ -141,8 +141,9 @@ The `CharacterFilter` struct (`port/contract/character_repository.go`) controls 
 - `SetPrivateRecheckWindow(d)` — overrides the private recheck window (default 30 days, `[census] private_recheck_days`); a no-op for `d <= 0`.
 - `MaxCharacterID(ctx)` — returns the highest known character ID in the repository (excluding deleted characters), used for auto-discovery sweeps.
 - `MilestoneIDs(ctx)` — returns the set of tracked milestone achievement IDs from the cached registry. Useful for handler-level pre-filtering.
-- `IsActive(latestAt)` — true when the globally latest public achievement is within the activity window (default 30 days, configurable via `SetActivityWindow` / `[census] activity_window_days`). This is an achievement-based signal, not direct login tracking.
+- `IsActive(latestAt)` — true when the globally latest public achievement is within the activity window (default 90 days, configurable via `SetActivityWindow` / `[census] activity_window_days`). This is an achievement-based signal, not direct login tracking. The window is wide because a full census pass takes months: a character's latest achievement is only as recent as the census's last visit.
 - `SetActivityWindow(d)` — overrides the activity window; a no-op for `d <= 0`.
+- `ActivityWindow()` / `ActivitySince()` — the window length and its start (now minus the window). Every "active" figure reads the window from here: the snapshot refresh, the character API's and the exports' `is_active` flag (CLI and HTTP), and the character list's active filter. `census.WindowDays(d)` rounds a window to whole days, and `census.SnapshotActivityWindowDays(snapshot)` reads the window a snapshot was built with (generation time minus `activity_since`).
 - `Summary(ctx)` — total, active, and max-level character counts (`total, active, maxLevelCount, err`) for internal/direct callers. Public aggregate routes use `UIStatsService` instead.
 - `ListCharacters(ctx, filter, limit, offset)` — one page of characters matching `filter` plus the matching count (the HTTP pagination/filtering source).
 - `CharacterDetail(ctx, id)` — character plus jobs and milestones, with the free company when the character is in one; `nil` when the id is unknown.

@@ -219,8 +219,8 @@ The population axis a group is counted along: race, tribe, gender, race-by-gende
 _Avoid_: dimension (bare), grouping
 
 **Activity window**:
-The bounded trailing period, currently thirty days, that defines which characters count as active and bounds the date ranges a statistic may be requested for.
-_Avoid_: 30-day window
+The bounded trailing period, 90 days by default (`[census] activity_window_days`), that defines which characters count as active and bounds the date ranges a statistic may be requested for. It is wide because a full census pass takes months. Copy states its length from the snapshot, never as a literal.
+_Avoid_: 30-day window, 90-day window (the length is configurable)
 
 **New character**:
 The canonical definition of a newly created character: one that has earned the chocobo milestone, counted per UTC day.
