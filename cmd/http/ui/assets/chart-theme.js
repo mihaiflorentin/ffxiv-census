@@ -220,7 +220,9 @@
         d.scale.ticks.padding = 8;
 
         d.elements.line.borderWidth = 2;
-        d.elements.line.tension = 0.3;
+        // Monotone cubic curves never overshoot the data, so a line over sparse
+        // daily counts cannot dip below zero between points.
+        d.elements.line.cubicInterpolationMode = "monotone";
         d.elements.line.borderCapStyle = "round";
         d.elements.line.borderJoinStyle = "round";
         d.elements.point.radius = 0;

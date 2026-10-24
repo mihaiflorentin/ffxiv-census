@@ -41,7 +41,7 @@ type ShareRow struct {
 // TimelineSummary feeds the one-sentence text alternative of the 30-day chart.
 type TimelineSummary struct {
 	Total     int64
-	PeakDate  string
+	PeakDate  string // display date of the busiest day, like "Oct 23"
 	PeakCount int64
 }
 

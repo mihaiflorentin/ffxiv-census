@@ -17,8 +17,9 @@ type Timeline struct {
 	TimelineSummary
 }
 
-// newCharactersTimeline builds the 30 days ending on the snapshot's
-// generation day for scope.
+// newCharactersTimeline builds the 30 complete UTC days before the
+// snapshot's generation day for scope. The generation day itself is still in
+// progress, so including it would end every chart on a false drop.
 func newCharactersTimeline(snapshot *contract.UIStatsSnapshot, scope contract.StatsScope) Timeline {
 	var tl Timeline
 	if snapshot == nil {
@@ -28,9 +29,9 @@ func newCharactersTimeline(snapshot *contract.UIStatsSnapshot, scope contract.St
 	for _, day := range census.SnapshotDaily(snapshot, scope) {
 		daily[day.Day] = day.Count
 	}
-	now := snapshot.GeneratedAt.UTC()
+	lastComplete := snapshot.GeneratedAt.UTC().AddDate(0, 0, -1)
 	for i := 29; i >= 0; i-- {
-		date := now.AddDate(0, 0, -i)
+		date := lastComplete.AddDate(0, 0, -i)
 		day := date.Format("2006-01-02")
 		count := daily[day]
 		tl.Labels = append(tl.Labels, date.Format("Jan 2"))
@@ -38,7 +39,7 @@ func newCharactersTimeline(snapshot *contract.UIStatsSnapshot, scope contract.St
 		tl.Counts = append(tl.Counts, count)
 		tl.Total += count
 		if count > tl.PeakCount {
-			tl.PeakCount, tl.PeakDate = count, day
+			tl.PeakCount, tl.PeakDate = count, date.Format("Jan 2")
 		}
 	}
 	return tl

@@ -106,9 +106,9 @@
                     <caption class="visually-hidden">New characters per day on {{.Data.World}}</caption>
                     <thead><tr><th scope="col">Date</th><th scope="col" class="text-right">New characters</th></tr></thead>
                     <tbody>
-                        {{$counts := .Data.Timeline.Counts}}
+                        {{$counts := .Data.Timeline.Counts}}{{$labels := .Data.Timeline.Labels}}
                         {{range $i, $day := .Data.Timeline.Dates}}
-                        <tr><th scope="row">{{$day}}</th><td class="text-right">{{formatNumber (index $counts $i)}}</td></tr>
+                        <tr><th scope="row"><time datetime="{{$day}}">{{index $labels $i}}</time></th><td class="text-right">{{formatNumber (index $counts $i)}}</td></tr>
                         {{end}}
                     </tbody>
                 </table>
