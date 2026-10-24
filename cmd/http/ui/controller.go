@@ -23,6 +23,8 @@ type UIController struct {
 	partialTemplates map[string]*template.Template
 	// memo memoises the boards and splits derived from each snapshot.
 	memo *census.SnapshotMemo
+	// buildID is part of every page ETag; see uiBuildID.
+	buildID string
 }
 
 // NewUIController constructs a new UI controller.
@@ -35,6 +37,7 @@ func NewUIController(svc *census.Service, q contract.Queue, stats *census.UIStat
 		pageTemplates:    make(map[string]*template.Template),
 		partialTemplates: make(map[string]*template.Template),
 		memo:             census.NewSnapshotMemo(),
+		buildID:          uiBuildID(),
 	}
 	for _, page := range []string{
 		"templates/dashboard.html",
@@ -113,7 +116,7 @@ func (c *UIController) currentStats(w http.ResponseWriter, r *http.Request) (*co
 	w.Header().Set("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
 	w.Header().Set("Vary", "HX-Request, HX-Target, HX-History-Restore-Request, Accept-Encoding")
 	h := fnv.New64a()
-	_, _ = fmt.Fprintf(h, "%d|%s|%s|%s|%s|%s", snapshot.GeneratedAt.UnixNano(), r.URL.Path, r.URL.Query().Encode(), strings.ToLower(r.Header.Get("HX-Request")), r.Header.Get("HX-Target"), strings.ToLower(r.Header.Get("HX-History-Restore-Request")))
+	_, _ = fmt.Fprintf(h, "%s|%d|%s|%s|%s|%s|%s", c.buildID, snapshot.GeneratedAt.UnixNano(), r.URL.Path, r.URL.Query().Encode(), strings.ToLower(r.Header.Get("HX-Request")), r.Header.Get("HX-Target"), strings.ToLower(r.Header.Get("HX-History-Restore-Request")))
 	etag := fmt.Sprintf(`"ui-%x"`, h.Sum64())
 	w.Header().Set("ETag", etag)
 	if r.Header.Get("If-None-Match") == etag {

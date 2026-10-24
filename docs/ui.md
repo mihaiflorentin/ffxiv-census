@@ -88,7 +88,7 @@ stale_warning   = "12h"
 refresh_timeout = "2h"
 ```
 
-Aggregate HTML and HTMX responses include a query-aware `ETag`, `Cache-Control`, and `Vary: HX-Request, HX-Target, HX-History-Restore-Request, Accept-Encoding` (the ETag hashes the same headers, so a switch fragment and its full page never share a cache entry). The page shell displays the snapshot generation time and shows the stale notice when the snapshot is stale (see section 5, Error, stale and empty states, for exactly when). This response contract is suitable for a future reverse proxy such as Varnish without making it a runtime dependency.
+Aggregate HTML and HTMX responses include a query-aware `ETag`, `Cache-Control`, and `Vary: HX-Request, HX-Target, HX-History-Restore-Request, Accept-Encoding` (the ETag hashes the same headers, so a switch fragment and its full page never share a cache entry). The ETag also carries a fingerprint of the running binary (a hash of the executable, falling back to the process start time), so after a deploy a browser never keeps the previous release's markup just because the snapshot is unchanged. The page shell displays the snapshot generation time and shows the stale notice when the snapshot is stale (see section 5, Error, stale and empty states, for exactly when). This response contract is suitable for a future reverse proxy such as Varnish without making it a runtime dependency.
 
 Operational checks:
 
