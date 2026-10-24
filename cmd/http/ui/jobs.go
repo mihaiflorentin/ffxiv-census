@@ -10,7 +10,7 @@ import (
 	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
 )
 
-// armouryRegion is the id of the region the "Levelled / At the level cap"
+// armouryRegion is the id of the region the "Any level / At the level cap"
 // switch swaps.
 const armouryRegion = "armoury"
 
@@ -73,8 +73,8 @@ type JobsViewData struct {
 	Ready    bool
 	Filtered bool
 	Scope    string
-	// Measure is "levelled" or "at-cap"; MeasurePhrase reads "levelled" or
-	// "at the level cap".
+	// Measure is "levelled" (shown as "any level") or "at-cap";
+	// MeasurePhrase reads "at any level" or "at the level cap".
 	Measure       string
 	MeasurePhrase string
 	AtCap         bool
@@ -92,7 +92,7 @@ type JobsViewData struct {
 	Filters             FilterBar
 }
 
-// TopJobsBlock is the world page's most-levelled jobs.
+// TopJobsBlock is the world page's most common jobs at any level.
 type TopJobsBlock struct {
 	Ready bool
 	Jobs  []JobTileView
@@ -115,7 +115,7 @@ func (c *UIController) Jobs(w http.ResponseWriter, r *http.Request) {
 		Filtered:      place != (placeFilter{}),
 		Scope:         placeScope(place.Region, place.Datacenter, place.World),
 		Measure:       string(measure),
-		MeasurePhrase: "levelled",
+		MeasurePhrase: "at any level",
 		AtCap:         measure == census.MeasureAtCap,
 		Switch:        jobsMeasureSwitch(place, measure),
 		Filters:       placeFilterBar("/ui/jobs", "Filter jobs", place),
@@ -179,11 +179,11 @@ func (c *UIController) Jobs(w http.ResponseWriter, r *http.Request) {
 		title = fmt.Sprintf("Jobs - %s", regionDisplayName(place.Region))
 	}
 	c.render(w, "templates/jobs.html", statsPageData(title, "jobs", "/ui/jobs",
-		"Which Final Fantasy XIV jobs characters have levelled and which they have at the level cap, by role, with the tank, healer and DPS balance of every datacenter.",
+		"Which Final Fantasy XIV jobs characters have at any level and which they have at the level cap, by role, with the tank, healer and DPS balance of every datacenter.",
 		state, data))
 }
 
-// jobsMeasureSwitch builds the "Levelled / At the level cap" switch; both
+// jobsMeasureSwitch builds the "Any level / At the level cap" switch; both
 // links keep the location filter.
 func jobsMeasureSwitch(place placeFilter, measure census.ArmouryMeasure) Switch {
 	href := func(m census.ArmouryMeasure) string {
@@ -209,7 +209,7 @@ func jobsMeasureSwitch(place placeFilter, measure census.ArmouryMeasure) Switch 
 		Label:  "Count jobs",
 		Target: armouryRegion,
 		Options: []SwitchOption{
-			{Label: "Levelled", Href: href(census.MeasureLevelled), Current: measure == census.MeasureLevelled},
+			{Label: "Any level", Href: href(census.MeasureLevelled), Current: measure == census.MeasureLevelled},
 			{Label: "At the level cap", Href: href(census.MeasureAtCap), Current: measure == census.MeasureAtCap},
 		},
 	}

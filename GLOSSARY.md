@@ -231,8 +231,12 @@ A character whose census record shows at least one class or job at the current l
 _Avoid_: maxed character, max-level jobs (the census counts characters, not jobs)
 
 **Job bitmask**:
-One of the two 64-bit values stored on each character recording which jobs it has levelled and which it has at their level cap, one bit per job (base classes folded into their jobs; Blue Mage measured against its own lower cap). Empty until computed, by a census write or the one-off backfill.
+One of the two 64-bit values stored on each character recording which jobs it has at any level and which it has at their level cap, one bit per job (base classes folded into their jobs; Blue Mage measured against its own lower cap). Empty until computed, by a census write or the one-off backfill.
 _Avoid_: job flags, job set
+
+**Any level**:
+A job a character has at level 1 or more, the Jobs page's default measure beside "at the level cap". The stored mask and code keep the older name "levelled".
+_Avoid_: levelled (on any page), unlocked
 
 **Job coverage**:
 How many characters the job figures include: those whose job bitmasks were computed when the nightly rebuild ran, out of all characters it counted. Below 100% while the backfill is still running.

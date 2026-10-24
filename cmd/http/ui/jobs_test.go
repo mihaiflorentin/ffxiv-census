@@ -124,14 +124,15 @@ func TestJobsPageShowsTheArmoury(t *testing.T) {
 			t.Errorf("missing the %s role heading", role.Name)
 		}
 	}
-	if got := currentOption(switchOptions(t, doc, "Count jobs")); got != "Levelled" {
-		t.Errorf("current measure = %q, want Levelled", got)
+	if got := currentOption(switchOptions(t, doc, "Count jobs")); got != "Any level" {
+		t.Errorf("current measure = %q, want Any level", got)
 	}
 
 	main := strings.Join(strings.Fields(textOf(findAll(doc, byAtom(atom.Main))[0])), " ")
 	for _, text := range []string{
 		"Rebuilt nightly, last on 24 October 2026",
 		"Party balance at the level cap",
+		"is the job most characters have at any level",
 		"Crystal",
 		"Chaos",
 		"Show the numbers",
@@ -142,6 +143,13 @@ func TestJobsPageShowsTheArmoury(t *testing.T) {
 	}
 	if strings.Contains(main, "older characters are still being added") {
 		t.Error("full coverage must not show the coverage line")
+	}
+	anyLevel := findAll(doc, func(n *html.Node) bool { return n.DataAtom == atom.Th && strings.TrimSpace(textOf(n)) == "Any level" })
+	if len(anyLevel) != 1 {
+		t.Errorf(`the numbers table needs one "Any level" column, got %d`, len(anyLevel))
+	}
+	if strings.Contains(strings.ToLower(main), "levelled") {
+		t.Error(`the Jobs page says "any level", never "levelled"`)
 	}
 	if len(findAll(doc, byAtom(atom.Table))) < 2 {
 		t.Error("the Armoury and the role balance each need a data table")
@@ -192,10 +200,12 @@ func TestJobsPageAtCapSwitchSwapsTheArmoury(t *testing.T) {
 		t.Errorf("at-cap tiles = PLD %q BLM %q DRG %q, want 4, 4, 2", tiles["PLD"], tiles["BLM"], tiles["DRG"])
 	}
 
-	// An unknown measure falls back to levelled.
-	doc := parseHTML(t, serveMuxGet(t, mux, "/ui/jobs?measure=bogus").Body.String())
-	if got := currentOption(switchOptions(t, doc, "Count jobs")); got != "Levelled" {
-		t.Errorf("unknown measure current option = %q, want Levelled", got)
+	// An unknown measure, and the old "levelled" value, fall back to any level.
+	for _, q := range []string{"bogus", "levelled"} {
+		doc := parseHTML(t, serveMuxGet(t, mux, "/ui/jobs?measure="+q).Body.String())
+		if got := currentOption(switchOptions(t, doc, "Count jobs")); got != "Any level" {
+			t.Errorf("measure=%s current option = %q, want Any level", q, got)
+		}
 	}
 }
 
@@ -273,6 +283,10 @@ func TestWorldDetailMostLevelledJobs(t *testing.T) {
 	}
 	if !linksTo(doc, "/ui/jobs?world=Balmung") {
 		t.Error("the block must link to the Jobs page filtered to the world")
+	}
+	world := renderedMain(t, doc)
+	if !strings.Contains(world, "Most common jobs, any level") || strings.Contains(strings.ToLower(world), "levelled") {
+		t.Error(`the world block is "Most common jobs, any level", never "levelled"`)
 	}
 
 	v2 := renderedMain(t, parseHTML(t, serveMuxGet(t, jobsMux(t, jobsSnapshot(2, false, true)), "/ui/worlds/Balmung").Body.String()))

@@ -56,7 +56,7 @@
 
 <section class="panel" aria-labelledby="top-jobs-heading">
     <div class="panel-header">
-        <h2 id="top-jobs-heading" class="panel-title">Most levelled jobs</h2>
+        <h2 id="top-jobs-heading" class="panel-title">Most common jobs, any level</h2>
         <p class="panel-meta"><a href="{{.Data.TopJobs.Href}}">Every job on {{.Data.World}}</a></p>
     </div>
     <div class="panel-body">
@@ -72,7 +72,7 @@
             </li>
             {{end}}
         </ol>
-        <p class="chart-summary">Characters on {{.Data.World}} with each job levelled, as a share of those the job figures cover.</p>
+        <p class="chart-summary">Characters on {{.Data.World}} with each job at any level, as a share of those the job figures cover.</p>
         {{else}}
         {{template "empty-state" (emptyStateLink "No job figures for this world yet." "They appear after the next nightly rebuild." "/ui/jobs" "See every job")}}
         {{end}}

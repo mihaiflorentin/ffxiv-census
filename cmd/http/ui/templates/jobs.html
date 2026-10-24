@@ -1,7 +1,7 @@
 {{define "content"}}
 <div class="page-header">
     <h1 class="page-title">Jobs</h1>
-    <p class="page-desc">Which jobs characters have levelled and which they have at the level cap, {{.Data.Scope}}. Narrow it down by region, datacenter or world.</p>
+    <p class="page-desc">Which jobs characters have at any level and which they have at the level cap, {{.Data.Scope}}. Narrow it down by region, datacenter or world.</p>
 </div>
 
 {{template "filter-bar" .Data.Filters}}
@@ -78,7 +78,7 @@
         {{template "switch" .Data.Switch}}
     </div>
     <div class="panel-body">
-        {{with .Data.Lead}}<p class="armoury-lede">{{if $.Data.AtCap}}{{.Name}} is the job most often at the level cap {{$.Data.Scope}}: {{.Share}} of characters have it there.{{else}}{{.Name}} is the most levelled job {{$.Data.Scope}}: {{.Share}} of characters have levelled it.{{end}}</p>{{end}}
+        {{with .Data.Lead}}<p class="armoury-lede">{{if $.Data.AtCap}}{{.Name}} is the job most often at the level cap {{$.Data.Scope}}: {{.Share}} of characters have it there.{{else}}{{.Name}} is the job most characters have at any level, {{$.Data.Scope}}: {{.Share}} of characters.{{end}}</p>{{end}}
         <div class="armoury" data-entrance="roles">
             <section class="armoury-discipline" aria-labelledby="discipline-war">
                 <h3 id="discipline-war" class="armoury-discipline-name">Disciples of War and Magic</h3>
@@ -95,7 +95,7 @@
             <div class="table-scroll" role="region" aria-label="Characters by job" tabindex="0">
                 <table class="data-table">
                     <caption class="visually-hidden">Characters by job, {{.Data.Scope}}</caption>
-                    <thead><tr><th scope="col">Job</th><th scope="col">Role</th><th scope="col" class="text-right"{{if not .Data.AtCap}} aria-sort="descending"{{end}}>Levelled</th><th scope="col" class="text-right">Share</th><th scope="col" class="text-right"{{if .Data.AtCap}} aria-sort="descending"{{end}}>At the level cap</th><th scope="col" class="text-right">Share</th></tr></thead>
+                    <thead><tr><th scope="col">Job</th><th scope="col">Role</th><th scope="col" class="text-right"{{if not .Data.AtCap}} aria-sort="descending"{{end}}>Any level</th><th scope="col" class="text-right">Share</th><th scope="col" class="text-right"{{if .Data.AtCap}} aria-sort="descending"{{end}}>At the level cap</th><th scope="col" class="text-right">Share</th></tr></thead>
                     <tbody>
                         {{range $role := .Data.Combat}}{{range .Jobs}}{{template "armoury-row" (dict "Job" . "Role" $role.Name)}}{{end}}{{end}}
                         {{range $role := .Data.Crafting}}{{range .Jobs}}{{template "armoury-row" (dict "Job" . "Role" $role.Name)}}{{end}}{{end}}
