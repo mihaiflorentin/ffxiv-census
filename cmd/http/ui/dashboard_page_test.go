@@ -55,12 +55,7 @@ func renderDashboard(t *testing.T) *html.Node {
 
 func TestDashboardHasNoInlineStylesOrEmoji(t *testing.T) {
 	doc := renderDashboard(t)
-
-	for _, n := range findAll(doc, func(*html.Node) bool { return true }) {
-		if _, ok := attr(n, "style"); ok {
-			t.Errorf("<%s> carries an inline style attribute", n.Data)
-		}
-	}
+	assertNoInlineStylesOrEmoji(t, doc)
 	for _, h := range findAll(doc, func(n *html.Node) bool {
 		switch n.DataAtom {
 		case atom.H1, atom.H2, atom.H3, atom.H4, atom.H5, atom.H6:
@@ -71,10 +66,6 @@ func TestDashboardHasNoInlineStylesOrEmoji(t *testing.T) {
 		if containsEmoji(textOf(h)) {
 			t.Errorf("heading contains emoji: %q", textOf(h))
 		}
-	}
-	main := findAll(doc, byAtom(atom.Main))[0]
-	if containsEmoji(textOf(main)) {
-		t.Errorf("dashboard content contains emoji: %q", textOf(main))
 	}
 }
 

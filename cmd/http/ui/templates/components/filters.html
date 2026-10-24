@@ -1,0 +1,43 @@
+{{/*
+Shared filter bar, parsed into every page. The argument is a FilterBar view
+model (filters.go):
+    {{template "filter-bar" .Data.Filters}}
+
+Every control has a visible label. Selects submit the form on change; without
+JavaScript an Apply button appears instead. Pills are links, so they work
+without a form submit.
+*/}}
+{{define "filter-bar"}}
+<form class="filter-bar" method="get" action="{{.Action}}" aria-label="{{.Label}}">
+    {{with .Pills}}
+    <div class="filter-field filter-field-pills">
+        <span class="filter-label" id="{{.ID}}">{{.Label}}</span>
+        <div class="filter-pills" role="group" aria-labelledby="{{.ID}}">
+            {{range .Options}}<a class="filter-pill" href="{{.Href}}"{{if .Current}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}
+        </div>
+    </div>
+    {{end}}
+    {{range .Hidden}}<input type="hidden" name="{{.Name}}" value="{{.Value}}">{{end}}
+    {{range .Selects}}
+    <div class="filter-field">
+        <label class="filter-label" for="{{.ID}}">{{.Label}}</label>
+        <select class="filter-select" id="{{.ID}}" name="{{.Name}}" onchange="this.form.submit()">
+            <option value="">{{.AllLabel}}</option>
+            {{range .Options}}<option value="{{.Value}}"{{if .Selected}} selected{{end}}>{{.Label}}</option>
+            {{end}}
+        </select>
+    </div>
+    {{end}}
+    {{if .Selects}}<noscript><button type="submit" class="btn btn-outline filter-apply">Apply</button></noscript>{{end}}
+</form>
+{{with .Chips}}
+<div class="filter-applied">
+    <ul class="filter-chips" aria-label="Applied filters">
+        {{range .}}
+        <li><a class="filter-chip" href="{{.RemoveHref}}"><span class="visually-hidden">Remove filter </span><span class="filter-chip-name">{{.Label}}:</span> {{.Value}}<svg class="filter-chip-icon" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true" focusable="false"><path d="M3 3l6 6M9 3l-6 6"/></svg></a></li>
+        {{end}}
+    </ul>
+    {{if gt (len .) 1}}<a class="filter-clear" href="{{$.ClearHref}}">Clear all filters</a>{{end}}
+</div>
+{{end}}
+{{end}}

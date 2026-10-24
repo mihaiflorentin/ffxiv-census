@@ -1,32 +1,35 @@
 <!-- Partial: World Drilldown -->
 {{if .Worlds}}
-<div class="drilldown-container">
-    <table class="data-table">
+<div class="table-scroll" role="region" aria-label="Worlds in {{regionName .Region}}" tabindex="0">
+    <table class="data-table data-table-compact">
+        <caption class="visually-hidden">Worlds in {{regionName .Region}}</caption>
         <thead>
             <tr>
-                <th>Datacenter</th>
-                <th>World</th>
-                <th class="text-right">Total</th>
-                <th class="text-right">Active (30d)</th>
-                <th class="text-right">New (30d)</th>
-                <th class="text-right">Active share</th>
+                <th scope="col">World</th>
+                <th scope="col" class="text-right">Characters</th>
+                <th scope="col" class="text-right">Active, 30 days</th>
+                <th scope="col" class="text-right">New, 30 days</th>
+                <th scope="col" class="text-right">Active share</th>
             </tr>
         </thead>
+        {{$dc := ""}}
+        {{range $i, $w := .Worlds}}
+        {{if ne $w.Datacenter $dc}}{{$dc = $w.Datacenter}}{{if $i}}
+        </tbody>
+        {{end}}
         <tbody>
-            {{range .Worlds}}
-            <tr>
-                <td><span class="badge badge-region">{{.Datacenter}}</span></td>
-                <td><strong>{{.World}}</strong></td>
-                <td class="text-right">{{formatNumber .Total}}</td>
-                <td class="text-right">{{formatNumber .Active}}</td>
-                <td class="text-right">{{formatNumber .NewCharacters30d}}</td>
-                <td class="text-right">
-                    <span class="badge {{if ge .Active 1000}}badge-active{{else}}badge-inactive{{end}}">
-                        {{formatPercent .Active .Total}}
-                    </span>
-                </td>
+            <tr class="group-row">
+                <th scope="rowgroup" colspan="5"><span class="group-name"><span class="visually-hidden">Datacenter </span>{{$w.Datacenter}}</span></th>
             </tr>
-            {{end}}
+        {{end}}
+            <tr>
+                <th scope="row"><a href="/ui/worlds/{{$w.World}}">{{$w.World}}</a></th>
+                <td class="text-right">{{formatNumber $w.Total}}</td>
+                <td class="text-right">{{formatNumber $w.Active}}</td>
+                <td class="text-right">{{formatNumber $w.NewCharacters30d}}</td>
+                <td class="text-right">{{formatPercent $w.Active $w.Total}}</td>
+            </tr>
+        {{end}}
         </tbody>
     </table>
 </div>

@@ -56,16 +56,7 @@
     <div class="stat-card">
         <p class="stat-label">New characters, last 30 days</p>
         <p class="stat-value">{{formatNumber .Data.NewCharacters30d}}</p>
-        {{with .Data.NewCharactersTrend}}{{if .Direction}}
-        <p class="stat-subtext trend trend-{{.Direction}}">
-            <svg class="trend-icon" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true" focusable="false">
-                {{if eq .Direction "up"}}<path d="M6 2 L11 9 H1 Z"/>{{else if eq .Direction "down"}}<path d="M6 10 L1 3 H11 Z"/>{{else}}<rect x="1" y="5" width="10" height="2" rx="1"/>{{end}}
-            </svg>
-            <span class="trend-value">{{.Text}}</span> on the previous 30 days
-        </p>
-        {{else}}
-        <p class="stat-subtext">No new characters recorded</p>
-        {{end}}{{end}}
+        {{template "trend" .Data.NewCharactersTrend}}
     </div>
 </section>
 
@@ -163,31 +154,36 @@
     </div>
     <div class="panel-body panel-body-flush">
         {{if .Data.Regions}}
-        <div class="table-responsive">
+        <div class="table-scroll" role="region" aria-labelledby="regions-heading" tabindex="0">
             <table class="data-table">
+                <caption class="visually-hidden">Characters by region</caption>
                 <thead>
                     <tr>
                         <th scope="col">Region</th>
                         <th scope="col" class="text-right">Characters</th>
                         <th scope="col" class="text-right">Active, 30 days</th>
                         <th scope="col" class="text-right">Active share</th>
-                        <th scope="col"><span class="visually-hidden">Worlds</span></th>
                     </tr>
                 </thead>
                 <tbody>
                     {{range .Data.Regions}}
                     <tr>
-                        <th scope="row"><a href="/ui/worlds?region={{.Region}}">{{.Name}}</a></th>
+                        <th scope="row">
+                            <span class="row-heading">
+                                <a href="/ui/worlds?region={{.Region}}">{{.Name}}</a>
+                                <button type="button" class="drilldown-toggle" aria-expanded="false" aria-controls="drilldown-{{.Region}}"
+                                    hx-get="/ui/partials/world-breakdown?region={{.Region}}" hx-target="#drilldown-{{.Region}}-body" hx-trigger="click once">
+                                    <svg class="drilldown-icon" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true" focusable="false"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>
+                                    <span class="drilldown-label">Show worlds</span>
+                                </button>
+                            </span>
+                        </th>
                         <td class="text-right">{{formatNumber .Total}}</td>
                         <td class="text-right">{{formatNumber .Active}}</td>
                         <td class="text-right">{{.ActiveRatio}}</td>
-                        <td class="text-right">
-                            <button type="button" class="btn btn-outline btn-small drilldown-toggle" aria-expanded="false" aria-controls="drilldown-{{.Region}}"
-                                hx-get="/ui/partials/world-breakdown?region={{.Region}}" hx-target="#drilldown-{{.Region}}-body" hx-trigger="click once">Show worlds</button>
-                        </td>
                     </tr>
                     <tr id="drilldown-{{.Region}}" class="drilldown-row" hidden>
-                        <td colspan="5"><div id="drilldown-{{.Region}}-body" class="drilldown-body" aria-live="polite"></div></td>
+                        <td colspan="4"><div id="drilldown-{{.Region}}-body" class="drilldown-body" aria-live="polite"></div></td>
                     </tr>
                     {{end}}
                 </tbody>
@@ -309,7 +305,8 @@ document.addEventListener("DOMContentLoaded", function () {
             var open = button.getAttribute("aria-expanded") === "true";
             row.hidden = open;
             button.setAttribute("aria-expanded", open ? "false" : "true");
-            button.textContent = open ? "Show worlds" : "Hide worlds";
+            var label = button.querySelector(".drilldown-label");
+            if (label) { label.textContent = open ? "Show worlds" : "Hide worlds"; }
         });
     });
 });

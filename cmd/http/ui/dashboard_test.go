@@ -390,8 +390,8 @@ func TestDashboardWorldDrilldown_NewColumn(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "New (30d)") {
-		t.Errorf("expected 'New (30d)' column header in body:\n%s", body)
+	if !strings.Contains(body, "New, 30 days") {
+		t.Errorf("expected 'New, 30 days' column header in body:\n%s", body)
 	}
 	if !strings.Contains(body, "<td class=\"text-right\">12</td>") {
 		t.Errorf("expected per-world current-window cell '12' in body:\n%s", body)

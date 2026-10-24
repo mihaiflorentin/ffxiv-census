@@ -96,22 +96,25 @@ cmd/http/ui/
 │   ├── not_found.html      # Styled 404 page (unknown world or /ui/ route)
 │   ├── unavailable.html    # Styled 503 "Statistics are being prepared" page
 │   ├── components/
-│   │   └── states.html     # Shared "empty-state" and "state-mark" template components
+│   │   ├── states.html     # Shared "empty-state" and "state-mark" template components
+│   │   ├── filters.html    # Shared "filter-bar" (labelled selects, region pills, removable chips)
+│   │   └── figures.html    # Shared "trend" line for new-character tiles
 │   ├── dashboard.html      # Realm tally, stat tiles, race and MSQ panels, 30-day chart, region table
-│   ├── races.html          # Race & clan demographics with race, tribe, gender, and race×gender doughnut charts
-│   ├── worlds.html         # Global worlds & datacenters table with active ratios
+│   ├── races.html          # Races and clans: filter bar, stat tiles, race/gender doughnuts, clan and race×gender bars, race table
+│   ├── worlds.html         # Worlds: filter bar, stat tiles, world rankings data table
 │   ├── expansions.html     # MSQ expansion completion funnel & drop-off rates
 │   ├── character.html      # Full character profile (jobs grid, milestones, FC, badges)
 │   ├── characters_list.html# Paginated character directory and search results
 │   └── partials/
-│       ├── world_drilldown.html # HTMX partial for region -> DC -> world drilldown
+│       ├── world_drilldown.html # HTMX partial: a region's worlds grouped by datacenter
 │       └── search_results.html  # HTMX partial for live character search
 ├── routes.go               # ServeMux route registration and embedded asset handler (font headers)
 ├── controller.go           # Core UI controller & template renderer
 ├── dashboard.go            # Controller for /ui/dashboard & /ui/partials/world-breakdown
 ├── realm_tally.go          # Realm-tally view model (region shares, band geometry, region colour slots)
 ├── trend.go                # Worded, signed trend (Up +20 (+200.0%)) for stat tiles
-├── races.go                # Controller for /ui/races
+├── filters.go              # FilterBar view model and filterChips (URL with one filter removed)
+├── races.go                # Controller for /ui/races (fixed race order, clan -> race map)
 ├── worlds.go               # Controller for /ui/worlds
 ├── expansions.go           # Controller for /ui/expansions
 ├── character.go            # Controller for /ui/characters/{id} & /ui/characters/search
@@ -218,6 +221,51 @@ they are redesigned): `.page-header` / `.page-title` / `.page-desc`, `.stat-grid
 `.progress-meter` (`<meter>` bars), `.drilldown-row` / `.drilldown-body`. `.chart-slot-0` … `.chart-slot-8`
 set `--slot-color` for SVG marks and swatches.
 
+Shared figure and filter components live in `templates/components/` and are parsed into every page and
+partial: `filter-bar` (see Cascading Filters), `trend` (the arrow + word + signed delta line for a
+`Trend` from `newTrend`, used by the new-characters tiles on the dashboard, Races and Worlds) and
+`empty-state`. Page grids: `.panel-grid` pairs chart panels (two columns from 720px), `.stat-grid-quad`
+lays four tiles out 1 / 2 × 2 / 4 across. `.chart-container-tall` sizes bar charts with many categories.
+
+### Data table
+
+Every data table (world rankings, the Races table, the dashboard region table and its drill-down, and
+the "Show the numbers" tables) uses one pattern:
+
+```html
+<div class="table-scroll" role="region" aria-labelledby="rankings-heading" tabindex="0">
+  <table class="data-table">
+    <caption class="visually-hidden">World rankings, in Europe</caption>
+    <thead><tr><th scope="col">World</th><th scope="col" class="text-right">Characters</th>…</tr></thead>
+    <tbody><tr><th scope="row"><a href="/ui/worlds/Cerberus">Cerberus</a></th><td class="text-right">827</td>…</tr></tbody>
+  </table>
+</div>
+```
+
+- The `.table-scroll` region scrolls sideways on its own (the page never does), is focusable for
+  keyboard scrolling and is named by its panel heading or an `aria-label`.
+- The first column is the row header (`th scope="row"`: world, race, region) and sticks to the left
+  edge while the other columns scroll under it; below 768px a hairline marks that edge.
+- Numeric columns are right-aligned (`text-right`) with tabular figures; the ranking metric comes
+  straight after the name, identity columns (datacenter, region) last.
+- From 1024px, where tables fit, `.table-scroll` stops being a scroll container and column headers
+  stick below the site header (panels use `overflow: clip` so sticky works). Inside "Show the numbers"
+  the table scrolls in a 22rem box with a sticky header.
+- Rows highlight on hover and `:focus-within`; world names are underlined Aether links to the world
+  detail page. The rankings show the rank before the name (`.row-rank`), the Races table a race-colour
+  `.swatch` and a `<meter>` share bar.
+- **Drill-down.** On the dashboard the "Show worlds" trigger sits under the region name in the sticky
+  first column, so it stays reachable at 360px. The loaded drill-down (`partials/world_drilldown.html`)
+  is sized to the visible scroll area (`width: 100cqi` of the region table's `.table-scroll`, which is
+  an inline-size container) and sticks to its left edge; its own table groups worlds by datacenter
+  under `th scope="rowgroup"` headings with a small node marker.
+
+**Races charts.** Race distribution is a doughnut in fixed race order and colours (`sortRaces`,
+`raceColors`); gender is a doughnut (Male Aether, Female Crystal, unrecorded neutral); clans are a
+horizontal bar chart grouped by race and coloured by their race (`clanRace` in `races.go`); race by
+gender is a grouped horizontal bar chart. Each has a summary sentence and, except the race doughnut
+(whose figures are the "Every race" table), a "Show the numbers" table.
+
 ### Realm tally
 
 The dashboard's one bold element. `realm_tally.go` builds it in the UI controller from the snapshot's
@@ -323,27 +371,46 @@ All three render through the page shell, so they keep the header, navigation and
 
 ## 6. Cascading Filters
 
-The `/ui/races` and `/ui/worlds` pages support cascading filter dropdowns that narrow
-options based on parent selections. The hierarchy is **Region → Datacenter → World**.
+The `/ui/races` and `/ui/worlds` pages share one **filter bar** that narrows the page along the
+hierarchy **Region → Datacenter → World**. Query parameters (`region`, `dc`, `world`), the cascading
+option lists and canonical URLs are unchanged by the redesign.
+
+### Filter bar component
+
+`templates/components/filters.html` (`{{template "filter-bar" .Data.Filters}}`) renders a `FilterBar`
+view model built in the controller (`filters.go`):
+
+- **Selects** (`FilterSelect`): each `<select>` has an id and a visible `<label for>` above it
+  (Region, Datacenter, World), an "All …" first option, and submits the form on change
+  (`onchange="this.form.submit()"`). Without JavaScript a `<noscript>` Apply button submits it.
+  Region options show display names (North America, Europe, Japan, Oceania) with the codes as values.
+- **Pills** (`FilterPills`, Worlds only): a `role="group"` labelled by a visible "Region" label; each
+  pill is a link, and the selected one carries `aria-current="true"`. Regions are listed in the
+  canonical order NA, EU, JP, OCE.
+- **Hidden fields** keep the selected region when the Worlds datacenter select submits.
+- **Chips** (`FilterChip`, built by `filterChips(path, []appliedFilter)`): one per applied filter, in a
+  list labelled "Applied filters". Each chip ("Region: Europe ×", accessible name "Remove filter
+  Region: Europe") links to the same page with only that filter removed, keeping the others in
+  `region`, `dc`, `world` order. With two or more chips a "Clear all filters" link goes to the
+  unfiltered page.
 
 ### Races Page (`/ui/races`)
 
-Three `<select>` dropdowns in a single form. Selecting a region updates the Datacenter
-dropdown to show only DCs in that region; selecting a DC updates the World dropdown to
-show only worlds in that DC. When no parent filter is selected, all options are shown.
+Three selects in a single form. Selecting a region narrows the Datacenter options to that region's
+DCs; selecting a DC narrows the World options to that DC's worlds. When no parent filter is selected,
+all options are shown. The most specific filter scopes the figures (world, then DC, then region).
 
 ### Worlds Page (`/ui/worlds`)
 
-Region is selected via button pills; the Datacenter `<select>` dropdown shows only DCs
-belonging to the selected region. When no region is selected, all DCs are shown.
+Region is chosen with the pills (a pill link drops any datacenter); the Datacenter select lists only
+the DCs of the selected region, or every DC with worlds when no region is selected.
 
 ### Implementation
 
 Filter lists are derived server-side using `DCsForRegion()` and `WorldsForDC()` helper
 functions in `cmd/http/ui/world_data.go`, which delegate to the world hierarchy in the
 domain (world → datacenter → region). The same hierarchy resolves the scope of every
-new-characters (30d) card and column. Each filter change triggers a full page reload
-via `onchange="this.form.submit()"`.
+new-characters (30d) card and column. Each filter change triggers a full page reload.
 
 ## 7. Search Console
 

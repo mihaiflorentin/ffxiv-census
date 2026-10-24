@@ -164,7 +164,7 @@ func TestEmptyStatesGiveDirection(t *testing.T) {
 		{"/", "No race data yet.", nextRefresh, ""},
 		{"/", "No regional data yet.", nextRefresh, ""},
 		{"/ui/races", "No race data yet.", nextRefresh, ""},
-		{"/ui/races", "No tribe data yet.", nextRefresh, ""},
+		{"/ui/races", "No clan data yet.", nextRefresh, ""},
 		{"/ui/races", "No gender data yet.", nextRefresh, ""},
 		{"/ui/races", "No race and gender data yet.", nextRefresh, ""},
 		{"/ui/races?region=EU", "No race data for this selection.", "Try a wider selection", "/ui/races"},

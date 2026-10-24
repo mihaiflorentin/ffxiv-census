@@ -684,6 +684,16 @@ input[type="search"] {
     margin-bottom: var(--space-6);
 }
 
+/* Four tiles: one column on phones, 2 x 2 on tablets, one row on desktop
+   (auto-fit would leave a lone tile on its own row at tablet widths). */
+@media (min-width: 600px) {
+    .stat-grid-quad { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (min-width: 1024px) {
+    .stat-grid-quad { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+}
+
 .stat-card {
     background: var(--color-surface);
     border-radius: var(--radius-panel);
@@ -723,6 +733,8 @@ input[type="search"] {
     border-radius: var(--radius-panel);
     margin-bottom: var(--space-6);
     overflow: hidden;
+    /* clip, not hidden: no scroll container, so table headers can stick to the viewport */
+    overflow: clip;
 }
 
 .panel-header {
@@ -799,6 +811,116 @@ input[type="search"] {
 
 .data-table tr.clickable {
     cursor: pointer;
+}
+
+/*
+ * Scrolling data table. The table sits in a focusable, named region
+ * (role="region" tabindex="0") that scrolls sideways on its own, so the page
+ * never does. The first column (the row header: world, race, region) sticks
+ * to the left edge while the rest scrolls under it. On wide screens, where
+ * the table fits, the region stops being a scroll container and the column
+ * headers stick below the site header instead.
+ */
+.table-scroll {
+    width: 100%;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    container-type: inline-size;
+}
+
+.table-scroll:focus-visible {
+    outline-offset: -2px;
+}
+
+.table-scroll > .data-table > thead > tr > th:first-child,
+.table-scroll > .data-table > tbody > tr > th[scope="row"] {
+    position: sticky;
+    left: 0;
+    z-index: 1;
+}
+
+.data-table > tbody > tr > th[scope="row"] {
+    background: var(--color-surface);
+}
+
+.data-table > tbody > tr:hover > th[scope="row"],
+.data-table > tbody > tr:focus-within > th[scope="row"] {
+    background: var(--color-raised);
+}
+
+.data-table > tbody > tr > th[scope="row"] a {
+    font-weight: var(--weight-heading);
+    text-underline-offset: 0.2em;
+}
+
+.data-table abbr[title] {
+    text-decoration: none;
+}
+
+/* Rank number before a world name in the rankings. */
+.row-rank {
+    display: inline-block;
+    min-width: 2.25ch;
+    margin-right: var(--space-3);
+    color: var(--color-ink-muted);
+    font-weight: var(--weight-body);
+    text-align: right;
+}
+
+/* Swatch tying a table row to its chart colour (.chart-slot-N). */
+.swatch {
+    display: inline-block;
+    width: 0.625rem;
+    height: 0.625rem;
+    margin-right: var(--space-2);
+    border-radius: 2px;
+    background: var(--slot-color, var(--color-chart-other));
+    vertical-align: baseline;
+}
+
+.share-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: var(--space-3);
+}
+
+.share-cell > span {
+    min-width: 3.25rem;
+}
+
+.share-cell > .share-meter {
+    width: clamp(4rem, 12vw, 10rem);
+    flex-shrink: 0;
+}
+
+@media (max-width: 767px) {
+    .data-table th,
+    .data-table td {
+        padding: var(--space-3);
+    }
+
+    /* A hairline marks the edge the other columns scroll under. */
+    .table-scroll > .data-table > thead > tr > th:first-child,
+    .table-scroll > .data-table > tbody > tr > th[scope="row"] {
+        box-shadow: inset -1px 0 0 var(--color-line);
+    }
+}
+
+@media (min-width: 1024px) {
+    .table-scroll {
+        overflow-x: visible;
+    }
+
+    .table-scroll > .data-table > thead > tr > th {
+        position: sticky;
+        top: var(--header-height);
+        z-index: 2;
+    }
+
+    .table-scroll > .data-table > thead > tr > th:first-child {
+        z-index: 3;
+    }
 }
 
 .text-right { text-align: right; }
@@ -1123,15 +1245,24 @@ input[type="search"] {
 
 /* ---------- Layout: dashboard ---------- */
 
-.dashboard-grid {
+.dashboard-grid,
+.panel-grid {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
     gap: var(--space-5);
     margin-bottom: var(--space-6);
 }
 
-.dashboard-grid > .panel {
+.dashboard-grid > .panel,
+.panel-grid > .panel {
     margin-bottom: 0;
+}
+
+/* Page chart grids pair panels: two columns from 720px, never three. */
+@media (min-width: 720px) {
+    .panel-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
 }
 
 .panel-meta {
@@ -1151,6 +1282,22 @@ input[type="search"] {
 
 .chart-container-bars {
     height: 320px;
+}
+
+/* Bar charts with many categories (clans, race by gender). */
+.chart-container-tall {
+    height: 26rem;
+}
+
+.chart-data .table-scroll {
+    max-height: 22rem;
+    overflow: auto;
+}
+
+.chart-data .table-scroll > .data-table > thead > tr > th {
+    position: sticky;
+    top: 0;
+    z-index: 2;
 }
 
 .chart-summary {
@@ -1263,13 +1410,263 @@ input[type="search"] {
     background: var(--color-night);
 }
 
-.drilldown-row:hover {
+.data-table > tbody > tr.drilldown-row:hover {
     background: transparent;
 }
 
+/*
+ * The drill-down spans the region table's full row but is sized to the
+ * visible scroll area (100cqi of the enclosing .table-scroll) and sticks to
+ * its left edge, so on a phone it never hides off-screen when the region
+ * table is scrolled sideways. Its own table scrolls inside it.
+ */
 .drilldown-body {
-    padding: var(--space-2) var(--space-4) var(--space-4);
-    overflow-x: auto;
+    position: sticky;
+    left: 0;
+    width: 100cqi;
+    max-width: 100%;
+    padding: var(--space-2) 0 var(--space-4);
+}
+
+.drilldown-body:empty {
+    padding: 0;
+}
+
+.drilldown-body .data-table th,
+.drilldown-body .data-table > tbody > tr > th[scope="row"] {
+    background: var(--color-night);
+}
+
+.drilldown-body .data-table > tbody > tr:hover > th[scope="row"],
+.drilldown-body .data-table > tbody > tr:focus-within > th[scope="row"] {
+    background: var(--color-raised);
+}
+
+/* Datacenter group heading inside a drill-down: a small aetheryte node
+   before the name echoes region -> datacenter -> world. */
+.data-table .group-row > th {
+    padding-top: var(--space-4);
+    padding-bottom: var(--space-2);
+    background: transparent;
+    color: var(--color-ink-muted);
+    font-weight: var(--weight-heading);
+}
+
+.data-table > tbody > tr.group-row:hover {
+    background: transparent;
+}
+
+.group-name {
+    position: sticky;
+    left: var(--space-3);
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+}
+
+.group-name::before {
+    content: "";
+    width: 0.5rem;
+    height: 0.5rem;
+    border: 2px solid var(--color-aether);
+    border-radius: var(--radius-pill);
+}
+
+.drilldown-body > .empty-state {
+    margin: var(--space-2) var(--space-4);
+}
+
+/* Region name plus its drill-down trigger, stacked in the first column so
+   the trigger stays reachable when the table scrolls sideways. */
+.row-heading {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--space-1);
+}
+
+.drilldown-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    min-height: 2rem;
+    margin-left: calc(-1 * var(--space-2));
+    padding: 0 var(--space-2);
+    border: 0;
+    border-radius: var(--radius-control);
+    background: transparent;
+    color: var(--color-ink-muted);
+    font-size: var(--step--1);
+    font-weight: var(--weight-medium);
+    cursor: pointer;
+}
+
+.drilldown-toggle:hover {
+    color: var(--color-ink);
+    background: var(--color-raised);
+}
+
+.drilldown-icon {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    transition: transform var(--duration-fast) ease;
+}
+
+.drilldown-toggle[aria-expanded="true"] .drilldown-icon {
+    transform: rotate(180deg);
+}
+
+/* ---------- Components: filter bar and chips ---------- */
+
+.filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: var(--space-4) var(--space-5);
+    padding: var(--space-4) var(--space-5);
+    margin-bottom: var(--space-4);
+    background: var(--color-surface);
+    border-radius: var(--radius-panel);
+}
+
+.filter-field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    min-width: 0;
+}
+
+.filter-label {
+    font-size: var(--step--1);
+    font-weight: var(--weight-heading);
+    color: var(--color-ink-muted);
+}
+
+.filter-select {
+    -webkit-appearance: none;
+    appearance: none;
+    min-width: 12rem;
+    max-width: 100%;
+    padding-right: var(--space-7);
+    background-color: var(--color-night);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5 6 8l3.5-3.5' fill='none' stroke='%2398A2BC' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right var(--space-3) center;
+    background-size: 12px 12px;
+    cursor: pointer;
+}
+
+.filter-select:hover {
+    border-color: var(--color-ink-muted);
+}
+
+.filter-pills {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.filter-pill {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.5rem;
+    padding: 0 var(--space-4);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-pill);
+    color: var(--color-ink);
+    font-size: var(--step--1);
+    font-weight: var(--weight-medium);
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.filter-pill:hover {
+    color: var(--color-ink);
+    background: var(--color-raised);
+}
+
+.filter-pill[aria-current="true"] {
+    border-color: var(--color-aether);
+    background: var(--color-aether);
+    color: var(--color-night);
+    font-weight: var(--weight-heading);
+}
+
+.filter-applied {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-4);
+    margin-bottom: var(--space-5);
+}
+
+.filter-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    list-style: none;
+}
+
+.filter-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 2rem;
+    padding: 0 var(--space-2) 0 var(--space-3);
+    border-radius: var(--radius-pill);
+    background: var(--color-raised);
+    color: var(--color-ink);
+    font-size: var(--step--1);
+    font-weight: var(--weight-heading);
+    text-decoration: none;
+}
+
+.filter-chip:hover {
+    color: var(--color-ink);
+    background: var(--color-line);
+}
+
+.filter-chip-name {
+    color: var(--color-ink-muted);
+    font-weight: var(--weight-body);
+}
+
+.filter-chip-icon {
+    width: 1.25rem;
+    height: 1.25rem;
+    padding: 0.25rem;
+    border-radius: var(--radius-pill);
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+}
+
+.filter-chip:hover .filter-chip-icon {
+    background: var(--color-night);
+}
+
+.filter-clear {
+    font-size: var(--step--1);
+    font-weight: var(--weight-heading);
+}
+
+@media (max-width: 767px) {
+    .filter-bar {
+        padding: var(--space-4);
+    }
+
+    .filter-field,
+    .filter-select {
+        width: 100%;
+    }
+
+    .filter-select {
+        min-width: 0;
+    }
 }
 
 /* ---------- Character profile (routes disabled; kept rendering) ---------- */

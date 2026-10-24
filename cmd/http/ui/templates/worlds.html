@@ -1,104 +1,65 @@
 {{define "content"}}
 <div class="page-header">
-    <h1 class="page-title">
-        <span>🌍</span>
-        <span>Global Worlds &amp; Datacenters</span>
-    </h1>
-    <p class="page-desc">Comprehensive census across all official FFXIV game servers and regional clusters.</p>
+    <h1 class="page-title">Worlds</h1>
+    <p class="page-desc">Every world ranked by characters in the census, with how many played in the last 30 days. Pick a region or datacenter to narrow the list.</p>
 </div>
 
-<!-- Filter Controls Panel -->
-<div class="panel" style="margin-bottom: 1.5rem;">
-    <div class="panel-body" style="padding: 1rem 1.5rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem;">
-        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem;">
-            <span style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Region:</span>
-            <a href="/ui/worlds" class="btn {{if and (eq .Data.SelectedRegion "") (eq .Data.SelectedDC "")}}btn-primary{{else}}btn-outline{{end}}" style="font-size: 0.8rem; padding: 0.35rem 0.75rem;">
-                All
-            </a>
-            {{range .Data.Regions}}
-            <a href="/ui/worlds?region={{.}}" class="btn {{if eq $.Data.SelectedRegion .}}btn-primary{{else}}btn-outline{{end}}" style="font-size: 0.8rem; padding: 0.35rem 0.75rem;">
-                {{.}}
-            </a>
-            {{end}}
-        </div>
+{{template "filter-bar" .Data.Filters}}
 
-        {{if .Data.Datacenters}}
-        <form method="GET" action="/ui/worlds" style="display: flex; align-items: center; gap: 0.5rem;">
-            {{if .Data.SelectedRegion}}<input type="hidden" name="region" value="{{.Data.SelectedRegion}}">{{end}}
-            <select name="dc" onchange="this.form.submit()" class="search-input" style="width: auto; padding: 0.4rem 0.75rem;">
-                <option value="">-- Filter by Datacenter --</option>
-                {{range .Data.Datacenters}}
-                <option value="{{.}}" {{if eq $.Data.SelectedDC .}}selected{{end}}>{{.}}</option>
-                {{end}}
-            </select>
-        </form>
-        {{end}}
+<section class="stat-grid stat-grid-quad" aria-label="Key figures">
+    <div class="stat-card">
+        <p class="stat-label">Worlds</p>
+        <p class="stat-value">{{len .Data.Worlds}}</p>
+        <p class="stat-subtext">Counted {{.Data.Scope}}</p>
     </div>
-</div>
+    <div class="stat-card">
+        <p class="stat-label">Characters</p>
+        <p class="stat-value">{{formatNumber .Data.TotalCharacters}}</p>
+        <p class="stat-subtext">On these worlds</p>
+    </div>
+    <div class="stat-card">
+        <p class="stat-label">Active players, last 30 days</p>
+        <p class="stat-value">{{formatNumber .Data.ActiveCharacters}}</p>
+        <p class="stat-subtext">{{formatPercent .Data.ActiveCharacters .Data.TotalCharacters}} of these characters</p>
+    </div>
+    <div class="stat-card">
+        <p class="stat-label">New characters, last 30 days</p>
+        <p class="stat-value">{{formatNumber .Data.NewCharacters30d}}</p>
+        {{template "trend" .Data.NewCharactersTrend}}
+    </div>
+</section>
 
-<!-- Stat Cards -->
-<div class="stat-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
-    <div class="stat-card">
-        <div class="stat-label">Worlds Counted</div>
-        <div class="stat-value">{{len .Data.Worlds}}</div>
-        <div class="stat-subtext">{{if .Data.SelectedRegion}}{{.Data.SelectedRegion}} Region{{else}}Global Servers{{end}}</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Sample Population</div>
-        <div class="stat-value">{{formatNumber .Data.TotalCharacters}}</div>
-        <div class="stat-subtext">Characters in Selection</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Active Players (30d)</div>
-        <div class="stat-value" style="color: var(--cyan);">{{formatNumber .Data.ActiveCharacters}}</div>
-        <div class="stat-subtext highlight">{{formatPercent .Data.ActiveCharacters .Data.TotalCharacters}} Active</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">New Characters (30d)</div>
-        <div class="stat-value" style="color: var(--gold);">{{formatNumber .Data.NewCharacters30d}}</div>
-        <div class="stat-subtext highlight">{{if .Data.NewCharactersTrend}}{{.Data.NewCharactersTrend}} vs previous 30d{{else}}No new characters recorded{{end}}</div>
-    </div>
-</div>
-
-<!-- Worlds Table Panel -->
-<div class="panel">
+<section class="panel" aria-labelledby="rankings-heading">
     <div class="panel-header">
-        <h2 class="panel-title">
-            <span>📋</span>
-            <span>Server Population Rankings</span>
-        </h2>
+        <h2 id="rankings-heading" class="panel-title">World rankings</h2>
+        <p class="panel-meta">Ranked by characters</p>
     </div>
-    <div class="panel-body">
+    <div class="panel-body panel-body-flush">
         {{if .Data.Worlds}}
-        <div class="table-responsive">
-            <table class="data-table">
+        <div class="table-scroll" role="region" aria-labelledby="rankings-heading" tabindex="0">
+            <table class="data-table data-table-ranked">
+                <caption class="visually-hidden">World rankings, {{.Data.Scope}}</caption>
                 <thead>
                     <tr>
-                        <th>#</th>
-                        <th>World</th>
-                        <th>Datacenter</th>
-                        <th>Region</th>
-                        <th class="text-right">Total Population</th>
-                        <th class="text-right">Active Players (30d)</th>
-                        <th class="text-right">New (30d)</th>
-                        <th class="text-right">Active Ratio</th>
+                        <th scope="col">World</th>
+                        <th scope="col" class="text-right">Characters</th>
+                        <th scope="col" class="text-right">Active, 30 days</th>
+                        <th scope="col" class="text-right">New, 30 days</th>
+                        <th scope="col" class="text-right">Active share</th>
+                        <th scope="col">Datacenter</th>
+                        <th scope="col">Region</th>
                     </tr>
                 </thead>
                 <tbody>
                     {{range $index, $w := .Data.Worlds}}
                     <tr>
-                        <td class="text-dim" style="font-family: var(--font-mono); font-size: 0.82rem;">{{add $index 1}}</td>
-                        <td><a href="/ui/worlds/{{$w.World}}" style="color: var(--gold); font-weight: bold; text-decoration: none;">{{$w.World}}</a></td>
-                        <td><span class="badge badge-region">{{$w.Datacenter}}</span></td>
-                        <td><span class="badge badge-gold">{{$w.Region}}</span></td>
-                        <td class="text-right font-mono">{{formatNumber $w.Total}}</td>
-                        <td class="text-right font-mono" style="color: var(--cyan);">{{formatNumber $w.Active}}</td>
-                        <td class="text-right font-mono">{{formatNumber $w.NewCharacters30d}}</td>
-                        <td class="text-right">
-                            <span class="badge {{if ge $w.ActivePctVal 30.0}}badge-active{{else}}badge-inactive{{end}}">
-                                {{$w.ActiveRatio}}
-                            </span>
-                        </td>
+                        <th scope="row"><span class="row-rank"><span class="visually-hidden">Rank </span>{{add $index 1}}</span><a href="/ui/worlds/{{$w.World}}">{{$w.World}}</a></th>
+                        <td class="text-right">{{formatNumber $w.Total}}</td>
+                        <td class="text-right">{{formatNumber $w.Active}}</td>
+                        <td class="text-right">{{formatNumber $w.NewCharacters30d}}</td>
+                        <td class="text-right">{{$w.ActiveRatio}}</td>
+                        <td>{{$w.Datacenter}}</td>
+                        <td><abbr title="{{regionName $w.Region}}">{{$w.Region}}</abbr></td>
                     </tr>
                     {{end}}
                 </tbody>
@@ -108,5 +69,5 @@
         {{if or .Data.SelectedRegion .Data.SelectedDC}}{{template "empty-state" (emptyStateLink "No worlds match these filters." "Try another region or datacenter, or show every world." "/ui/worlds" "Show all worlds")}}{{else}}{{template "empty-state" (emptyState "No world data yet." "Statistics appear after the next census refresh.")}}{{end}}
         {{end}}
     </div>
-</div>
+</section>
 {{end}}

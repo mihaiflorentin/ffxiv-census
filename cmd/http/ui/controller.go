@@ -74,7 +74,7 @@ type PageData struct {
 }
 
 const (
-	componentsTemplate  = "templates/components/states.html"
+	componentsTemplate  = "templates/components/*.html"
 	notFoundTemplate    = "templates/not_found.html"
 	unavailableTemplate = "templates/unavailable.html"
 )

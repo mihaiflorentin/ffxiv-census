@@ -1,199 +1,175 @@
 {{define "content"}}
 <div class="page-header">
-    <h1 class="page-title">
-        <span>👥</span>
-        <span>Race &amp; Clan Demographics</span>
-    </h1>
-    <p class="page-desc">Global breakdown of player character choices across Eorzea's playable races.</p>
+    <h1 class="page-title">Races and clans</h1>
+    <p class="page-desc">Which races, clans and genders players choose, {{.Data.Scope}}. Narrow it down by region, datacenter or world.</p>
 </div>
 
-<!-- Filter Controls Panel -->
-<div class="panel" style="margin-bottom: 1.5rem;">
-    <div class="panel-body"
-        style="padding: 1rem 1.5rem; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 1rem;">
-        <form method="GET" action="/ui/races"
-            style="display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; width: 100%;">
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span
-                    style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Region:</span>
-                <select name="region" onchange="this.form.submit()" class="search-input"
-                    style="width: auto; padding: 0.4rem 0.75rem;">
-                    <option value="">-- All Regions --</option>
-                    {{range .Data.Regions}}
-                    <option value="{{.}}" {{if eq $.Data.SelectedRegion .}}selected{{end}}>{{.}}</option>
-                    {{end}}
-                </select>
-            </div>
+{{template "filter-bar" .Data.Filters}}
 
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span
-                    style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">Datacenter:</span>
-                <select name="dc" onchange="this.form.submit()" class="search-input"
-                    style="width: auto; padding: 0.4rem 0.75rem;">
-                    <option value="">-- All Datacenters --</option>
-                    {{range .Data.Datacenters}}
-                    <option value="{{.}}" {{if eq $.Data.SelectedDC .}}selected{{end}}>{{.}}</option>
-                    {{end}}
-                </select>
-            </div>
+<section class="stat-grid" aria-label="Key figures">
+    <div class="stat-card">
+        <p class="stat-label">Characters</p>
+        <p class="stat-value">{{formatNumber .Data.TotalCharacters}}</p>
+        <p class="stat-subtext">In the census, {{.Data.Scope}}</p>
+    </div>
+    <div class="stat-card">
+        <p class="stat-label">Active players, last 30 days</p>
+        <p class="stat-value">{{formatNumber .Data.ActiveCharacters}}</p>
+        <p class="stat-subtext">{{.Data.ActivePercent}} of these characters</p>
+    </div>
+    <div class="stat-card">
+        <p class="stat-label">New characters, last 30 days</p>
+        <p class="stat-value">{{formatNumber .Data.NewCharacters30d}}</p>
+        {{template "trend" .Data.NewCharactersTrend}}
+    </div>
+</section>
 
-            <div style="display: flex; align-items: center; gap: 0.5rem;">
-                <span
-                    style="font-size: 0.85rem; font-weight: 600; color: var(--text-muted); text-transform: uppercase;">World:</span>
-                <select name="world" onchange="this.form.submit()" class="search-input"
-                    style="width: auto; padding: 0.4rem 0.75rem;">
-                    <option value="">-- All Worlds --</option>
-                    {{range .Data.Worlds}}
-                    <option value="{{.}}" {{if eq $.Data.SelectedWorld .}}selected{{end}}>{{.}}</option>
-                    {{end}}
-                </select>
+<div class="panel-grid">
+    <section class="panel" aria-labelledby="race-share-heading">
+        <div class="panel-header">
+            <h2 id="race-share-heading" class="panel-title">Race distribution</h2>
+            <p class="panel-meta">Share of characters</p>
+        </div>
+        <div class="panel-body">
+            {{if .Data.Races}}
+            <div class="chart-container">
+                <canvas id="raceChart" role="img" aria-label="Doughnut chart of characters by race" aria-describedby="race-summary"></canvas>
             </div>
-
-            {{if or .Data.SelectedRegion .Data.SelectedDC .Data.SelectedWorld}}
-            <a href="/ui/races" class="btn btn-outline"
-                style="padding: 0.4rem 0.75rem; font-size: 0.85rem; margin-left: auto;">Clear Filters</a>
+            {{with index .Data.Races 0}}
+            <p id="race-summary" class="chart-summary">{{.Race}} is the most common race, with {{.ShareOfTotal}} of characters. Every race's figures are in the table below.</p>
             {{end}}
-        </form>
-    </div>
-</div>
-
-<!-- Grid with Chart and Top Stats -->
-<div
-    style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1.5rem; margin-bottom: 2rem;">
-    <!-- Doughnut Chart Panel -->
-    <div class="panel" style="margin-bottom: 0;">
-        <div class="panel-header">
-            <h2 class="panel-title">
-                <span>🍩</span>
-                <span>Race Distribution Share</span>
-            </h2>
-        </div>
-        <div class="panel-body">
-            <div class="chart-container" style="height: 300px;">
-                <canvas id="raceChart"></canvas>
-            </div>
-        </div>
-    </div>
-
-    <!-- Quick Insights Panel -->
-    <div class="panel" style="margin-bottom: 0;">
-        <div class="panel-header">
-            <h2 class="panel-title">
-                <span>💡</span>
-                <span>Census Highlights</span>
-            </h2>
-        </div>
-        <div class="panel-body">
-            <div class="stat-grid" style="grid-template-columns: 1fr 1fr; margin-bottom: 1rem;">
-                <div class="stat-card">
-                    <div class="stat-label">Total Sample</div>
-                    <div class="stat-value" style="font-size: 1.5rem;">{{formatNumber .Data.TotalCharacters}}</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">Active (30d)</div>
-                    <div class="stat-value" style="font-size: 1.5rem; color: var(--cyan);">{{formatNumber
-                        .Data.ActiveCharacters}}</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-label">New Characters (30d)</div>
-                    <div class="stat-value" style="font-size: 1.5rem; color: var(--gold);">{{formatNumber .Data.NewCharacters30d}}</div>
-                    <div class="stat-subtext">{{if .Data.NewCharactersTrend}}{{.Data.NewCharactersTrend}} vs previous 30d{{else}}No new characters recorded{{end}}</div>
-                </div>
-            </div>
-            <p class="text-dim" style="font-size: 0.9rem; line-height: 1.6;">
-                Race choices reflect character creation and Fantasia usage{{if .Data.SelectedWorld}} on
-                <strong>{{.Data.SelectedWorld}}</strong>{{else if .Data.SelectedDC}} on the
-                <strong>{{.Data.SelectedDC}}</strong> datacenter{{else}} across all datacenters{{end}}. Active
-                percentages track characters who earned achievements in the last 30 days.
-            </p>
-        </div>
-    </div>
-</div>
-
-<!-- Tribe, Gender & Race×Gender Distribution -->
-<div
-    style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1.5rem; margin-bottom: 2rem; margin-top: 2rem;">
-    <div class="panel" style="margin-bottom: 0;">
-        <div class="panel-header">
-            <h2 class="panel-title"><span>🧝</span><span>Tribe Distribution</span></h2>
-        </div>
-        <div class="panel-body">
-            {{if .Data.TribeLabels}}
-            <div class="chart-container" style="height: 340px;"><canvas id="tribePieChart"></canvas></div>
             {{else}}
-            {{template "empty-state" (emptyState "No tribe data yet." "Statistics appear after the next census refresh.")}}
+            {{template "empty-state" (emptyState "No race data yet." "Statistics appear after the next census refresh.")}}
             {{end}}
         </div>
-    </div>
-    <div class="panel" style="margin-bottom: 0;">
+    </section>
+
+    <section class="panel" aria-labelledby="gender-heading">
         <div class="panel-header">
-            <h2 class="panel-title"><span>⚧</span><span>Gender Distribution</span></h2>
+            <h2 id="gender-heading" class="panel-title">Gender</h2>
+            <p class="panel-meta">Share of characters</p>
         </div>
         <div class="panel-body">
-            {{if .Data.GenderLabels}}
-            <div class="chart-container" style="height: 340px;"><canvas id="genderPieChart"></canvas></div>
+            {{if .Data.Genders}}
+            <div class="chart-container">
+                <canvas id="genderPieChart" role="img" aria-label="Doughnut chart of characters by gender" aria-describedby="gender-summary"></canvas>
+            </div>
+            <p id="gender-summary" class="chart-summary">{{range $i, $g := .Data.Genders}}{{if $i}}, {{end}}{{$g.Name}} {{$g.Share}}{{end}}.</p>
+            <details class="chart-data">
+                <summary>Show the numbers</summary>
+                <div class="table-scroll" role="region" aria-label="Characters by gender" tabindex="0">
+                    <table class="data-table">
+                        <caption class="visually-hidden">Characters by gender</caption>
+                        <thead><tr><th scope="col">Gender</th><th scope="col" class="text-right">Characters</th><th scope="col" class="text-right">Share</th></tr></thead>
+                        <tbody>
+                            {{range .Data.Genders}}
+                            <tr><th scope="row">{{.Name}}</th><td class="text-right">{{formatNumber .Total}}</td><td class="text-right">{{.Share}}</td></tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
             {{else}}
             {{template "empty-state" (emptyState "No gender data yet." "Statistics appear after the next census refresh.")}}
             {{end}}
         </div>
-    </div>
-</div>
-<div style="margin-bottom: 2rem;">
-    <div class="panel" style="margin-bottom: 0;">
+    </section>
+
+    <section class="panel" aria-labelledby="clans-heading">
         <div class="panel-header">
-            <h2 class="panel-title"><span>👥</span><span>Race × Gender Distribution</span></h2>
+            <h2 id="clans-heading" class="panel-title">Clans</h2>
+            <p class="panel-meta">Grouped by race</p>
         </div>
         <div class="panel-body">
-            {{if .Data.RaceGenderLabels}}
-            <div class="chart-container" style="height: 400px;"><canvas id="raceGenderPieChart"></canvas></div>
+            {{if .Data.Clans}}
+            <div class="chart-container chart-container-tall">
+                <canvas id="tribePieChart" role="img" aria-label="Bar chart of characters by clan, grouped by race" aria-describedby="clan-summary"></canvas>
+            </div>
+            <p id="clan-summary" class="chart-summary">{{len .Data.Clans}} clans. Each bar takes its race's colour.</p>
+            <details class="chart-data">
+                <summary>Show the numbers</summary>
+                <div class="table-scroll" role="region" aria-label="Characters by clan" tabindex="0">
+                    <table class="data-table">
+                        <caption class="visually-hidden">Characters by clan</caption>
+                        <thead><tr><th scope="col">Clan</th><th scope="col">Race</th><th scope="col" class="text-right">Characters</th><th scope="col" class="text-right">Share</th></tr></thead>
+                        <tbody>
+                            {{range .Data.Clans}}
+                            <tr><th scope="row">{{.Clan}}</th><td>{{.Race}}</td><td class="text-right">{{formatNumber .Total}}</td><td class="text-right">{{.Share}}</td></tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+            {{else}}
+            {{template "empty-state" (emptyState "No clan data yet." "Statistics appear after the next census refresh.")}}
+            {{end}}
+        </div>
+    </section>
+
+    <section class="panel" aria-labelledby="race-gender-heading">
+        <div class="panel-header">
+            <h2 id="race-gender-heading" class="panel-title">Race by gender</h2>
+            <p class="panel-meta">Characters</p>
+        </div>
+        <div class="panel-body">
+            {{if .Data.RaceGenders}}
+            <div class="chart-container chart-container-tall">
+                <canvas id="raceGenderPieChart" role="img" aria-label="Grouped bar chart of characters by race and gender" aria-describedby="race-gender-summary"></canvas>
+            </div>
+            <p id="race-gender-summary" class="chart-summary">Female characters make up {{.Data.FemaleShare}} of this selection.</p>
+            <details class="chart-data">
+                <summary>Show the numbers</summary>
+                <div class="table-scroll" role="region" aria-label="Characters by race and gender" tabindex="0">
+                    <table class="data-table">
+                        <caption class="visually-hidden">Characters by race and gender</caption>
+                        <thead><tr><th scope="col">Race</th><th scope="col" class="text-right">Male</th><th scope="col" class="text-right">Female</th>{{if .Data.HasUnknownGender}}<th scope="col" class="text-right">Unrecorded</th>{{end}}</tr></thead>
+                        <tbody>
+                            {{range .Data.RaceGenders}}
+                            <tr><th scope="row">{{.Race}}</th><td class="text-right">{{formatNumber .Male}}</td><td class="text-right">{{formatNumber .Female}}</td>{{if $.Data.HasUnknownGender}}<td class="text-right">{{formatNumber .Unknown}}</td>{{end}}</tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
             {{else}}
             {{template "empty-state" (emptyState "No race and gender data yet." "Statistics appear after the next census refresh.")}}
             {{end}}
         </div>
-    </div>
+    </section>
 </div>
 
-<!-- Detailed Race Table Panel -->
-<div class="panel">
+<section class="panel" aria-labelledby="race-table-heading">
     <div class="panel-header">
-        <h2 class="panel-title">
-            <span>📋</span>
-            <span>Playable Race Demographics</span>
-        </h2>
+        <h2 id="race-table-heading" class="panel-title">Every race</h2>
+        <p class="panel-meta">Ranked by characters</p>
     </div>
-    <div class="panel-body">
+    <div class="panel-body panel-body-flush">
         {{if .Data.Races}}
-        <div class="table-responsive">
+        <div class="table-scroll" role="region" aria-labelledby="race-table-heading" tabindex="0">
             <table class="data-table">
+                <caption class="visually-hidden">Characters by race, {{.Data.Scope}}</caption>
                 <thead>
                     <tr>
-                        <th>Race</th>
-                        <th class="text-right">Total Players</th>
-                        <th>Distribution Share</th>
-                        <th class="text-right">Active Players</th>
-                        <th class="text-right">Active Ratio</th>
+                        <th scope="col">Race</th>
+                        <th scope="col" class="text-right">Characters</th>
+                        <th scope="col" class="text-right">Share</th>
+                        <th scope="col" class="text-right">Active, 30 days</th>
+                        <th scope="col" class="text-right">Active share</th>
                     </tr>
                 </thead>
                 <tbody>
                     {{range .Data.Races}}
                     <tr>
-                        <td><strong>{{.Race}}</strong></td>
+                        <th scope="row"><span class="swatch chart-slot-{{.Slot}}" aria-hidden="true"></span>{{.Race}}</th>
                         <td class="text-right">{{formatNumber .Total}}</td>
-                        <td style="min-width: 180px;">
-                            <div style="display: flex; align-items: center; gap: 0.75rem;">
-                                <div class="progress-bar-container" style="flex: 1;">
-                                    <div class="progress-bar-fill gold" style="width: {{.ShareOfTotal}};"></div>
-                                </div>
-                                <span
-                                    style="font-size: 0.85rem; font-family: var(--font-mono); min-width: 45px; text-align: right;">
-                                    {{.ShareOfTotal}}
-                                </span>
-                            </div>
-                        </td>
-                        <td class="text-right" style="color: var(--cyan);">{{formatNumber .Active}}</td>
                         <td class="text-right">
-                            <span class="badge badge-active">{{.ActiveRatio}}</span>
+                            <span class="share-cell">
+                                <meter class="progress-meter share-meter" min="0" max="100" value="{{printf "%.1f" .SharePercentVal}}" aria-hidden="true"></meter>
+                                <span>{{.ShareOfTotal}}</span>
+                            </span>
                         </td>
+                        <td class="text-right">{{formatNumber .Active}}</td>
+                        <td class="text-right">{{.ActiveRatio}}</td>
                     </tr>
                     {{end}}
                 </tbody>
@@ -203,86 +179,88 @@
         {{if or .Data.SelectedRegion .Data.SelectedDC .Data.SelectedWorld}}{{template "empty-state" (emptyStateLink "No race data for this selection." "Try a wider selection, or clear the filters to see every region." "/ui/races" "Clear filters")}}{{else}}{{template "empty-state" (emptyState "No race data yet." "Statistics appear after the next census refresh.")}}{{end}}
         {{end}}
     </div>
-</div>
+</section>
 
 <script>
-document.addEventListener("DOMContentLoaded", function() {
-    var ctx = document.getElementById('raceChart');
-    if (!ctx) return;
+document.addEventListener("DOMContentLoaded", function () {
+    var theme = window.CensusCharts;
+    if (!window.Chart || !theme) { return; }
 
-    var labels = {{jsonSafe .Data.ChartLabels}};
-    var data = {{jsonSafe .Data.ChartData}};
+    var shareLabel = function (ctx) {
+        var total = ctx.dataset.data.reduce(function (a, b) { return a + b; }, 0);
+        var value = ctx.parsed;
+        var pct = total ? " (" + (value / total * 100).toFixed(1) + "%)" : "";
+        return ctx.label + ": " + theme.format(value) + pct;
+    };
+    var genderColor = function (name) {
+        if (name === "Male") { return theme.primary(); }
+        if (name === "Female") { return theme.comparison(); }
+        return theme.slot(0);
+    };
 
-    var raceColors = [
-        '#38bdf8', '#d4af37', '#a855f7', '#22c55e', '#f97316',
-        '#ec4899', '#14b8a6', '#eab308', '#64748b'
-    ];
-
-    new Chart(ctx, {
-        type: 'doughnut',
-        data: { labels: labels, datasets: [{ data: data, backgroundColor: raceColors.slice(0, labels.length), borderColor: '#141923', borderWidth: 2 }] },
-        options: {
-            responsive: true, maintainAspectRatio: false, cutout: '65%',
-            plugins: {
-                legend: { position: 'bottom', labels: { color: '#94a3b8', padding: 12, font: { size: 11 } } },
-                tooltip: { backgroundColor: '#141923', borderColor: '#263248', borderWidth: 1, titleColor: '#d4af37', bodyColor: '#f1f5f9' }
-            }
-        }
-    });
-
-    var tribeCtx = document.getElementById("tribePieChart");
-    if (tribeCtx) {
-        var tribeLabels = {{jsonSafe .Data.TribeLabels}};
-        var tribeData = {{jsonSafe .Data.TribeData}};
-        var tribeColors = ['#d4af37','#38bdf8','#f472b6','#34d399','#a78bfa','#fb923c','#e879f9','#22d3ee','#fbbf24','#60a5fa','#f87171','#4ade80','#818cf8','#f59e0b','#10b981','#ec4899'];
-        new Chart(tribeCtx, {
-            type: 'doughnut',
-            data: { labels: tribeLabels, datasets: [{ data: tribeData, backgroundColor: tribeColors.slice(0, tribeLabels.length), borderColor: '#141923', borderWidth: 2 }] },
-            options: {
-                responsive: true, maintainAspectRatio: false, cutout: '65%',
-                plugins: {
-                    legend: { position: 'bottom', labels: { color: '#94a3b8', padding: 12, font: { size: 11 } } },
-                    tooltip: { backgroundColor: '#141923', borderColor: '#263248', borderWidth: 1, titleColor: '#d4af37', bodyColor: '#f1f5f9',
-                        callbacks: { label: function(ctx) { var total = ctx.dataset.data.reduce(function(a,b){return a+b;},0); var pct = ((ctx.parsed/total)*100).toFixed(1); return ctx.label+': '+ctx.parsed.toLocaleString()+' ('+pct+'%)'; } }
-                    }
-                }
-            }
+    var raceCanvas = document.getElementById("raceChart");
+    if (raceCanvas) {
+        var races = theme.sortRaces({{jsonSafe .Data.ChartLabels}}, {{jsonSafe .Data.ChartData}});
+        new Chart(raceCanvas, {
+            type: "doughnut",
+            data: { labels: races.labels, datasets: [{ data: races.values, backgroundColor: theme.raceColors(races.labels) }] },
+            options: { cutout: "62%", plugins: { tooltip: { callbacks: { label: shareLabel } } } }
         });
     }
-    var genderCtx = document.getElementById("genderPieChart");
-    if (genderCtx) {
+
+    var genderCanvas = document.getElementById("genderPieChart");
+    if (genderCanvas) {
         var genderLabels = {{jsonSafe .Data.GenderLabels}};
-        var genderData = {{jsonSafe .Data.GenderData}};
-        var genderColors = ['#38bdf8','#f472b6','#a78bfa'];
-        new Chart(genderCtx, {
-            type: 'doughnut',
-            data: { labels: genderLabels, datasets: [{ data: genderData, backgroundColor: genderColors.slice(0, genderLabels.length), borderColor: '#141923', borderWidth: 2 }] },
+        new Chart(genderCanvas, {
+            type: "doughnut",
+            data: { labels: genderLabels, datasets: [{ data: {{jsonSafe .Data.GenderData}}, backgroundColor: genderLabels.map(genderColor) }] },
+            options: { cutout: "62%", plugins: { tooltip: { callbacks: { label: shareLabel } } } }
+        });
+    }
+
+    var clanCanvas = document.getElementById("tribePieChart");
+    if (clanCanvas) {
+        new Chart(clanCanvas, {
+            type: "bar",
+            data: { labels: {{jsonSafe .Data.TribeLabels}}, datasets: [{ label: "Characters", data: {{jsonSafe .Data.TribeData}}, backgroundColor: theme.raceColors({{jsonSafe .Data.TribeRaces}}) }] },
             options: {
-                responsive: true, maintainAspectRatio: false, cutout: '65%',
+                indexAxis: "y",
+                layout: { padding: { right: 48 } },
                 plugins: {
-                    legend: { position: 'bottom', labels: { color: '#94a3b8', padding: 12, font: { size: 11 } } },
-                    tooltip: { backgroundColor: '#141923', borderColor: '#263248', borderWidth: 1, titleColor: '#d4af37', bodyColor: '#f1f5f9',
-                        callbacks: { label: function(ctx) { var total = ctx.dataset.data.reduce(function(a,b){return a+b;},0); var pct = ((ctx.parsed/total)*100).toFixed(1); return ctx.label+': '+ctx.parsed.toLocaleString()+' ('+pct+'%)'; } }
-                    }
+                    legend: { display: false },
+                    censusBarValues: { enabled: true },
+                    tooltip: { callbacks: { label: function (ctx) { return theme.format(ctx.parsed.x) + " characters"; } } }
+                },
+                scales: {
+                    x: { beginAtZero: true, ticks: { callback: theme.compact, maxTicksLimit: 5 } },
+                    y: { grid: { display: false }, border: { display: false } }
                 }
             }
         });
     }
-    var rgCtx = document.getElementById("raceGenderPieChart");
-    if (rgCtx) {
-        var rgLabels = {{jsonSafe .Data.RaceGenderLabels}};
-        var rgData = {{jsonSafe .Data.RaceGenderData}};
-        var rgColors = ['#d4af37','#38bdf8','#f472b6','#34d399','#a78bfa','#fb923c','#e879f9','#22d3ee','#fbbf24','#60a5fa','#f87171','#4ade80','#818cf8','#f59e0b','#10b981','#ec4899'];
-        new Chart(rgCtx, {
-            type: 'doughnut',
-            data: { labels: rgLabels, datasets: [{ data: rgData, backgroundColor: rgColors.slice(0, rgLabels.length), borderColor: '#141923', borderWidth: 2 }] },
+
+    var raceGenderCanvas = document.getElementById("raceGenderPieChart");
+    if (raceGenderCanvas) {
+        var rows = {{jsonSafe .Data.RaceGenders}};
+        var series = [["Male", "Male"], ["Female", "Female"]];
+        if ({{.Data.HasUnknownGender}}) { series.push(["Unknown", "Unrecorded"]); }
+        new Chart(raceGenderCanvas, {
+            type: "bar",
+            data: {
+                labels: rows.map(function (r) { return r.Race; }),
+                datasets: series.map(function (s) {
+                    return { label: s[1], data: rows.map(function (r) { return r[s[0]]; }), backgroundColor: genderColor(s[0]) };
+                })
+            },
             options: {
-                responsive: true, maintainAspectRatio: false, cutout: '65%',
+                indexAxis: "y",
+                interaction: { mode: "index", axis: "y", intersect: false },
                 plugins: {
-                    legend: { position: 'bottom', labels: { color: '#94a3b8', padding: 12, font: { size: 11 } } },
-                    tooltip: { backgroundColor: '#141923', borderColor: '#263248', borderWidth: 1, titleColor: '#d4af37', bodyColor: '#f1f5f9',
-                        callbacks: { label: function(ctx) { var total = ctx.dataset.data.reduce(function(a,b){return a+b;},0); var pct = ((ctx.parsed/total)*100).toFixed(1); return ctx.label+': '+ctx.parsed.toLocaleString()+' ('+pct+'%)'; } }
-                    }
+                    tooltip: { callbacks: { label: function (ctx) { return ctx.dataset.label + ": " + theme.format(ctx.parsed.x); } } }
+                },
+                scales: {
+                    x: { beginAtZero: true, ticks: { callback: theme.compact, maxTicksLimit: 5 } },
+                    y: { grid: { display: false }, border: { display: false } }
                 }
             }
         });

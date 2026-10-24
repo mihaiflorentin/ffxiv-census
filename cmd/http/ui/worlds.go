@@ -2,6 +2,7 @@ package ui
 
 import (
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -14,12 +15,15 @@ type WorldsViewData struct {
 	TotalCharacters    int64
 	ActiveCharacters   int64
 	NewCharacters30d   int64
-	NewCharactersTrend string
+	NewCharactersTrend Trend
 	SelectedRegion     string
 	SelectedDC         string
-	Regions            []string
-	Datacenters        []string
-	Worlds             []WorldDetailRow
+	// Scope reads like "across every region" or "in Europe".
+	Scope       string
+	Regions     []string
+	Datacenters []string
+	Worlds      []WorldDetailRow
+	Filters     FilterBar
 }
 
 // WorldDetailRow represents one row in the global worlds table.
@@ -99,7 +103,20 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 	for reg := range regionSet {
 		regionList = append(regionList, reg)
 	}
-	sort.Strings(regionList)
+	// Canonical region order (NA, EU, JP, OCE), as on the Races filter.
+	sort.Slice(regionList, func(i, j int) bool {
+		si, sj := regionSlots[regionList[i]], regionSlots[regionList[j]]
+		if si == 0 {
+			si = len(regionSlots) + 1
+		}
+		if sj == 0 {
+			sj = len(regionSlots) + 1
+		}
+		if si != sj {
+			return si < sj
+		}
+		return regionList[i] < regionList[j]
+	})
 
 	var dcList []string
 	if selectedRegion != "" {
@@ -117,11 +134,53 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 		TotalCharacters:    totalChars,
 		ActiveCharacters:   activeChars,
 		NewCharacters30d:   newWindow.Current,
-		NewCharactersTrend: formatTrend(newWindow.Current, newWindow.Previous),
+		NewCharactersTrend: newTrend(newWindow.Current, newWindow.Previous),
+		Scope:              worldsScope(selectedRegion, selectedDC),
 		SelectedRegion:     selectedRegion,
 		SelectedDC:         selectedDC,
 		Regions:            regionList,
 		Datacenters:        dcList,
 		Worlds:             filteredWorlds,
+		Filters:            worldsFilterBar(regionList, dcList, selectedRegion, selectedDC),
 	}))
+}
+
+// worldsFilterBar builds the Worlds filter bar: region pills (links that drop
+// any datacenter) and, when there are datacenters to pick, a datacenter select
+// that keeps the selected region.
+func worldsFilterBar(regions, dcs []string, selectedRegion, selectedDC string) FilterBar {
+	pills := &FilterPills{ID: "filter-region-label", Label: "Region", Options: []FilterLink{
+		{Label: "All", Href: "/ui/worlds", Current: selectedRegion == "" && selectedDC == ""},
+	}}
+	for _, reg := range regions {
+		pills.Options = append(pills.Options, FilterLink{
+			Label:   regionDisplayName(reg),
+			Href:    "/ui/worlds?region=" + url.QueryEscape(reg),
+			Current: selectedRegion == reg,
+		})
+	}
+	bar := FilterBar{Action: "/ui/worlds", Label: "Filter worlds", Pills: pills, ClearHref: "/ui/worlds",
+		Chips: filterChips("/ui/worlds", []appliedFilter{
+			{Name: "region", Label: "Region", Value: selectedRegion, Shown: regionDisplayName(selectedRegion)},
+			{Name: "dc", Label: "Datacenter", Value: selectedDC},
+		}),
+	}
+	if len(dcs) > 0 {
+		if selectedRegion != "" {
+			bar.Hidden = []FilterHidden{{Name: "region", Value: selectedRegion}}
+		}
+		bar.Selects = []FilterSelect{{ID: "filter-dc", Name: "dc", Label: "Datacenter", AllLabel: "All datacenters", Options: filterOptions(dcs, selectedDC, nil)}}
+	}
+	return bar
+}
+
+// worldsScope describes the filtered selection for captions and tiles.
+func worldsScope(region, dc string) string {
+	switch {
+	case dc != "":
+		return "on the " + dc + " datacenter"
+	case region != "":
+		return "in " + regionDisplayName(strings.ToUpper(region))
+	}
+	return "across every region"
 }

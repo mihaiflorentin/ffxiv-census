@@ -175,6 +175,7 @@ var templateFuncs = template.FuncMap{
 	"emptyState":     emptyState,
 	"emptyStateLink": emptyStateLink,
 	"formatNumber":   formatNumber,
+	"regionName":     regionDisplayName,
 	"formatPercent":  formatPercent,
 	"formatDate":     formatDate,
 	"formatDateTime": formatDateTime,
