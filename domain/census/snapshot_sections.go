@@ -14,11 +14,15 @@ type SnapshotSection string
 const (
 	// SectionGrandCompanies is the grand_company and grand_company_race groups.
 	SectionGrandCompanies SnapshotSection = "grand_companies"
+	// SectionPrivacy is the at cap, private and unchecked location counts and
+	// UIStatsSnapshot.PrivacyBuiltAt (see PrivacyReady).
+	SectionPrivacy SnapshotSection = "privacy"
 )
 
 // sectionSince is the first snapshot schema version carrying each section.
 var sectionSince = map[SnapshotSection]int{
 	SectionGrandCompanies: 3,
+	SectionPrivacy:        3,
 }
 
 // SnapshotHasSection reports whether snapshot carries section: its schema is
