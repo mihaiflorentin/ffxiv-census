@@ -25,6 +25,9 @@ type WorldDetailViewData struct {
 	RaceLabels     []string
 	RaceData       []int64
 	MSQCompletions []ExpansionCard
+	// Weekly is the new characters per week; empty on a snapshot from
+	// before the weekly series.
+	Weekly         WeeklyTimeline
 	GrandCompanies GrandCompanyBand
 	TopJobs        TopJobsBlock
 	FreeCompanies  TopFreeCompaniesBlock
@@ -104,6 +107,7 @@ func (c *UIController) WorldDetail(w http.ResponseWriter, r *http.Request) {
 		RaceLabels:         raceLabels,
 		RaceData:           raceData,
 		MSQCompletions:     msq,
+		Weekly:             weeklyTimeline(census.WorldNewCharactersWeekly(snapshot, worldName)),
 		GrandCompanies: grandCompanyBand(c.memo.GrandCompanySplit(snapshot, scope),
 			census.SnapshotHasSection(snapshot, census.SectionGrandCompanies), worldName),
 		TopJobs: topJobsBlock(c.memo.Armoury(snapshot, scope),

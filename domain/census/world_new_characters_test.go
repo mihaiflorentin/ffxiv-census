@@ -64,3 +64,45 @@ func TestSnapshotMemoWorldNewCharactersBuildsOncePerSnapshot(t *testing.T) {
 		t.Errorf("WorldNewCharacters(nil) = %+v, want zero", got)
 	}
 }
+
+// A world's weekly series is the 7-day buckets ending with the last
+// complete UTC day, oldest first, enough of them to cover the current
+// window (13 for 90 days, the oldest reaching a day before the window).
+func TestWorldNewCharactersWeekly(t *testing.T) {
+	s := worldWindowSnapshot()
+	weekly := make([]int64, 13)
+	weekly[0], weekly[12] = 2, 5
+	for i, g := range s.Groups {
+		if g.Key == "Balmung" {
+			s.Groups[i].NewCharactersWeekly = weekly
+		}
+	}
+	got := WorldNewCharactersWeekly(s, "balmung")
+	if len(got) != 13 {
+		t.Fatalf("weeks = %d, want 13", len(got))
+	}
+	first, last := got[0], got[12]
+	if first != (WeeklyCount{Start: "2026-07-25", End: "2026-07-31", Count: 2}) {
+		t.Errorf("first week = %+v, want Jul 25 to Jul 31 with 2", first)
+	}
+	if last != (WeeklyCount{Start: "2026-10-17", End: "2026-10-23", Count: 5}) {
+		t.Errorf("last week = %+v, want Oct 17 to Oct 23 with 5", last)
+	}
+
+	// A world without new characters has a zero series; a snapshot from
+	// before the weekly series has none.
+	if coeurl := WorldNewCharactersWeekly(s, "Coeurl"); len(coeurl) != 13 || coeurl[5].Count != 0 {
+		t.Errorf("Coeurl weeks = %+v, want 13 empty weeks", coeurl)
+	}
+	if legacy := WorldNewCharactersWeekly(legacyWorldSnapshot(), "Balmung"); legacy != nil {
+		t.Errorf("schema 3 weeks = %+v, want none", legacy)
+	}
+}
+
+func TestValidateRejectsNegativeWeeklyCounts(t *testing.T) {
+	s := worldWindowSnapshot()
+	s.Groups[len(s.Groups)-1].NewCharactersWeekly = []int64{1, -1}
+	if err := ValidateUIStatsSnapshot(s); err == nil {
+		t.Fatal("a negative weekly count must fail validation")
+	}
+}

@@ -157,6 +157,36 @@
     </section>
 </div>
 
+{{if .Data.Weekly.Counts}}
+<section class="panel" aria-labelledby="weekly-heading">
+    <div class="panel-header">
+        <h2 id="weekly-heading" class="panel-title">New characters per week</h2>
+        <p class="panel-meta">Last {{.Data.Weekly.Weeks}} weeks on {{.Data.World}}</p>
+    </div>
+    <div class="panel-body">
+        <div class="chart-container">
+            <canvas id="weeklyNewCharactersChart" role="img" aria-label="Bar chart of new characters per week on {{.Data.World}} over the last {{.Data.Weekly.Weeks}} weeks" aria-describedby="weekly-summary"></canvas>
+        </div>
+        <p id="weekly-summary" class="chart-summary">{{formatNumber .Data.Weekly.Total}} new characters on {{.Data.World}} in the last {{.Data.Weekly.Weeks}} weeks{{if .Data.Weekly.PeakCount}}, peaking at {{formatNumber .Data.Weekly.PeakCount}} in the week of {{.Data.Weekly.PeakLabel}}{{end}}.</p>
+        <details class="chart-data">
+            <summary>Show the numbers</summary>
+            <div class="table-scroll" role="region" aria-label="New characters per week on {{.Data.World}}" tabindex="0">
+                <table class="data-table">
+                    <caption class="visually-hidden">New characters per week on {{.Data.World}}</caption>
+                    <thead><tr><th scope="col">Week</th><th scope="col" class="text-right">New characters</th></tr></thead>
+                    <tbody>
+                        {{$counts := .Data.Weekly.Counts}}{{$ranges := .Data.Weekly.Ranges}}
+                        {{range $i, $start := .Data.Weekly.Starts}}
+                        <tr><th scope="row"><time datetime="{{$start}}">{{index $ranges $i}}</time></th><td class="text-right">{{formatNumber (index $counts $i)}}</td></tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    </div>
+</section>
+{{end}}
+
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     var theme = window.CensusCharts;
@@ -187,6 +217,47 @@ document.addEventListener("DOMContentLoaded", function () {
                 scales: {
                     x: { beginAtZero: true, ticks: { callback: theme.compact, maxTicksLimit: 5 } },
                     y: { grid: { display: false }, border: { display: false } }
+                }
+            }
+        });
+    }
+
+    var weeklyCanvas = document.getElementById("weeklyNewCharactersChart");
+    if (weeklyCanvas) {
+        var weekStarts = {{jsonSafe .Data.Weekly.Starts}};
+        var weekEnds = {{jsonSafe .Data.Weekly.Ends}};
+        var weeklyColour = theme.primary();
+        new Chart(weeklyCanvas, {
+            type: "bar",
+            data: {
+                labels: {{jsonSafe .Data.Weekly.Labels}},
+                datasets: [{
+                    label: "New characters",
+                    data: {{jsonSafe .Data.Weekly.Counts}},
+                    backgroundColor: weeklyColour,
+                    hoverBackgroundColor: weeklyColour,
+                    borderRadius: 3,
+                    maxBarThickness: 40
+                }]
+            },
+            options: {
+                interaction: { mode: "index", intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            title: function (items) {
+                                if (!items.length) { return ""; }
+                                var i = items[0].dataIndex;
+                                return "Week of " + theme.formatDate(weekStarts[i]) + " to " + theme.formatDate(weekEnds[i]);
+                            },
+                            label: function (ctx) { return theme.format(ctx.parsed.y) + " new characters"; }
+                        }
+                    }
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 16 } },
+                    y: { beginAtZero: true, ticks: { precision: 0, callback: theme.compact, maxTicksLimit: 5 } }
                 }
             }
         });

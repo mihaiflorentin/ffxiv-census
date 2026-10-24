@@ -58,6 +58,11 @@ type ScopedGroupCount struct {
 	// chocobo in the current and the previous new-characters window.
 	NewCharacters         int64 `json:"new_characters,omitempty"`
 	NewCharactersPrevious int64 `json:"new_characters_previous,omitempty"`
+	// NewCharactersWeekly is the world's new characters per 7-day week,
+	// oldest first, the weeks ending with the last complete UTC day and
+	// covering the current window (census.NewCharactersBounds.Weeks). Set on
+	// the global-scope world groups only (schema 4).
+	NewCharactersWeekly []int64 `json:"new_characters_weekly,omitempty"`
 }
 
 type ScopedExpansionCount struct {

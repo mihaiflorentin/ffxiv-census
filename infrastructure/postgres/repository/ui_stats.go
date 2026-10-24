@@ -417,8 +417,9 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 // readMilestoneStats reads the MSQ completions (whole game and per world)
 // and the new-character figures: the daily series over the current and the
 // previous new-characters window at whole-game scope, and each world's
-// totals for both windows on its world group. Both windows end with the last
-// complete UTC day before the generation day.
+// totals for both windows and its weekly series (census.NewCharactersBounds
+// Weeks) on its world group, all from the same pass. The windows and the
+// weeks end with the last complete UTC day before the generation day.
 func (r *UIStatsRepository) readMilestoneStats(ctx context.Context, tx *sql.Tx, snapshot *contract.UIStatsSnapshot) error {
 	bounds := census.NewCharactersWindowBounds(snapshot.GeneratedAt, snapshot.NewCharactersWindowDays)
 	rows, err := tx.QueryContext(ctx, `
@@ -429,7 +430,7 @@ func (r *UIStatsRepository) readMilestoneStats(ctx context.Context, tx *sql.Tx, 
 			JOIN milestone_achievements m ON m.achievement_id = cm.achievement_id
 			JOIN characters c ON c.id = cm.character_id
 			WHERE c.deleted_at IS NULL
-			  AND ((cm.achievement_id = 590 AND cm.achieved_at >= $1 AND cm.achieved_at < $3) OR
+			  AND ((cm.achievement_id = 590 AND cm.achieved_at >= LEAST($1::timestamptz, $4::timestamptz) AND cm.achieved_at < $3) OR
 			       ((m.kind = 'expansion_msq' OR m.kind = 'expansion') AND m.expansion IS NOT NULL))
 		), expansion_stats AS (
 			SELECT world, expansion, GROUPING(world) AS global_scope,
@@ -441,15 +442,21 @@ func (r *UIStatsRepository) readMilestoneStats(ctx context.Context, tx *sql.Tx, 
 			SELECT TO_CHAR(achieved_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
 			       COUNT(DISTINCT character_id) AS count
 			FROM tracked
-			WHERE achievement_id = 590
+			WHERE achievement_id = 590 AND achieved_at >= $1
 			GROUP BY 1
 		), world_window_stats AS (
 			SELECT world,
 			       COUNT(DISTINCT character_id) FILTER (WHERE achieved_at >= $2) AS count,
-			       COUNT(DISTINCT character_id) FILTER (WHERE achieved_at < $2) AS previous
+			       COUNT(DISTINCT character_id) FILTER (WHERE achieved_at >= $1 AND achieved_at < $2) AS previous
 			FROM tracked
 			WHERE achievement_id = 590
 			GROUP BY world
+		), world_daily_stats AS (
+			SELECT world, TO_CHAR(achieved_at AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS day,
+			       COUNT(DISTINCT character_id) AS count
+			FROM tracked
+			WHERE achievement_id = 590 AND achieved_at >= $4
+			GROUP BY 1, 2
 		)
 		SELECT 'expansion' AS kind, world, expansion AS value, global_scope, count, 0::bigint AS previous
 		FROM expansion_stats
@@ -458,8 +465,11 @@ func (r *UIStatsRepository) readMilestoneStats(ctx context.Context, tx *sql.Tx, 
 		FROM daily_stats
 		UNION ALL
 		SELECT 'world_window', world, '', 0, count, previous
-		FROM world_window_stats`,
-		bounds.PreviousStart, bounds.CurrentStart, bounds.End)
+		FROM world_window_stats
+		UNION ALL
+		SELECT 'world_day', world, day, 0, count, 0
+		FROM world_daily_stats`,
+		bounds.PreviousStart, bounds.CurrentStart, bounds.End, bounds.WeeksStart())
 	if err != nil {
 		return fmt.Errorf("query UI milestone statistics: %w", err)
 	}
@@ -469,6 +479,7 @@ func (r *UIStatsRepository) readMilestoneStats(ctx context.Context, tx *sql.Tx, 
 		if group.Scope == (contract.StatsScope{}) && group.Dimension == "world" {
 			worldGroups[group.Key] = i
 			snapshot.Groups[i].NewCharacters, snapshot.Groups[i].NewCharactersPrevious = 0, 0
+			snapshot.Groups[i].NewCharactersWeekly = nil
 		}
 	}
 	for rows.Next() {
@@ -496,6 +507,18 @@ func (r *UIStatsRepository) readMilestoneStats(ctx context.Context, tx *sql.Tx, 
 			// A world without a group has no live characters to count.
 			if i, ok := worldGroups[scope.World]; ok {
 				snapshot.Groups[i].NewCharacters, snapshot.Groups[i].NewCharactersPrevious = count, previous
+			}
+		case "world_day":
+			i, ok := worldGroups[scope.World]
+			day, parseErr := time.Parse("2006-01-02", value)
+			if !ok || parseErr != nil {
+				continue
+			}
+			if week := bounds.Week(day); week >= 0 {
+				if snapshot.Groups[i].NewCharactersWeekly == nil {
+					snapshot.Groups[i].NewCharactersWeekly = make([]int64, bounds.Weeks())
+				}
+				snapshot.Groups[i].NewCharactersWeekly[week] += count
 			}
 		}
 	}

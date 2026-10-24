@@ -40,7 +40,7 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 		if group.Dimension == "" || group.Total < 0 || group.Active < 0 || group.Active > group.Total ||
 			!validLocationCounts(group.Total, group.MaxLevel, group.Private, group.Unchecked) ||
 			!validSubset(group.InFreeCompany, group.Total) ||
-			group.NewCharacters < 0 || group.NewCharactersPrevious < 0 {
+			group.NewCharacters < 0 || group.NewCharactersPrevious < 0 || !nonNegative(group.NewCharactersWeekly) {
 			return errors.New("invalid UI statistics group")
 		}
 		key := scopeKey(group.Scope) + "\x00" + group.Dimension + "\x00" + group.Key
@@ -75,6 +75,16 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 		seenDays[key] = struct{}{}
 	}
 	return validateJobsSection(snapshot.Jobs)
+}
+
+// nonNegative reports whether no count is negative.
+func nonNegative(counts []int64) bool {
+	for _, c := range counts {
+		if c < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // validSubset reports whether part is a count of some of total's characters.
@@ -262,6 +272,45 @@ func sumWorlds(base NewCharacterTotals, index map[string]NewCharacterTotals, sel
 		totals.Previous += index[world].Previous
 	}
 	return totals
+}
+
+// WeeklyCount is one week of a weekly new-character series: the UTC days
+// Start to End (YYYY-MM-DD, both inclusive) and the characters who earned
+// their first company chocobo in them.
+type WeeklyCount struct {
+	Start string
+	End   string
+	Count int64
+}
+
+// WorldNewCharactersWeekly is a world's weekly new-character series, oldest
+// week first (NewCharactersBounds.Weeks). A world without new characters
+// has a zero series; a snapshot from before the series (no recorded window)
+// has none.
+func WorldNewCharactersWeekly(snapshot *contract.UIStatsSnapshot, world string) []WeeklyCount {
+	if snapshot == nil || snapshot.NewCharactersWindowDays <= 0 {
+		return nil
+	}
+	world = CanonicalWorld(world)
+	var counts []int64
+	for _, group := range snapshot.Groups {
+		if group.Scope == (contract.StatsScope{}) && group.Dimension == "world" && group.Key == world {
+			counts = group.NewCharactersWeekly
+			break
+		}
+	}
+	bounds := SnapshotNewCharactersBounds(snapshot)
+	weeks := bounds.Weeks()
+	out := make([]WeeklyCount, weeks)
+	start := bounds.WeeksStart()
+	for i := range out {
+		weekStart := start.AddDate(0, 0, 7*i)
+		out[i] = WeeklyCount{Start: weekStart.Format("2006-01-02"), End: weekStart.AddDate(0, 0, 6).Format("2006-01-02")}
+		if i < len(counts) {
+			out[i].Count = counts[i]
+		}
+	}
+	return out
 }
 
 // worldSet resolves a stats scope to the set of world names whose series

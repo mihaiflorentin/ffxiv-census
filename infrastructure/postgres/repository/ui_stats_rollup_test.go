@@ -131,7 +131,7 @@ func TestUIStatsRefreshToleratesCharactersWithoutLocation(t *testing.T) {
 // v2Equivalent is snapshot without the parts schemas 3 and 4 added: the job
 // section, the Grand Company groups, the location counts (at cap, private,
 // unchecked, in a Free Company) on groups and the summary, and the
-// new-characters window with its per-world totals.
+// new-characters window with its per-world totals and weekly series.
 func v2Equivalent(snapshot *contract.UIStatsSnapshot) *contract.UIStatsSnapshot {
 	v2 := *snapshot
 	v2.SchemaVersion = 2
@@ -145,7 +145,7 @@ func v2Equivalent(snapshot *contract.UIStatsSnapshot) *contract.UIStatsSnapshot 
 			continue
 		}
 		g.MaxLevel, g.Private, g.Unchecked, g.InFreeCompany = 0, 0, 0, 0
-		g.NewCharacters, g.NewCharactersPrevious = 0, 0
+		g.NewCharacters, g.NewCharactersPrevious, g.NewCharactersWeekly = 0, 0, nil
 		v2.Groups = append(v2.Groups, g)
 	}
 	return &v2

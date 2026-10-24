@@ -101,7 +101,6 @@ func TestWorldDetailRendersItsFiguresFromTheSnapshot(t *testing.T) {
 
 func TestWorldDetailChartsUseSharedThemeAndHaveTextAlternatives(t *testing.T) {
 	doc := renderPage(t, "/ui/worlds/Balmung")
-	// Race distribution only: the snapshot keeps the daily new-character
-	// series for the whole game, not per world.
-	assertChartsThemedAndDescribed(t, doc, 1)
+	// Race distribution and the weekly new characters.
+	assertChartsThemedAndDescribed(t, doc, 2)
 }

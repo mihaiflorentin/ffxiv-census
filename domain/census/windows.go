@@ -62,6 +62,30 @@ func SnapshotDailySeriesStart(snapshot *contract.UIStatsSnapshot) time.Time {
 	return bounds.PreviousStart
 }
 
+// Weeks is how many 7-day weeks the weekly series has: enough to cover
+// the current window, so the oldest week may start before it.
+func (b NewCharactersBounds) Weeks() int {
+	if b.Days <= 0 {
+		return 0
+	}
+	return (b.Days + 6) / 7
+}
+
+// WeeksStart is the first day of the weekly series' oldest week: the weeks
+// end with the last complete UTC day.
+func (b NewCharactersBounds) WeeksStart() time.Time {
+	return b.End.AddDate(0, 0, -7*b.Weeks())
+}
+
+// Week is the index of the weekly series' week holding t, or -1 outside it.
+func (b NewCharactersBounds) Week(t time.Time) int {
+	start := b.WeeksStart()
+	if t.Before(start) || !t.Before(b.End) {
+		return -1
+	}
+	return int(t.Sub(start) / (7 * 24 * time.Hour))
+}
+
 // InCurrent reports whether t falls in the current window.
 func (b NewCharactersBounds) InCurrent(t time.Time) bool {
 	return !t.Before(b.CurrentStart) && t.Before(b.End)

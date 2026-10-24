@@ -2,6 +2,7 @@ package repository_test
 
 import (
 	"context"
+	"reflect"
 	"testing"
 	"time"
 
@@ -201,4 +202,53 @@ func TestUIStatsIncrementalRebuildsOnChangedActivityWindow(t *testing.T) {
 	if got := boards.BuiltAt.Sub(boards.ActivitySince).Round(24 * time.Hour); got != 30*24*time.Hour {
 		t.Fatalf("boards activity window = %s, want 30 days", got)
 	}
+}
+
+// Each world group carries its weekly series: 7-day weeks ending with the
+// last complete UTC day, enough to cover the window (2 for 10 days, so the
+// oldest week reaches 4 days before the window), oldest first.
+func TestUIStatsWorldGroupsCarryAWeeklySeries(t *testing.T) {
+	driver := newTestDriver(t)
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	seedChocobos(t, driver, today, []chocoboSeed{
+		{1, "Balmung", "Crystal", "NA", 0},  // today: still in progress
+		{2, "Balmung", "Crystal", "NA", 1},  // latest week
+		{3, "Balmung", "Crystal", "NA", 7},  // latest week, first day
+		{4, "Balmung", "Crystal", "NA", 8},  // oldest week, last day
+		{5, "Balmung", "Crystal", "NA", 14}, // oldest week, first day (before the window)
+		{6, "Balmung", "Crystal", "NA", 15}, // before the series
+		{7, "Ragnarok", "Chaos", "EU", 3},   // latest week
+		{8, "Coeurl", "Crystal", "NA", 30},  // before the series
+	})
+	stats := repository.NewUIStatsRepository(driver)
+	full, err := stats.Refresh(context.Background(), windowOpts(contract.UIStatsRefreshFull, 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][]int64{"Balmung": {2, 2}, "Ragnarok": {0, 1}, "Coeurl": nil}
+	check := func(label string, snapshot *contract.UIStatsSnapshot) {
+		t.Helper()
+		for _, g := range snapshot.Groups {
+			if g.Scope != (contract.StatsScope{}) || g.Dimension != "world" {
+				if len(g.NewCharactersWeekly) > 0 {
+					t.Errorf("%s: group %+v carries a weekly series, want world groups only", label, g)
+				}
+				continue
+			}
+			if w, ok := want[g.Key]; ok && !reflect.DeepEqual(g.NewCharactersWeekly, w) {
+				t.Errorf("%s: %s weekly = %v, want %v", label, g.Key, g.NewCharactersWeekly, w)
+			}
+		}
+	}
+	check("full", full.Snapshot)
+
+	time.Sleep(20 * time.Millisecond)
+	incremental, err := stats.Refresh(context.Background(), windowOpts(contract.UIStatsRefreshIncremental, 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if incremental.Mode != contract.UIStatsRefreshIncremental {
+		t.Fatalf("mode %q, want incremental", incremental.Mode)
+	}
+	check("incremental", incremental.Snapshot)
 }
