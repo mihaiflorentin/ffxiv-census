@@ -2739,6 +2739,238 @@ input[type="search"] {
     color: var(--color-ink-muted);
 }
 
+/* ---------- Private Achievements: the veil ---------- */
+
+/*
+ * One wide band split into public (the Aether chart hue), private (Crystal
+ * threads hatched at 45 degrees over the track: a veil drawn across the
+ * data) and not yet checked (an empty dashed outline: the census's backlog,
+ * not a choice, drawn like "No Grand Company"). The segments are SVG rects
+ * sized in percentages, so the hatching keeps its true pitch at any width.
+ * Every segment is named with its share in the key, so colour is never the
+ * only cue.
+ */
+.veil {
+    display: block;
+    width: 100%;
+    height: 4.5rem;
+    border-radius: var(--radius-control);
+    overflow: hidden;
+}
+
+.veil-track {
+    fill: var(--color-raised);
+}
+
+.veil-segment {
+    stroke: var(--color-surface);
+    stroke-width: 2px;
+}
+
+.veil-public {
+    fill: var(--color-chart-1);
+}
+
+.veil-hatch-ground {
+    fill: var(--color-raised);
+}
+
+.veil-hatch-thread {
+    fill: var(--color-chart-2);
+}
+
+.veil-unchecked {
+    fill: var(--color-surface);
+    stroke: var(--color-ink-muted);
+    stroke-dasharray: 5 4;
+}
+
+.veil-key {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-4) var(--space-5);
+    margin: var(--space-5) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.veil-key-item {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    column-gap: var(--space-2);
+}
+
+.veil-swatch {
+    width: 0.875rem;
+    height: 0.875rem;
+    border-radius: 2px;
+}
+
+.veil-swatch-public {
+    background: var(--color-chart-1);
+}
+
+.veil-swatch-private {
+    background: repeating-linear-gradient(45deg, var(--color-chart-2) 0 3px, var(--color-raised) 3px 6px);
+}
+
+.veil-swatch-unchecked {
+    border: 1px dashed var(--color-ink-muted);
+}
+
+.veil-key-name {
+    font-size: var(--step--1);
+    font-weight: var(--weight-heading);
+    color: var(--color-ink-muted);
+}
+
+.veil-key-share {
+    grid-column: 1 / -1;
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-5);
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: var(--tracking-display);
+    color: var(--color-ink);
+}
+
+.veil-key-count {
+    grid-column: 1 / -1;
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.veil-panel .freshness {
+    margin-top: var(--space-3);
+}
+
+.veil-notes {
+    display: grid;
+    gap: var(--space-5);
+}
+
+@media (min-width: 720px) {
+    .veil-notes {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: var(--space-6);
+    }
+}
+
+.veil-note-title {
+    font-size: var(--step-0);
+    margin-bottom: var(--space-2);
+}
+
+.veil-note p {
+    color: var(--color-ink-muted);
+    max-width: var(--measure);
+}
+
+.veil-more {
+    margin-top: var(--space-5);
+    font-weight: var(--weight-heading);
+}
+
+.privacy-worlds {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: privacy-world;
+}
+
+.privacy-world {
+    counter-increment: privacy-world;
+    display: grid;
+    grid-template-columns: 1.75rem 1fr auto;
+    align-items: baseline;
+    column-gap: var(--space-2);
+    row-gap: var(--space-1);
+    padding: var(--space-3) 0;
+    border-top: 1px solid var(--color-line);
+}
+
+.privacy-world:first-child {
+    border-top: 0;
+    padding-top: 0;
+}
+
+.privacy-world::before {
+    content: counter(privacy-world);
+    grid-row: 1 / span 3;
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-2);
+    font-weight: 700;
+    line-height: 1;
+    color: var(--color-ink-muted);
+}
+
+.privacy-world-name {
+    font-weight: var(--weight-heading);
+}
+
+.privacy-world-dc {
+    margin-left: var(--space-1);
+    font-size: var(--step--1);
+    font-weight: var(--weight-body);
+    color: var(--color-ink-muted);
+}
+
+.privacy-world-share {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-1);
+    font-weight: 700;
+}
+
+.privacy-world-bar {
+    grid-column: 2 / -1;
+    display: block;
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+}
+
+.privacy-world-track {
+    fill: var(--color-raised);
+}
+
+.privacy-world-count {
+    grid-column: 2 / -1;
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.veil-footnote {
+    margin: calc(-1 * var(--space-4)) 0 var(--space-6);
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+    max-width: var(--measure);
+}
+
+/* The privacy note on the dashboard's active-players tile and Expansions. */
+.privacy-note {
+    margin-top: var(--space-2);
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+    max-width: var(--measure);
+}
+
+@media (max-width: 599px) {
+    .veil {
+        height: 3rem;
+    }
+
+    .veil-key {
+        column-gap: var(--space-3);
+    }
+
+    .veil-key-share {
+        font-size: var(--step-3);
+    }
+}
+
 /* ---------- Motion: the one entrance per page ---------- */
 
 /*

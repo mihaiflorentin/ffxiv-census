@@ -47,6 +47,7 @@
         <p class="stat-label">Active players, last 30 days</p>
         <p class="stat-value">{{formatNumber .Data.ActiveCharacters}}</p>
         <p class="stat-subtext">{{.Data.ActivePercent}} of the census</p>
+        {{template "privacy-note" (privacyNoteFor .Data.PrivacyNote "they can’t count as active")}}
     </div>
     <div class="stat-card">
         <p class="stat-label">At level {{.Data.MaxLevel}}</p>

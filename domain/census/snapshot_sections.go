@@ -16,12 +16,16 @@ const (
 	SectionGrandCompanies SnapshotSection = "grand_companies"
 	// SectionJobs is the per-world job section (snapshot.Jobs).
 	SectionJobs SnapshotSection = "jobs"
+	// SectionPrivacy is the at cap, private and unchecked location counts and
+	// UIStatsSnapshot.PrivacyBuiltAt (see PrivacyReady).
+	SectionPrivacy SnapshotSection = "privacy"
 )
 
 // sectionSince is the first snapshot schema version carrying each section.
 var sectionSince = map[SnapshotSection]int{
 	SectionGrandCompanies: 3,
 	SectionJobs:           3,
+	SectionPrivacy:        3,
 }
 
 // sectionPresent is an extra presence check for a section stored as its own

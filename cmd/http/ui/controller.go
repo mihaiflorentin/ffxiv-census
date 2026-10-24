@@ -42,6 +42,7 @@ func NewUIController(svc *census.Service, q contract.Queue, stats *census.UIStat
 		"templates/world_detail.html",
 		"templates/expansions.html",
 		"templates/methodology.html",
+		"templates/privacy.html",
 		"templates/character.html",
 		"templates/characters_list.html",
 		notFoundTemplate,

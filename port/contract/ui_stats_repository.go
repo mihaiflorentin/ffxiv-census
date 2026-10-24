@@ -26,6 +26,11 @@ type StatsSummary struct {
 	Total    int64 `json:"total"`
 	Active   int64 `json:"active"`
 	MaxLevel int64 `json:"max_level"`
+	// Private and Unchecked are the achievement privacy counts (schema 3):
+	// achievements hidden, and not hidden but no latest achievement recorded
+	// yet. They are rebuilt nightly; see UIStatsSnapshot.PrivacyBuiltAt.
+	Private   int64 `json:"private,omitempty"`
+	Unchecked int64 `json:"unchecked,omitempty"`
 }
 
 type ScopedGroupCount struct {
@@ -34,6 +39,12 @@ type ScopedGroupCount struct {
 	Key       string     `json:"key"`
 	Total     int64      `json:"total"`
 	Active    int64      `json:"active"`
+	// MaxLevel (highest job level at the configured maximum), Private and
+	// Unchecked are set on the location groups only: the global-scope
+	// region, datacenter and world groups (schema 3). See StatsSummary.
+	MaxLevel  int64 `json:"max_level,omitempty"`
+	Private   int64 `json:"private,omitempty"`
+	Unchecked int64 `json:"unchecked,omitempty"`
 }
 
 type ScopedExpansionCount struct {
@@ -63,6 +74,10 @@ type UIStatsSnapshot struct {
 	Summary          StatsSummary           `json:"summary"`
 	// Jobs is the job section (schema 3); nil on snapshots built before it.
 	Jobs *StatsJobsSection `json:"jobs,omitempty"`
+	// PrivacyBuiltAt is when the full rebuild that produced the private and
+	// unchecked counts ran. The incremental refresh carries it forward with
+	// the counts; zero means the snapshot has no privacy figures.
+	PrivacyBuiltAt time.Time `json:"privacy_built_at"`
 }
 
 // UIStatsRefreshMode selects how a refresh builds the snapshot.

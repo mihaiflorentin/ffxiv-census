@@ -13,6 +13,7 @@
             <li><a href="#main-scenario">Main scenario progression</a></li>
             <li><a href="#grand-companies">Grand Companies</a></li>
             <li><a href="#jobs">Jobs</a></li>
+            <li><a href="#achievement-privacy">Achievement privacy</a></li>
         </ol>
     </nav>
 
@@ -87,6 +88,21 @@
         <p>The Lodestone shows a base class and its job as one entry, so a base class counts towards its job: a Gladiator counts as a Paladin, a Conjurer as a White Mage, and so on. An Arcanist counts towards Summoner, the job that shares its level on the Lodestone, and not Scholar. Nothing is counted twice.</p>
         <p>Blue Mage is a limited job with its own lower cap, so it counts as at the level cap at level 80. It is left out of the party balance, because it cannot join ordinary duties. The party balance counts jobs, not characters: a character with two tanks at the cap counts twice.</p>
         <p class="prose-aside">Job figures are rebuilt nightly, and the Jobs page says when they last were. While older characters are still being prepared for job counting, the page says how many characters the figures cover. See <a href="/ui/jobs">Jobs</a> for the current figures.</p>
+    </section>
+
+    <section class="prose-section" aria-labelledby="achievement-privacy">
+        <h2 id="achievement-privacy">Achievement privacy</h2>
+        <p>Players can hide their achievements on the Lodestone and keep the rest of their profile public. The census puts every character in one of three groups:</p>
+        <dl class="prose-definition">
+            <dt>Public</dt>
+            <dd>The census can read the character’s achievements: the latest one and the story milestones.</dd>
+            <dt>Private</dt>
+            <dd>The character hides their achievements. The census still records their name, world, race, Grand Company and job levels.</dd>
+            <dt>Not yet checked</dt>
+            <dd>The census hasn’t read the character’s achievements yet. This is the census’s backlog, not the player’s choice: once checked, the character moves to public or private. A public profile with no achievements at all also stays here.</dd>
+        </dl>
+        <p>A private character never counts as active and never shows as finishing an expansion, so the active-player and main scenario figures are a <strong>lower bound</strong>. Population, race, Grand Company and job figures are unaffected.</p>
+        <p class="prose-aside">The privacy counts are rebuilt nightly. Through the day they follow characters as they are first found or removed; a character who hides or shows their achievements after being counted moves at the next nightly rebuild. The most and least private worlds leave out any world with fewer than a quarter of the median world’s characters, so a handful of characters can’t top a list. See <a href="/ui/privacy">Private achievements</a> for the current figures.</p>
     </section>
 </article>
 {{end}}
