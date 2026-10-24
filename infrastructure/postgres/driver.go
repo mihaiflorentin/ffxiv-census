@@ -12,12 +12,18 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
 	"github.com/pressly/goose/v3/database"
+	"github.com/pressly/goose/v3/lock"
 
 	"github.com/mihaiflorentin88/ffxiv-census/config"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
 var migrateGlobalMu sync.Mutex
+
+// MigrationLockID is the PostgreSQL session advisory lock every migration
+// run holds (goose's default id), so pods booting at the same time apply
+// migrations one after another instead of racing.
+const MigrationLockID = lock.DefaultLockID
 
 // Driver wraps a pooled *sql.DB and satisfies the DatabaseDriver contract.
 // Migrations run automatically (goose Up) the first time the pool is opened.
@@ -92,7 +98,7 @@ func (d *Driver) MigrateUp(ctx context.Context) error {
 	migrateGlobalMu.Lock()
 	defer migrateGlobalMu.Unlock()
 
-	provider, err := goose.NewProvider(database.DialectPostgres, db, d.migFS)
+	provider, err := newMigrationProvider(db, d.migFS)
 	if err != nil {
 		return fmt.Errorf("create goose provider: %w", err)
 	}
@@ -111,7 +117,7 @@ func (d *Driver) MigrateDown(ctx context.Context) error {
 	migrateGlobalMu.Lock()
 	defer migrateGlobalMu.Unlock()
 
-	provider, err := goose.NewProvider(database.DialectPostgres, db, d.migFS)
+	provider, err := newMigrationProvider(db, d.migFS)
 	if err != nil {
 		return fmt.Errorf("create goose provider: %w", err)
 	}
@@ -140,7 +146,7 @@ func (d *Driver) migrateUp(ctx context.Context) error {
 	migrateGlobalMu.Lock()
 	defer migrateGlobalMu.Unlock()
 
-	provider, err := goose.NewProvider(database.DialectPostgres, db, d.migFS)
+	provider, err := newMigrationProvider(db, d.migFS)
 	if err != nil {
 		return fmt.Errorf("create goose provider: %w", err)
 	}
@@ -148,6 +154,29 @@ func (d *Driver) migrateUp(ctx context.Context) error {
 		return fmt.Errorf("goose up: %w", err)
 	}
 	return nil
+}
+
+// A boot waits up to migrationLockTries x migrationLockRetry seconds (30
+// minutes) for another process's migration run: long enough for a
+// concurrent index build on the full characters table.
+const (
+	migrationLockRetry = 5
+	migrationLockTries = 360
+)
+
+// newMigrationProvider builds the goose provider every migration run uses.
+// It holds the MigrationLockID session advisory lock for the whole run, so
+// concurrent boots serialise at the database: the second waits, then finds
+// nothing left to apply.
+func newMigrationProvider(db *sql.DB, migrations fs.FS) (*goose.Provider, error) {
+	locker, err := lock.NewPostgresSessionLocker(
+		lock.WithLockID(MigrationLockID),
+		lock.WithLockTimeout(migrationLockRetry, migrationLockTries),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return goose.NewProvider(database.DialectPostgres, db, migrations, goose.WithSessionLocker(locker))
 }
 
 func (d *Driver) applyPoolSettings() {
