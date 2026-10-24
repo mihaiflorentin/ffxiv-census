@@ -2,6 +2,7 @@ package repository_test
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"reflect"
 	"strconv"
@@ -114,12 +115,12 @@ func TestUIStatsFullRefreshFreeCompanyBoards(t *testing.T) {
 	recent, old := now.Add(-24*time.Hour), now.Add(-60*24*time.Hour)
 
 	seedFCMembers(t, driver,
-		// Alpha: three live members, one active; a deleted member does not count.
-		// Its name comes from the most recently censused member (a rename).
-		fcMember{id: 1, world: "Balmung", fcID: "100", fcName: "Old Alpha", latestAchievementAt: &recent, lastCensusAt: now.Add(-72 * time.Hour)},
+		// Alpha: three live members, one active; a deleted member does not
+		// count, nor does its name. The name comes from a live member.
+		fcMember{id: 1, world: "Balmung", fcID: "100", fcName: "Alpha", latestAchievementAt: &recent, lastCensusAt: now.Add(-72 * time.Hour)},
 		fcMember{id: 2, world: "Balmung", fcID: "100", fcName: "Alpha", latestAchievementAt: &old, lastCensusAt: now.Add(-time.Hour)},
-		fcMember{id: 3, world: "Balmung", fcID: "100", fcName: "Old Alpha", lastCensusAt: now.Add(-48 * time.Hour)},
-		fcMember{id: 4, world: "Balmung", fcID: "100", fcName: "Alpha", latestAchievementAt: &recent, deleted: true},
+		fcMember{id: 3, world: "Balmung", fcID: "100", fcName: "Alpha", lastCensusAt: now.Add(-48 * time.Hour)},
+		fcMember{id: 4, world: "Balmung", fcID: "100", fcName: "Gone Alpha", latestAchievementAt: &recent, deleted: true},
 		// Beta: two members, both active.
 		fcMember{id: 5, world: "Balmung", fcID: "200", fcName: "Beta", latestAchievementAt: &recent},
 		fcMember{id: 6, world: "Balmung", fcID: "200", fcName: "Beta", latestAchievementAt: &recent},
@@ -187,13 +188,13 @@ func TestUIStatsFreeCompanyBoardsKeepTheTop100PerWorldForEachMeasure(t *testing.
 	recent := now.Add(-24 * time.Hour)
 
 	// 150 companies of 3 inactive members (ids 1001-1150) fill the members
-	// board; ties on both counts keep the lowest ids. 120 companies of 2
-	// members, one active (ids 2001-2120), lead the active board.
+	// board; ties on both counts break by name (here in id order). 120
+	// companies of 2 members, one active (ids 2001-2120), lead the active board.
 	mustExec(t, driver, `INSERT INTO characters (id, world, datacenter, region, fc_id, fc_name, first_seen_at)
-		SELECT 100000 + g * 3 + m, 'Balmung', 'Crystal', 'NA', (1000 + g)::text, 'Big ' || g, NOW() - INTERVAL '90 days'
+		SELECT 100000 + g * 3 + m, 'Balmung', 'Crystal', 'NA', (1000 + g)::text, 'Big ' || lpad(g::text, 3, '0'), NOW() - INTERVAL '90 days'
 		FROM generate_series(1, 150) g, generate_series(0, 2) m`)
 	mustExec(t, driver, `INSERT INTO characters (id, world, datacenter, region, fc_id, fc_name, first_seen_at, latest_achievement_at)
-		SELECT 200000 + g * 2 + m, 'Balmung', 'Crystal', 'NA', (2000 + g)::text, 'Lively ' || g, NOW() - INTERVAL '90 days',
+		SELECT 200000 + g * 2 + m, 'Balmung', 'Crystal', 'NA', (2000 + g)::text, 'Lively ' || lpad(g::text, 3, '0'), NOW() - INTERVAL '90 days',
 		       CASE WHEN m = 0 THEN $1::timestamptz END
 		FROM generate_series(1, 120) g, generate_series(0, 1) m`, recent)
 
@@ -296,4 +297,122 @@ func TestFreeCompanySnapshotKeyMigration_AcceptsTheFreeCompanyRow(t *testing.T) 
 	driver := newTestDriver(t)
 	mustExec(t, driver, `INSERT INTO ui_stats_snapshots (snapshot_key, schema_version, generated_at, activity_since, max_level,
 		source_character_count, refresh_duration_ms, payload) VALUES ('free_companies', 3, NOW(), NOW(), 100, 0, 0, '{}')`)
+}
+
+func TestUIStatsFreeCompanyBoardsBreakCutOffTiesByNameLikeTheBoard(t *testing.T) {
+	driver := newTestDriver(t)
+	stats := repository.NewUIStatsRepository(driver)
+	ctx := context.Background()
+	since := time.Now().UTC().Add(-30 * 24 * time.Hour)
+
+	// 115 companies tied on both counts (3 members, none active), ids
+	// 1001-1115, named so the higher the id the earlier the name. The board
+	// breaks the tie by name, so its top 100 are ids 1016-1115, not the 100
+	// lowest ids.
+	mustExec(t, driver, `INSERT INTO characters (id, world, datacenter, region, fc_id, fc_name, first_seen_at)
+		SELECT 100000 + g * 3 + m, 'Balmung', 'Crystal', 'NA', (1000 + g)::text, 'Tied ' || lpad((1000 - g)::text, 4, '0'), NOW() - INTERVAL '90 days'
+		FROM generate_series(1, 115) g, generate_series(0, 2) m`)
+
+	if _, err := stats.Refresh(ctx, incrementalOpts(contract.UIStatsRefreshFull, since)); err != nil {
+		t.Fatal(err)
+	}
+	boards, err := stats.LoadFreeCompanies(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	balmung := companiesOf(t, boards, "Balmung")
+	if len(balmung) != 100 {
+		t.Fatalf("Balmung stores %d Free Companies, want the board's 100", len(balmung))
+	}
+	for id := 1001; id <= 1115; id++ {
+		_, kept := balmung[strconv.Itoa(id)]
+		if kept != (id >= 1016) {
+			t.Errorf("company %d kept = %v, want %v", id, kept, id >= 1016)
+		}
+	}
+	region := census.FreeCompanyBoardFor(boards, census.FreeCompanyQuery{Measure: census.FreeCompanyMembers, Scope: contract.StatsScope{Region: "NA"}})
+	if len(region.Rows) != 100 || region.Rows[0].ID != "1115" || region.Rows[99].ID != "1016" {
+		t.Errorf("NA board runs %s..%s over %d rows, want 1115..1016 over 100", region.Rows[0].ID, region.Rows[len(region.Rows)-1].ID, len(region.Rows))
+	}
+}
+
+func TestFreeCompanyPassLeavesThePlannerSettingsAsItFoundThem(t *testing.T) {
+	driver := newTestDriver(t)
+	ctx := context.Background()
+	seedFCMembers(t, driver,
+		fcMember{id: 1, world: "Balmung", fcID: "100", fcName: "Alpha"},
+		fcMember{id: 2, world: "Balmung", fcID: "100", fcName: "Alpha"},
+	)
+	db, err := driver.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	now := time.Now().UTC()
+	boards, err := repository.ReadFreeCompanyBoardsForTest(ctx, tx, now.Add(-30*24*time.Hour), now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if companiesOf(t, boards, "Balmung")["100"].Name != "Alpha" {
+		t.Fatalf("boards = %+v", boards)
+	}
+	for _, setting := range []string{"enable_hashagg", "enable_seqscan", "enable_bitmapscan"} {
+		var value string
+		if err := tx.QueryRowContext(ctx, "SHOW "+setting).Scan(&value); err != nil {
+			t.Fatal(err)
+		}
+		if value != "on" {
+			t.Errorf("%s = %s after the Free Company pass, want on", setting, value)
+		}
+	}
+}
+
+func TestFreeCompanyNamesAreOneIndexLookupPerCompany(t *testing.T) {
+	driver := newTestDriver(t)
+	ctx := context.Background()
+	db, err := driver.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	// An empty test table would be read sequentially; production's is not.
+	mustExecTx(t, tx, `SET LOCAL enable_seqscan = off`)
+	mustExecTx(t, tx, `SET LOCAL enable_bitmapscan = off`)
+	rows, err := tx.QueryContext(ctx, "EXPLAIN "+repository.FreeCompanyNamesQueryForTest, []string{"100", "200"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan strings.Builder
+	for rows.Next() {
+		var line string
+		if err := rows.Scan(&line); err != nil {
+			t.Fatal(err)
+		}
+		plan.WriteString(line + "\n")
+	}
+	got := plan.String()
+	if !strings.Contains(got, "idx_characters_fc_live") || !strings.Contains(got, "Limit") {
+		t.Errorf("names plan does not look up each company through idx_characters_fc_live with a limit:\n%s", got)
+	}
+	for _, costly := range []string{"Sort", "Unique"} {
+		if strings.Contains(got, costly) {
+			t.Errorf("names plan has a %s over the members:\n%s", costly, got)
+		}
+	}
+}
+
+func mustExecTx(t *testing.T, tx *sql.Tx, query string) {
+	t.Helper()
+	if _, err := tx.Exec(query); err != nil {
+		t.Fatalf("%s: %v", query, err)
+	}
 }

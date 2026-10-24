@@ -100,3 +100,27 @@ func TestFreeCompanyBoardWithoutBoardsIsEmpty(t *testing.T) {
 		t.Errorf("rows = %v, want none", got.Rows)
 	}
 }
+
+func TestTrimFreeCompanyWorldKeepsEachBoardsTopInBoardOrder(t *testing.T) {
+	companies := []contract.FreeCompanyCount{
+		// Tied on both counts at the members cut-off: the board breaks the tie by name.
+		fc("1", "Zulu", 10, 0), fc("2", "Yankee", 10, 0), fc("3", "Alpha", 10, 0),
+		fc("4", "Big", 20, 0),
+		// Leads the active board only.
+		fc("5", "Lively", 2, 5),
+	}
+	got := TrimFreeCompanyWorld(companies, 2)
+	var ids []string
+	for _, c := range got {
+		ids = append(ids, c.ID)
+	}
+	// Members board: Big, then Alpha (name breaks the tie). Active board:
+	// Lively, then the zero-active companies by members, then name: Big.
+	want := []string{"4", "3", "5"}
+	if !reflect.DeepEqual(ids, want) {
+		t.Errorf("TrimFreeCompanyWorld ids = %v, want %v (members board order, each company once)", ids, want)
+	}
+	if len(companies) != 5 || companies[0].ID != "1" {
+		t.Error("TrimFreeCompanyWorld changed its input")
+	}
+}

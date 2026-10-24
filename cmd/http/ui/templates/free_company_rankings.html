@@ -43,7 +43,7 @@
         {{if .Data.Filtered}}{{template "empty-state" (emptyStateLink "No Free Companies to rank here yet." "A company appears once the census has seen 2 of its members. Try a wider selection." "/ui/rankings/free-companies" "Rank every world")}}{{else}}{{template "empty-state" (emptyState "No Free Companies to rank yet." "They appear after the next nightly rebuild.")}}{{end}}
         {{else}}
         {{template "ladder" .Data.Ladder}}
-        <p class="rankings-footnote">Companies with fewer than 2 members seen are left out. Names come from the most recently checked member, so a rename shows once the census visits one of them again.</p>
+        <p class="rankings-footnote">Companies with fewer than 2 members seen are left out. Names come from a member the census has seen, so a rename shows once the census has visited its members again.</p>
         {{template "freshness" (nightly .Data.BuiltAt)}}
         {{end}}
     </div>
