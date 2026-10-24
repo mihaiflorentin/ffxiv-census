@@ -364,7 +364,8 @@ inventing their own. Each is covered by tests in `design_v2_test.go` and `switch
   the "Show the numbers" table that repeats the whole board. `Entrance` marks the list as the page's
   one entrance; `Tone` (a Grand Company slug) draws the bars in that company's colour.
 - **`privacy-note`** (`components/privacy.html`): one sentence with the census-wide private share,
-  linking to `/ui/privacy`, followed by the page's consequence clause. Renders nothing until the
+  linking to `/ui/privacy`, followed by the page's consequence clause and a "How privacy is counted"
+  link to `/ui/methodology#achievement-privacy`. Renders nothing until the
   snapshot has privacy figures. The dashboard's active-players tile ("…, so they can’t count as
   active.") and the Expansions page header ("…, so these completions are a lower bound.") use it:
   `{{template "privacy-note" (privacyNoteFor .Data.PrivacyNote "they can’t count as active")}}`.
