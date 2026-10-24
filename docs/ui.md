@@ -24,7 +24,7 @@
 | `/ui/characters/{id}` | `GET` | Detailed character profile with Dawntrail Lv 100 job matrix, story milestone timeline, Free Company badge, and external links |
 | `/ui/characters` | `GET` | Paginated directory browser of discovered player characters |
 | `/ui/characters/search` | `GET` | Global search handler: numeric IDs redirect directly to `/ui/characters/{id}`, text queries filter by character name |
-| `/ui/assets/*` | `GET` | Static asset file server (`styles.css`, `htmx.min.js`, `chart.umd.min.js`) |
+| `/ui/assets/*` | `GET` | Static asset file server (`styles.css`, `htmx.min.js`, `chart.umd.min.js`, `fonts/*.woff2` as `font/woff2` with year-long immutable caching) |
 
 ### Head Metadata & Canonical URLs
 
@@ -84,9 +84,13 @@ cmd/http/ui/
 ├── assets/
 │   ├── chart.umd.min.js    # Vendored Chart.js v4.4.7 UMD bundle
 │   ├── htmx.min.js         # Vendored HTMX v2.0.4 library
-│   └── styles.css          # Dark FFXIV design system & responsive layout styles
+│   ├── favicon.png         # Site icon served at /favicon.ico
+│   ├── fonts/
+│   │   ├── manrope-latin-var.woff2 # Vendored Manrope variable font (Latin subset, tnum kept)
+│   │   └── OFL.txt         # SIL Open Font License for Manrope
+│   └── styles.css          # Design tokens, shell and component styles (see section 5)
 ├── templates/
-│   ├── layout.html         # Base shell (navbar, search, header, footer, script tags)
+│   ├── layout.html         # Page shell (skip link, brand, primary nav, stale notice, footer, font preload)
 │   ├── dashboard.html      # Headline stats, 30-day time-series chart, region table
 │   ├── races.html          # Race & clan demographics with race, tribe, gender, and race×gender doughnut charts
 │   ├── worlds.html         # Global worlds & datacenters table with active ratios
@@ -96,7 +100,7 @@ cmd/http/ui/
 │   └── partials/
 │       ├── world_drilldown.html # HTMX partial for region -> DC -> world drilldown
 │       └── search_results.html  # HTMX partial for live character search
-├── routes.go               # ServeMux route registration and embedded FS handler
+├── routes.go               # ServeMux route registration and embedded asset handler (font headers)
 ├── controller.go           # Core UI controller & template renderer
 ├── dashboard.go            # Controller for /ui/dashboard & /ui/partials/world-breakdown
 ├── races.go                # Controller for /ui/races
@@ -110,11 +114,93 @@ cmd/http/ui/
 
 ## 5. Theme & Styling System
 
-The custom dark theme (`styles.css`) is inspired by the FINAL FANTASY XIV UI aesthetic:
-- **Backgrounds**: `#0b0e14` (Deep Aether Void) and `#141923` (Card Surface)
-- **Accents**: `#d4af37` (Eorzean Gold) and `#38bdf8` (Aether Cyan)
-- **Status Colors**: `#22c55e` (Active Green) and `#ef4444` (Inactive/Deleted Red)
-- **Role Colors**: Distinct color coding for Tank (`#3b82f6`), Healer (`#10b981`), Melee DPS (`#ef4444`), Physical Ranged (`#f97316`), Magic Ranged (`#a855f7`), Crafter (`#14b8a6`), and Gatherer (`#eab308`).
+The design system lives in `assets/styles.css`. Its concept is **the aetheryte network**: a blue night
+base drawn from the game's skies, flat surfaces separated by tone, and the two colours of FFXIV crystals
+(Aether and Crystal) reserved for data and focus. It is dark-only. The full direction is in spec #49.
+
+**Principles:** no emoji in the UI, no inline `style` attributes, no ALL-CAPS labels, no glow, blur or
+gradient decoration, no decorative motion (only chart transitions, tooltip fades and the nav toggle, all
+disabled under `prefers-reduced-motion`), icons are inline SVG. Hand-written CSS, no framework, no build step.
+
+### Design tokens
+
+Every value is a CSS custom property on `:root`, defined once and reused:
+
+| Token | Value | Use |
+|---|---|---|
+| `--color-night` | `#0D1220` | Page background |
+| `--color-surface` | `#151C2E` | Panels and tiles |
+| `--color-raised` | `#1D2640` | Hover, selected rows, open menus, realm-tally band track |
+| `--color-line` | `#28324D` | Hairline separators and table rules only (panels use tone, not borders) |
+| `--color-aether` | `#5FD4F4` | Primary accent: links, primary chart series, focus ring, active nav |
+| `--color-crystal` | `#9D8CFF` | Secondary accent: comparison series, brand facet. Never text links |
+| `--color-ink` / `--color-ink-muted` | `#E8ECF5` / `#98A2BC` | Text and secondary text |
+| `--color-active` / `--color-warning` / `--color-negative` | `#4CC38A` / `#E8B04A` / `#EF7A72` | Status |
+| `--color-role-*` | tank `#5B8DEF`, healer `#4CC38A`, melee `#EF7A72`, phys-ranged `#F0975A`, magic-ranged `#B58CFF`, crafter `#3CC4B4`, gatherer `#E8C14A` | Job-role colours (`.role-*` classes) |
+
+Every text token meets WCAG 2.2 AA (4.5:1) on Night, Surface and Raised, and Night text on an Aether fill
+does too; `tokens_test.go` enforces this against the served stylesheet. The focus ring
+(`--focus-ring`, 2px Aether, applied via `:focus-visible`) is visible on every interactive element.
+
+- **Type scale:** `--step--2` … `--step-6`, a 1.25 modular ratio on a 16px body (`--step-0`), line
+  height `--leading-body` 1.55, `--leading-tight` 1.15 for headings, `--measure` 70ch for long-form text.
+  Weights: `--weight-body` 400, `--weight-medium` 500, `--weight-heading` 600, `--weight-display` 800
+  (headline figures and page titles, with `--tracking-display` -0.02em).
+- **Space:** `--space-1` … `--space-8` on a 4px base (4, 8, 12, 16, 24, 32, 48, 64px).
+- **Shape:** pages and sections square; `--radius-panel` 12px (panels, tiles); `--radius-control` 8px
+  (buttons, selects, nav items); `--radius-pill` for chips and badges. No resting shadows;
+  `--shadow-overlay` is only for open menus and tooltips.
+- **Layout:** `--content-max` 1280px, `--gutter` 16px on phones and 24px from 768px.
+- **Legacy aliases:** the old names (`--bg-card`, `--text-muted`, `--cyan`, `--gold`, …) are kept as
+  aliases onto the new tokens while page templates still use them; gold no longer exists and resolves to
+  Ink. Remove each alias once nothing references it.
+
+### Font
+
+One family, **Manrope** (variable, weight axis 200–800, SIL OFL 1.1), vendored as
+`assets/fonts/manrope-latin-var.woff2`: a ~24KB subset of the google/fonts `Manrope[wght].ttf` covering
+Latin + Latin-1 plus common punctuation (curly apostrophes, dashes, `›`), with all OpenType layout
+features retained, including `tnum`. The licence is alongside it in `assets/fonts/OFL.txt`. The page shell
+preloads it, `@font-face` uses `font-display: swap`, and the system sans stack is the fallback. The body
+sets `font-variant-numeric: tabular-nums` so every figure uses tabular numerals.
+
+To regenerate the subset (fontTools + brotli in a venv):
+
+```bash
+python3 -m fontTools.subset 'Manrope[wght].ttf' --flavor=woff2 --layout-features='*' \
+  --unicodes='U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD' \
+  --output-file=manrope-latin-var.woff2
+```
+
+Ship a changed font under a new file name: the asset route serves `.woff2` files as `font/woff2` with
+`Cache-Control: public, max-age=31536000, immutable`.
+
+### Page shell
+
+`templates/layout.html` wraps every page:
+
+- A "Skip to content" link (first focusable element) targeting `<main id="main">`.
+- A header with the brand: an original faceted-crystal SVG glyph (Aether and Crystal facets) and the
+  "FFXIV Census" wordmark, linking to `/`.
+- Primary navigation (`<nav aria-label="Primary">`: Dashboard `/`, Races, Worlds, Expansions,
+  Methodology) with `aria-current="page"` on the active item. Below 768px it collapses behind a "Menu"
+  toggle that is a native checkbox and label, so it opens and closes without JavaScript.
+- A stale-snapshot notice at the top of `main` when the snapshot is older than `stale_warning`.
+- A footer with snapshot freshness ("Statistics updated …"), a Methodology link and a link to
+  ffxivbard.com.
+
+Head metadata (canonical, description, Open Graph, favicon) is unchanged. No page references an external
+host in `src`, `href` or CSS `url(...)` apart from canonical/OG URLs and the ffxivbard.com footer link;
+`assets_test.go` enforces this.
+
+### Components
+
+Shell: `.skip-link`, `.site-header`, `.brand`, `.primary-nav`, `.nav-toggle`, `.site-footer`,
+`.notice` / `.notice-stale`. Page components (restyled onto the tokens; page templates move onto them as
+they are redesigned): `.page-header` / `.page-title` / `.page-desc`, `.stat-grid` / `.stat-card`,
+`.panel` / `.panel-header` / `.panel-title` / `.panel-body`, `.chart-container`, `.data-table` inside
+`.table-responsive`, `.badge`, `.btn`, `.progress-bar-*`, `.funnel-*` (progression steps),
+`.visually-hidden`.
 
 ## 6. Cascading Filters
 

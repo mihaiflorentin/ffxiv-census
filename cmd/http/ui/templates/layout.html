@@ -11,39 +11,51 @@
     <meta property="og:description" content="{{.Description}}">
     <meta property="og:type" content="website">
     <meta property="og:url" content="{{.BaseURL}}{{.CanonicalPath}}">
+    <meta name="theme-color" content="#0D1220">
     <link rel="icon" type="image/png" href="/favicon.ico">
+    <link rel="preload" href="/ui/assets/fonts/manrope-latin-var.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="stylesheet" href="/ui/assets/styles.css">
     <script src="/ui/assets/htmx.min.js"></script>
     <script src="/ui/assets/chart.umd.min.js"></script>
 </head>
 <body>
-    <header class="navbar">
-        <div class="nav-container">
-            <a href="/ui/dashboard" class="brand">
-                <span class="brand-icon">⚔️</span>
-                <span>FFXIV CENSUS</span>
+    <a class="skip-link" href="#main">Skip to content</a>
+
+    <header class="site-header">
+        <div class="site-header-inner">
+            <a href="/" class="brand">
+                <svg class="brand-mark" viewBox="0 0 24 32" width="20" height="28" aria-hidden="true" focusable="false">
+                    <polygon class="brand-facet-aether" points="12,1 2,12 12,31"/>
+                    <polygon class="brand-facet-crystal" points="12,1 22,12 12,31"/>
+                    <polygon class="brand-facet-crown" points="12,1 7,10 12,13 17,10"/>
+                </svg>
+                <span class="brand-wordmark">FFXIV Census</span>
             </a>
-            <ul class="nav-links">
-                <li class="nav-item {{if eq .ActiveNav "dashboard"}}active{{end}}">
-                    <a href="/ui/dashboard">Dashboard</a>
-                </li>
-                <li class="nav-item {{if eq .ActiveNav "races"}}active{{end}}">
-                    <a href="/ui/races">Races</a>
-                </li>
-                <li class="nav-item {{if eq .ActiveNav "worlds"}}active{{end}}">
-                    <a href="/ui/worlds">Worlds</a>
-                </li>
-                <li class="nav-item {{if eq .ActiveNav "expansions"}}active{{end}}">
-                    <a href="/ui/expansions">Expansions</a>
-                </li>
-                <li class="nav-item {{if eq .ActiveNav "methodology"}}active{{end}}">
-                    <a href="/ui/methodology">Methodology</a>
-                </li>
-            </ul>
+
+            <input type="checkbox" id="nav-toggle" class="nav-toggle" aria-controls="primary-nav">
+            <label for="nav-toggle" class="nav-toggle-label">
+                <svg class="nav-toggle-icon" viewBox="0 0 20 20" width="20" height="20" aria-hidden="true" focusable="false">
+                    <path d="M3 5h14M3 10h14M3 15h14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                </svg>
+                <span>Menu</span>
+            </label>
+
+            <nav id="primary-nav" class="primary-nav" aria-label="Primary">
+                <ul class="primary-nav-list">
+                    <li><a href="/"{{if eq .ActiveNav "dashboard"}} aria-current="page"{{end}}>Dashboard</a></li>
+                    <li><a href="/ui/races"{{if eq .ActiveNav "races"}} aria-current="page"{{end}}>Races</a></li>
+                    <li><a href="/ui/worlds"{{if eq .ActiveNav "worlds"}} aria-current="page"{{end}}>Worlds</a></li>
+                    <li><a href="/ui/expansions"{{if eq .ActiveNav "expansions"}} aria-current="page"{{end}}>Expansions</a></li>
+                    <li><a href="/ui/methodology"{{if eq .ActiveNav "methodology"}} aria-current="page"{{end}}>Methodology</a></li>
+                </ul>
+            </nav>
         </div>
     </header>
 
-    <main class="page-container">
+    <main id="main" class="page-container" tabindex="-1">
+        {{if .StatsStale}}
+        <p class="notice notice-stale" role="status">Statistics refresh delayed; showing the last available snapshot from {{.StatsUpdated}}.</p>
+        {{end}}
         {{block "content" .}}
         <div class="panel">
             <div class="panel-body">
@@ -51,12 +63,18 @@
             </div>
         </div>
         {{end}}
-        {{if .StatsUpdated}}
-        <p class="stats-freshness{{if .StatsStale}} stats-freshness-stale{{end}}">
-            Statistics updated {{.StatsUpdated}}{{if .StatsStale}} · refresh delayed; showing the last available snapshot{{end}}
-        </p>
-        {{end}}
     </main>
 
+    <footer class="site-footer">
+        <div class="site-footer-inner">
+            <p class="footer-freshness">
+                {{if .StatsUpdated}}Statistics updated {{.StatsUpdated}}{{if .StatsStale}} (stale){{end}}{{else}}Statistics are being prepared{{end}}
+            </p>
+            <ul class="footer-links">
+                <li><a href="/ui/methodology">Methodology</a></li>
+                <li><a href="https://ffxivbard.com" rel="noopener">ffxivbard.com</a></li>
+            </ul>
+        </div>
+    </footer>
 </body>
 </html>

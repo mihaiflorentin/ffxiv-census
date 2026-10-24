@@ -105,7 +105,7 @@ func statsPageData(title, activeNav, canonicalPath, description string, state ce
 		ActiveNav:     activeNav,
 		CanonicalPath: canonicalPath,
 		Description:   description,
-		StatsUpdated:  state.GeneratedAt.UTC().Format("2006-01-02 15:04 UTC"),
+		StatsUpdated:  formatStatsUpdated(state),
 		StatsStale:    state.Stale,
 		Data:          data,
 	}
@@ -158,7 +158,7 @@ func (c *UIController) Methodology(w http.ResponseWriter, r *http.Request) {
 		expansions = census.DefaultExpansions
 	}
 
-	c.render(w, "templates/methodology.html", PageData{
+	data := PageData{
 		Title:         "Methodology",
 		ActiveNav:     "methodology",
 		CanonicalPath: "/ui/methodology",
@@ -166,5 +166,19 @@ func (c *UIController) Methodology(w http.ResponseWriter, r *http.Request) {
 		Data: MethodologyViewData{
 			Expansions: expansions,
 		},
-	})
+	}
+	// The footer shows snapshot freshness on every page. Methodology does not
+	// depend on the snapshot, so a missing snapshot never fails this page and
+	// its caching headers stay unchanged.
+	if c.stats != nil {
+		if _, state, err := c.stats.Current(r.Context()); err == nil {
+			data.StatsUpdated = formatStatsUpdated(state)
+			data.StatsStale = state.Stale
+		}
+	}
+	c.render(w, "templates/methodology.html", data)
+}
+
+func formatStatsUpdated(state census.UIStatsState) string {
+	return state.GeneratedAt.UTC().Format("2006-01-02 15:04 UTC")
 }
