@@ -61,6 +61,8 @@ type UIStatsSnapshot struct {
 	Expansions       []ScopedExpansionCount `json:"expansions"`
 	NewCharacters    []ScopedDailyCount     `json:"new_characters"`
 	Summary          StatsSummary           `json:"summary"`
+	// Jobs is the job section (schema 3); nil on snapshots built before it.
+	Jobs *StatsJobsSection `json:"jobs,omitempty"`
 }
 
 // UIStatsRefreshMode selects how a refresh builds the snapshot.

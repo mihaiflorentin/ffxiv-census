@@ -20,9 +20,10 @@
 | `/ui/races` | `GET` | Playable race demographics with cascading region/DC/world filters, a new-characters (30d) card that follows the active filters, global percentage shares, active ratios, and demographic charts. Filtering selects precomputed snapshot groups and performs no aggregate database query. |
 | `/ui/grand-companies` | `GET` | Grand Companies with the region/DC/world filter bar and chips: "the standards" (one hanging banner per company filled to its share, plus an outline banner for No Grand Company), "Who still plays" (each company's active share as a meter in its colour), the race lean (a 100%-stacked bar per race, whole game) and "Show the numbers" tables. On a schema v2 snapshot it shows the "arrives with the next refresh" state. |
 | `/ui/worlds` | `GET` | Global server rankings table (including a per-world New (30d) column) with interactive region/datacenter filters, a filter-scoped new-characters (30d) card and a "Characters / Active players" ranking switch (`?sort=active`; an HTMX request targeting `world-rankings` gets just that region) |
-| `/ui/worlds/{world}` | `GET` | World detail page (an unknown world answers the styled `404`): node breadcrumbs (region › datacenter › world, linking to the filtered Worlds page), stat tiles (characters, active players (30d), new characters from chocobo milestone 590 with a worded trend vs the previous 30 days), a compact Grand Company band (linking to `/ui/grand-companies?world=…`), race distribution bar chart, main-scenario completion meters and the 30-day new-character line chart, each chart with a text alternative |
+| `/ui/jobs` | `GET` | Jobs with the region/DC/world filter bar and chips: the nightly freshness line, the coverage line ("Based on N of M characters; older characters are still being added.") while the job figures do not cover every character, "the Armoury" (every job as a tile grouped by role, with a "Levelled / At the level cap" switch; `measure=at-cap`, unknown values fall back to levelled), the party balance at the level cap per datacenter, and "Show the numbers" tables. With HTMX the switch swaps only `#armoury`. Without a job section it shows the "arrives with the next refresh" state. |
+| `/ui/worlds/{world}` | `GET` | World detail page (an unknown world answers the styled `404`): node breadcrumbs (region › datacenter › world, linking to the filtered Worlds page), stat tiles (characters, active players (30d), new characters from chocobo milestone 590 with a worded trend vs the previous 30 days), a compact Grand Company band (linking to `/ui/grand-companies?world=…`), the five most-levelled jobs (linking to `/ui/jobs?world=…`), race distribution bar chart, main-scenario completion meters and the 30-day new-character line chart, each chart with a text alternative |
 | `/ui/expansions` | `GET` | Main scenario progression from A Realm Reborn to Dawntrail as stepped, connected nodes: each step shows completions, share of all characters and retention from the previous expansion |
-| `/ui/methodology` | `GET` | How the census works: data collection, the active-player signal, the new-character (chocobo) milestone, the capstone achievement of each expansion and Grand Company data. Renders without a snapshot. |
+| `/ui/methodology` | `GET` | How the census works: data collection, the active-player signal, the new-character (chocobo) milestone, the capstone achievement of each expansion, Grand Company data and job counting (class folding, the Blue Mage cap, the nightly rebuild and coverage). Renders without a snapshot. |
 | `/ui/characters/{id}` | `GET` | Detailed character profile with Dawntrail Lv 100 job matrix, story milestone timeline, Free Company badge, and external links |
 | `/ui/characters` | `GET` | Paginated directory browser of discovered player characters |
 | `/ui/characters/search` | `GET` | Global search handler: numeric IDs redirect directly to `/ui/characters/{id}`, text queries filter by character name |
@@ -31,7 +32,7 @@
 
 ### Head Metadata & Canonical URLs
 
-Every indexable page (dashboard, races, Grand Companies, worlds, per-world, expansions, methodology) renders SEO head
+Every indexable page (dashboard, races, Grand Companies, jobs, worlds, per-world, expansions, methodology) renders SEO head
 metadata from the shared `PageData` struct:
 
 - `<link rel="canonical">` with the absolute URL built from `app.base_url` (`container.Load.Config().App.BaseURL`,
@@ -65,7 +66,9 @@ The Helm chart runs two CronJobs, both with `concurrencyPolicy: Forbid`: `refres
 
 **Fine-grain roll-up.** Every character query of the refresh groups by one fine grain, (region, datacenter, world, race, clan, gender), with plain or filtered counts per group. The full rebuild reads live characters in a single statement (one sequential scan feeding a HashAggregate; a few thousand groups even at production scale), apart from the milestone query. Go then rolls those rows up (`statsRollup` in `infrastructure/postgres/repository/ui_stats_rollup.go`) into the summary, the region, datacenter and world totals, and race, clan, gender and race-and-gender at the global, region, datacenter and world scopes. The incremental delta and the incremental active pass return the same fine-grain rows through the same roll-up, so the two modes cannot disagree about grouping. A character with an empty region, datacenter or world counts in the global demographics and the location totals but in no scope for that empty location. On the 40k-character demo database the full query runs in about 33 ms against about 97 ms for the former GROUPING SETS plan. The fine grain also carries the Grand Company (spec #56), giving the `grand_company` dimension (keys `Maelstrom`, `Order of the Twin Adder`, `Immortal Flames`, and `None` for no company) at every scope and the global-only `grand_company_race` cross (`<company>|<race>`).
 
-**Schema versions.** The refreshes write schema 3 (`contract.UIStatsSchemaVersion`); readers accept 2 and 3 (`contract.UIStatsMinSchemaVersion`), so a v2 snapshot stored before an upgrade keeps the existing pages working, and the incremental refresh rebuilds fully on it, so the first refresh after deploy writes v3. A page that needs a v3 part asks `census.SnapshotHasSection(snapshot, census.SectionGrandCompanies)` (`domain/census/snapshot_sections.go`) and shows the shared `next-refresh` state when it is missing. A new section adds its constant and the schema version that introduced it to `sectionSince`. On the demo database the v3 payload is about 648 KB.
+**Job section.** The full rebuild's fine-grain query also sums the two [job bitmasks](census.md#job-bitmasks): per group, the characters whose masks are set (`jobs_covered`) and, for every job bit, a levelled and an at-cap filtered count (`COUNT(*) FILTER (WHERE jobs_levelled_mask & (1 << id) <> 0)`, 66 bit tests per row). It never reads `character_jobs`. `jobAccumulator` (`ui_stats_jobs.go`) keeps those columns per world only, and the snapshot stores them as `snapshot.Jobs` (`contract.StatsJobsSection`): the build time, the job ids in Armoury order, and per world its characters, covered characters and one levelled and one at-cap count per job (about 30 KB on the demo database). Region, datacenter and global figures are rolled up in the domain (`census.ArmouryFor`, `census.RoleBalanceByDatacenter` in `domain/census/armoury.go`) through the world hierarchy. The incremental refresh copies the section unchanged with its build time, and rebuilds fully when the previous snapshot has none.
+
+**Schema versions.** The refreshes write schema 3 (`contract.UIStatsSchemaVersion`); readers accept 2 and 3 (`contract.UIStatsMinSchemaVersion`), so a v2 snapshot stored before an upgrade keeps the existing pages working, and the incremental refresh rebuilds fully on it, so the first refresh after deploy writes v3. A page that needs a v3 part asks `census.SnapshotHasSection(snapshot, census.SectionGrandCompanies)` (`domain/census/snapshot_sections.go`) and shows the shared `next-refresh` state when it is missing. A new section adds its constant and the schema version that introduced it to `sectionSince`; a section stored as its own payload field (`SectionJobs`) also registers a presence check in `sectionPresent`, so a v3 snapshot written before the field existed reads as missing until the next full rebuild. On the demo database the v3 payload is about 672 KB, 30 KB of it the job section.
 
 **Incremental mode.** The snapshot stores a watermark (`ui_stats_snapshots.watermark_at`, the database clock when the counts were read). An incremental pass takes the previous snapshot's group totals and adds the characters with `first_seen_at` in (watermark, now] and subtracts those with `deleted_at` in the same window (soft deletes only). Active and max-level counts are recomputed exactly each pass from `latest_achievement_at` and `max_job_level` (partial index `idx_characters_max_job_level`), and the milestone figures are recomputed in full. It falls back to a full rebuild when there is no previous snapshot, the schema version or watermark is unusable, or the adjusted result fails validation. Accepted drift until the next nightly rebuild (every fine-grain key column can drift this way): a character whose world, datacenter, region, race, tribe, gender or Grand Company changes after it was counted, a soft delete later reverted, and a character that commits after the read snapshot with a `first_seen_at` before the watermark. The advisory lock keeps the two jobs from overlapping (the later one reports "skipped"). Each server process reloads the database row no more frequently than `cache_ttl`; concurrent cold loads are coalesced. If a reload fails after a successful load, the last good snapshot remains available. A cold process with no snapshot returns `503 Service Unavailable` with `Retry-After: 60` and the styled "Statistics are being prepared" page (see section 5, Error, stale and empty states); there is deliberately no fallback to unbounded aggregate queries.
 
@@ -117,6 +120,7 @@ cmd/http/ui/
 │   ├── dashboard.html      # Realm tally, stat tiles, race and MSQ panels, 30-day chart, region table
 │   ├── races.html          # Races and clans: filter bar, stat tiles, race/gender doughnuts, clan and race×gender bars, race table
 │   ├── grand_companies.html # Grand Companies: filter bar, the standards, who still plays, race lean, number tables
+│   ├── jobs.html            # Jobs: filter bar, freshness and coverage lines, the Armoury (switch region), party balance, number tables
 │   ├── worlds.html         # Worlds: filter bar, stat tiles, world rankings data table
 │   ├── world_detail.html   # World: node breadcrumbs, stat tiles, race and MSQ panels, 30-day chart
 │   ├── expansions.html     # Main scenario progression steps (completions, share, retention)
@@ -359,6 +363,29 @@ inventing their own. Each is covered by tests in `design_v2_test.go` and `switch
   and character count below. Colour reaches each banner, swatch, meter and band segment through
   `--slot-color` from `.gc-<slug>` / `.standard-<slug>`. The row has the page's one entrance
   (`data-entrance="rise"`).
+- **The Armoury** (Jobs, the signature element): every job as a tile, grouped by role in the game's
+  Armoury order under two discipline headings (Disciples of War and Magic; Disciples of the Hand and
+  Land). Each role heading (`h4.armoury-role-name`) draws its role colour as a thin 2px rule to the row's
+  end (`--color-mark-tank` / `-healer` / `-dps`; crafting and gathering use the hairline colour), never a
+  fill. A tile shows the abbreviation large in semi-condensed Saira, the name small, the count and share
+  in tabular Saira, and a hairline along its foot (an SVG `rect` whose `width` is the share of covered
+  characters, read like the experience bar under a job's level). Fill intensity is one sequential hue,
+  Aether mixed into Surface in five steps (`.armoury-level-1`…`5`, 9-54%), from the job's count relative to
+  the most common job of the measure; muted text turns Ink from step 3 for contrast. A job nobody has is
+  unlit (`.armoury-level-0`: transparent with a hairline outline, muted abbreviation), like a locked job in
+  game. The most common job wears the census crystal in its corner (`.armoury-lead`). Tiles are fixed-width
+  and wrap per role; under 768px they become a grid, and under 600px compact two-a-row rows (abbreviation
+  and figures on one line, the name beneath). Entrance: role groups fade in one after another
+  (`data-entrance="roles"`, 200 ms each with 30 ms steps, under 400 ms; full loads only; off under reduced
+  motion).
+- **Party balance** (Jobs): one row per datacenter of the selected region (all regions when global), the
+  selected datacenter raised. Each row is an SVG 100% bar of tanks, healers and DPS among combat jobs at
+  the level cap in the role marks, with 2px Surface gaps and two Ink ticks at 25% and 50% marking a light
+  party's 1 : 1 : 2, then the three shares in tabular Saira. A headline above reads "1 tank to 1.0 healers
+  and 3.1 DPS" for the selection. Blue Mage is left out; jobs, not characters, are counted.
+- **World detail most-levelled jobs**: a panel after the Grand Company band with the world's five
+  most-levelled jobs as small tiles (abbreviation, name, count, share), linking to the Jobs page filtered
+  to the world.
 - **Progression steps** (Expansions): one `<li>` per expansion in an `<ol class="progression">`. Each
   step has a node on a vertical connector, the expansion name (`h3`) with patch, level cap and finale,
   a `<meter>` for its share of all characters (so the bars step down), and a `<dl>` of Completed, Share

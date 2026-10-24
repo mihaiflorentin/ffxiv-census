@@ -28,7 +28,7 @@ func TestMethodologyHandler(t *testing.T) {
 	for _, h := range findAll(doc, byAtom(atom.H2)) {
 		sections = append(sections, textOf(h))
 	}
-	wantSections := []string{"Data collection", "Active players", "New characters", "Main scenario progression", "Grand Companies"}
+	wantSections := []string{"Data collection", "Active players", "New characters", "Main scenario progression", "Grand Companies", "Jobs"}
 	if strings.Join(sections, "|") != strings.Join(wantSections, "|") {
 		t.Errorf("section headings = %q, want %q", sections, wantSections)
 	}

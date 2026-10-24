@@ -64,7 +64,7 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 		}
 		seenDays[key] = struct{}{}
 	}
-	return nil
+	return validateJobsSection(snapshot.Jobs)
 }
 
 func SnapshotGroups(snapshot *contract.UIStatsSnapshot, dimension string, scope contract.StatsScope) []contract.GroupCount {

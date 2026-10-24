@@ -179,17 +179,26 @@ func (r *UIStatsRepository) Refresh(ctx context.Context, opts contract.UIStatsRe
 func (r *UIStatsRepository) readCharacterStats(ctx context.Context, tx *sql.Tx, snapshot *contract.UIStatsSnapshot) error {
 	// One hashed pass over live characters at the fine grain; every scope and
 	// dimension is rolled up in Go.
-	roll, err := queryFineGrain(ctx, tx, `
+	// The job columns make each fine-grain group about 2 KB of aggregate
+	// state (about 21 MB for the demo's 8.8k groups); give the hash
+	// aggregate room to stay in memory instead of spilling to disk.
+	if _, err := tx.ExecContext(ctx, `SET LOCAL work_mem = '64MB'`); err != nil {
+		return fmt.Errorf("size UI statistics aggregate memory: %w", err)
+	}
+	jobs := newJobAccumulator()
+	roll, err := queryFineGrainWith(ctx, tx, jobs, `
 		SELECT `+fineGrainKeyColumns+`,
 		       COUNT(*) AS total,
 		       COUNT(*) FILTER (WHERE latest_achievement_at >= $1) AS active,
-		       COUNT(*) FILTER (WHERE max_job_level >= $2) AS max_level
+		       COUNT(*) FILTER (WHERE max_job_level >= $2) AS max_level,
+		       `+jobFineColumns+`
 		FROM characters
 		WHERE deleted_at IS NULL
 		GROUP BY `+fineGrainGroupBy, snapshot.ActivitySince, snapshot.MaxLevel)
 	if err != nil {
 		return fmt.Errorf("query UI character statistics: %w", err)
 	}
+	snapshot.Jobs = jobs.section(snapshot.GeneratedAt)
 	snapshot.Summary = roll.summary.statsSummary()
 	snapshot.SourceCharacters = roll.summary.Total
 	for _, key := range roll.sortedKeys() {
@@ -204,6 +213,12 @@ func (r *UIStatsRepository) readCharacterStats(ctx context.Context, tx *sql.Tx, 
 // queryFineGrain runs a fine-grain statistics query (the fineGrainKeyColumns
 // followed by the fineCounts columns) and rolls its rows up.
 func queryFineGrain(ctx context.Context, tx *sql.Tx, query string, args ...any) (*statsRollup, error) {
+	return queryFineGrainWith(ctx, tx, nil, query, args...)
+}
+
+// queryFineGrainWith is queryFineGrain for a query whose rows carry extra
+// columns after the fineCounts columns; extra scans and keeps them.
+func queryFineGrainWith(ctx context.Context, tx *sql.Tx, extra fineExtra, query string, args ...any) (*statsRollup, error) {
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -213,11 +228,18 @@ func queryFineGrain(ctx context.Context, tx *sql.Tx, query string, args ...any) 
 	for rows.Next() {
 		var key fineKey
 		var counts fineCounts
-		if err := rows.Scan(&key.Region, &key.Datacenter, &key.World, &key.Race, &key.Tribe, &key.Gender, &key.GrandCompany,
-			&counts.Total, &counts.Active, &counts.MaxLevel); err != nil {
+		dest := []any{&key.Region, &key.Datacenter, &key.World, &key.Race, &key.Tribe, &key.Gender, &key.GrandCompany,
+			&counts.Total, &counts.Active, &counts.MaxLevel}
+		if extra != nil {
+			dest = append(dest, extra.dest()...)
+		}
+		if err := rows.Scan(dest...); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
 		roll.add(key, counts)
+		if extra != nil {
+			extra.add(key, counts)
+		}
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("iterate: %w", err)
@@ -260,6 +282,12 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 	if err := json.Unmarshal(payload, &prev); err != nil {
 		return false, nil
 	}
+	// Nightly sections are carried forward unchanged, with their build
+	// times; a previous snapshot without one needs a full rebuild.
+	if prev.Jobs == nil {
+		return false, nil
+	}
+	snapshot.Jobs = prev.Jobs
 
 	totals := make(map[groupKey]int64, len(prev.Groups))
 	for _, g := range prev.Groups {

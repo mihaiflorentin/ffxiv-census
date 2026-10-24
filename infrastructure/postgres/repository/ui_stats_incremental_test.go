@@ -20,6 +20,11 @@ func comparableSnapshot(s *contract.UIStatsSnapshot) *contract.UIStatsSnapshot {
 	c := *s
 	c.GeneratedAt = time.Time{}
 	c.RefreshDuration = 0
+	if s.Jobs != nil {
+		jobs := *s.Jobs
+		jobs.BuiltAt = time.Time{}
+		c.Jobs = &jobs
+	}
 	c.Groups = append([]contract.ScopedGroupCount(nil), s.Groups...)
 	sort.Slice(c.Groups, func(i, j int) bool {
 		a, b := c.Groups[i], c.Groups[j]
@@ -116,8 +121,12 @@ func TestUIStatsIncrementalMatchesFullRebuild(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(comparableSnapshot(inc.Snapshot), comparableSnapshot(full.Snapshot)) {
-		t.Fatalf("incremental differs from full rebuild\nincremental: %+v\nfull:        %+v", comparableSnapshot(inc.Snapshot), comparableSnapshot(full.Snapshot))
+	// The job section is a nightly figure: the incremental refresh carries it
+	// forward on purpose (see TestUIStatsIncrementalCarriesJobSectionForward).
+	incCmp, fullCmp := comparableSnapshot(inc.Snapshot), comparableSnapshot(full.Snapshot)
+	incCmp.Jobs, fullCmp.Jobs = nil, nil
+	if !reflect.DeepEqual(incCmp, fullCmp) {
+		t.Fatalf("incremental differs from full rebuild\nincremental: %+v\nfull:        %+v", incCmp, fullCmp)
 	}
 }
 

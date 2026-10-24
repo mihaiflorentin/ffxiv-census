@@ -24,7 +24,7 @@ type sitemapURL struct {
 }
 
 // sitemapStaticPaths lists the indexable UI pages without per-entity routes.
-var sitemapStaticPaths = []string{"/", "/ui/races", "/ui/grand-companies", "/ui/worlds", "/ui/expansions", "/ui/methodology"}
+var sitemapStaticPaths = []string{"/", "/ui/races", "/ui/grand-companies", "/ui/jobs", "/ui/worlds", "/ui/expansions", "/ui/methodology"}
 
 // Sitemap handles GET /sitemap.xml. It renders the sitemap-protocol document
 // for every indexable page from the statistics snapshot. A sitemap must never
