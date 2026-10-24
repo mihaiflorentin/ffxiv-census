@@ -63,6 +63,10 @@ Publish(ctx, job)
 
 No consumer reads the delay queues. The broker alone moves a message out of a tier, so there is no sleeping consumer and a message with a long delay never holds back one with a short delay: each tier has a single TTL, so a tier is FIFO and its head is always the next to expire.
 
+## Gap fill cycle
+
+The `publish-fill-gaps` cron job (`publish id-sweep --fill-gaps`) publishes ID sweep jobs for the unprobed gaps between 1 and the highest stored character ID. Each run queues at most `--count` jobs starting after the gap-fill cursor (`fill_gaps_state.last_queued_id`) and moves the cursor to the end of the last job it published. When no gaps remain after the cursor, or the cursor is at or past the highest stored ID, the cursor wraps to 0 and the same run searches again from the lowest ID, so the gap fill cycles for ever and old gaps (private, deleted or failed characters) are probed again each cycle. The run's log line (`publish.id_sweep_gaps.published`, or `publish.id_sweep_gaps.none_found`) carries `wrapped=true` when the cursor wrapped, which marks the start of a new cycle. A manual run with `--min-id` scans from that ID once and never reads, moves or wraps the cursor.
+
 ## Retry Mechanism
 
 When a handler returns an error, the adapter calls `contract.DecideRetry(err, attempts, proxy_failures, max_attempts, proxy_failure_cap, tiers)`. `attempts` is the `x-attempts` header: the number of **job-attributable** failures the message already had; `proxy_failures` is the `x-proxy-failures` header.
