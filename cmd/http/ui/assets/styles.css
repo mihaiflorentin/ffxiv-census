@@ -50,21 +50,24 @@
 
     /*
      * Colour: categorical chart palette. Eight slots in a fixed order, never
-     * cycled; slot 1 is the Aether hue and slot 2 the Crystal hue, stepped into
-     * the dark-mode chart band (OKLCH L 0.48-0.67). Validated with the dataviz
+     * cycled; slot 1 is the Aether hue and slot 2 the Crystal hue, stepped
+     * down to the top of the dark-mode chart band (OKLCH L 0.48-0.67; the
+     * brand Aether and Crystal are lighter than the band allows). No gold or
+     * amber slot: the spec drops gold entirely. Validated with the dataviz
      * palette validator on Night and Surface: adjacent CVD dE >= 8.2,
      * normal-vision dE >= 17.0, every slot >= 3:1 on Surface; slots 1-4 also
-     * pass all-pairs. Races and regions map to fixed slots (chart-theme.js,
-     * realm_tally.go). Single-series charts use Aether, comparisons Crystal.
+     * pass all-pairs (regions use them). Races and regions take the slot of
+     * their position in the census taxonomy (domain/census/taxonomy.go).
+     * Single-series charts use Aether, comparisons Crystal.
      */
-    --color-chart-1: #00A4C5;
-    --color-chart-2: #917EF4;
-    --color-chart-3: #BA8C01;
-    --color-chart-4: #D24C49;
-    --color-chart-5: #4194F9;
-    --color-chart-6: #27AF57;
-    --color-chart-7: #DD61A2;
-    --color-chart-8: #DD7303;
+    --color-chart-1: #00A4C5;  /* Aether hue */
+    --color-chart-2: #917EF4;  /* Crystal hue */
+    --color-chart-3: #D24C49;  /* red */
+    --color-chart-4: #B334AD;  /* magenta */
+    --color-chart-5: #4194F9;  /* blue */
+    --color-chart-6: #27AF57;  /* green */
+    --color-chart-7: #DD61A2;  /* pink */
+    --color-chart-8: #DD7303;  /* orange */
     --color-chart-other: #7C869E;  /* neutral for unmapped categories */
 
     /* Type: one family, contrast from weight and size */
