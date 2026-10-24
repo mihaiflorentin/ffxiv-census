@@ -2971,6 +2971,325 @@ input[type="search"] {
     }
 }
 
+/* ---------- Rankings: board tabs, controls and the ladder ---------- */
+
+/* "Worlds and datacenters | Free Companies": the Rankings boards, as plain links. */
+.board-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-5);
+    margin-bottom: var(--space-3);
+}
+
+.board-tab {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    color: var(--color-ink-muted);
+    font-weight: var(--weight-medium);
+    text-decoration: none;
+    box-shadow: inset 0 -2px 0 transparent;
+    transition: color var(--duration-fast) ease, box-shadow var(--duration-fast) ease;
+}
+
+.board-tab:hover {
+    color: var(--color-ink);
+}
+
+.board-tab[aria-current="page"] {
+    color: var(--color-ink);
+    font-weight: var(--weight-heading);
+    box-shadow: inset 0 -2px 0 var(--color-aether);
+}
+
+/* The command strip: every choice of the board, above a hairline. */
+.rankings-controls {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--color-line);
+}
+
+.rankings-control-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-6);
+}
+
+.rankings-control {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    min-width: 0;
+}
+
+.rankings-control-label {
+    flex: 0 0 auto;
+    min-width: 4.5rem;
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+/* A switch wider than the screen scrolls sideways instead of overflowing. */
+.switch-scroller {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.switch-scroller::-webkit-scrollbar {
+    display: none;
+}
+
+.rankings-head {
+    padding: var(--space-5) var(--space-5) 0;
+}
+
+.rankings-title {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-4);
+    font-weight: 700;
+    line-height: var(--leading-tight);
+    color: var(--color-ink);
+}
+
+.rankings-scope {
+    margin-top: var(--space-1);
+    font-weight: var(--weight-medium);
+    color: var(--color-aether);
+}
+
+.rankings-explain {
+    margin-top: var(--space-2);
+    max-width: var(--measure);
+    color: var(--color-ink-muted);
+}
+
+.rankings-body {
+    padding: var(--space-5);
+}
+
+.rankings-footnote {
+    margin-top: var(--space-4);
+    max-width: var(--measure);
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+/*
+ * The ladder: a real sequence, so the rank numerals carry it. They sit in a
+ * left gutter, oversized and condensed; the leader is set apart by size alone.
+ * Each rung ends in a hairline bar measured against the leader, which doubles
+ * as the rule between rungs.
+ */
+.ladder-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ladder-rung {
+    display: grid;
+    grid-template-columns: 4.25rem minmax(0, 1fr) auto;
+    grid-template-areas:
+        "rank name value"
+        "rank note detail"
+        "rank bar bar";
+    align-items: baseline;
+    column-gap: var(--space-3);
+    padding: var(--space-3) 0 0;
+}
+
+.ladder-rank {
+    grid-area: rank;
+    align-self: start;
+    font-family: var(--font-figures);
+    font-stretch: var(--width-condensed);
+    font-size: var(--step-4);
+    font-weight: 600;
+    line-height: 0.9;
+    text-align: right;
+    color: var(--color-ink-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.ladder-name {
+    grid-area: name;
+    min-width: 0;
+    font-weight: var(--weight-heading);
+    overflow-wrap: break-word;
+    hyphens: auto;
+}
+
+.ladder-name a {
+    color: var(--color-ink);
+    text-decoration: none;
+}
+
+.ladder-name a:hover {
+    color: var(--color-aether);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+}
+
+.ladder-note {
+    grid-area: note;
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.ladder-value {
+    grid-area: value;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.ladder-figure {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-2);
+    font-weight: 700;
+    line-height: 1;
+}
+
+.ladder-unit {
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.ladder-detail {
+    grid-area: detail;
+    text-align: right;
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.ladder-bar {
+    grid-area: bar;
+    display: block;
+    margin-top: var(--space-3);
+}
+
+.ladder-track {
+    fill: var(--color-line);
+}
+
+.ladder-fill {
+    fill: var(--color-aether);
+}
+
+/* Grand Company boards draw their bars in the company's colour. */
+.ladder-tone-maelstrom .ladder-fill { fill: var(--color-gc-maelstrom); }
+.ladder-tone-twin-adder .ladder-fill { fill: var(--color-gc-twin-adder); }
+.ladder-tone-immortal-flames .ladder-fill { fill: var(--color-gc-immortal-flames); }
+
+.ladder-leader {
+    padding-top: 0;
+}
+
+.ladder-leader .ladder-rank {
+    font-size: var(--step-6);
+    font-weight: 700;
+    color: var(--color-ink);
+}
+
+.ladder-leader .ladder-name {
+    font-size: var(--step-2);
+}
+
+.ladder-leader .ladder-figure {
+    font-size: var(--step-5);
+}
+
+.ladder-leader .ladder-bar {
+    margin-top: var(--space-4);
+}
+
+.ladder-more {
+    margin-top: var(--space-4);
+}
+
+.ladder-more-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 2.75rem;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-control);
+    box-shadow: inset 0 0 0 1px var(--color-line);
+    color: var(--color-aether);
+    font-weight: var(--weight-heading);
+    cursor: pointer;
+    list-style: none;
+}
+
+.ladder-more-toggle::-webkit-details-marker {
+    display: none;
+}
+
+.ladder-more-toggle::after {
+    content: "";
+    width: 0.45rem;
+    height: 0.45rem;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: translateY(-2px) rotate(45deg);
+    transition: transform var(--duration-fast) ease;
+}
+
+.ladder-more[open] > .ladder-more-toggle::after {
+    transform: translateY(2px) rotate(-135deg);
+}
+
+.ladder-more-toggle:hover {
+    background: var(--color-raised);
+}
+
+.ladder-more[open] > .ladder-more-toggle {
+    margin-bottom: var(--space-1);
+}
+
+.ladder .chart-data {
+    margin-top: var(--space-5);
+}
+
+@media (max-width: 767px) {
+    .rankings-controls { padding: var(--space-4); }
+    .rankings-head { padding: var(--space-4) var(--space-4) 0; }
+    .rankings-body { padding: var(--space-4); }
+    .rankings-title { font-size: var(--step-3); }
+}
+
+@media (max-width: 599px) {
+    .rankings-control {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: var(--space-1);
+    }
+
+    /* The detail line moves under the note so the figure keeps its room. */
+    .ladder-rung {
+        grid-template-columns: 2.75rem minmax(0, 1fr) auto;
+        grid-template-areas:
+            "rank name value"
+            "rank note note"
+            "rank detail detail"
+            "rank bar bar";
+        column-gap: var(--space-2);
+    }
+
+    .ladder-detail { text-align: left; }
+
+    .ladder-rank { font-size: var(--step-3); }
+    .ladder-figure { font-size: var(--step-1); }
+    .ladder-leader .ladder-rank { font-size: var(--step-5); }
+    .ladder-leader .ladder-name { font-size: var(--step-1); }
+    .ladder-leader .ladder-figure { font-size: var(--step-4); }
+}
+
 /* ---------- Motion: the one entrance per page ---------- */
 
 /*

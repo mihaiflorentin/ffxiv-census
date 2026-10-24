@@ -37,6 +37,7 @@ func (c *UIController) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ui/expansions", c.Expansions)
 	mux.HandleFunc("GET /ui/methodology", c.Methodology)
 	mux.HandleFunc("GET /ui/privacy", c.Privacy)
+	mux.HandleFunc("GET /ui/rankings", c.Rankings)
 	mux.HandleFunc("GET /sitemap.xml", c.Sitemap)
 	mux.HandleFunc("GET /favicon.ico", c.Favicon)
 	mux.Handle("GET /ui/assets/", http.StripPrefix("/ui/assets/", assetHandler()))
