@@ -2284,6 +2284,461 @@ input[type="search"] {
     color: var(--color-ink);
 }
 
+/* ---------- Jobs: the Armoury ---------- */
+
+/*
+ * The signature element: every job as a tile, grouped by role the way the
+ * game's Armoury and Character window group them. Role headings carry the
+ * role colour as a thin rule, never a fill. The tile fill is one sequential
+ * hue (Aether into Surface), stepped by how common the job is relative to the
+ * most common job of the measure; a job nobody has stays unlit, like a job
+ * not yet unlocked in game. The hairline along each tile's foot is its share
+ * of characters, read like the experience bar under a job's level.
+ */
+.jobs-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-5);
+    margin: calc(-1 * var(--space-3)) 0 var(--space-5);
+}
+
+.coverage-line {
+    margin-top: var(--space-3);
+    color: var(--color-ink);
+    font-size: var(--step--1);
+    padding-left: var(--space-3);
+    box-shadow: inset 2px 0 0 var(--color-warning);
+}
+
+.armoury-lede {
+    max-width: var(--measure);
+    margin-bottom: var(--space-5);
+    color: var(--color-ink);
+}
+
+.armoury {
+    --armoury-tile: 8.25rem;
+    display: grid;
+    gap: var(--space-6);
+}
+
+.armoury-discipline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-5) var(--space-6);
+}
+
+.armoury-discipline-name {
+    flex: 0 0 100%;
+    font-size: var(--step--1);
+    font-weight: var(--weight-medium);
+    color: var(--color-ink-muted);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-line);
+}
+
+.armoury-role {
+    --role-rule: var(--color-line);
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.armoury-role-tank { --role-rule: var(--color-mark-tank); }
+.armoury-role-healer { --role-rule: var(--color-mark-healer); }
+.armoury-role-dps { --role-rule: var(--color-mark-dps); }
+
+/* The role name, then its colour drawn out as a thin rule to the row's end. */
+.armoury-role-name {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+    font-size: var(--step-0);
+    font-weight: var(--weight-heading);
+    color: var(--color-ink);
+}
+
+.armoury-role-name::after {
+    content: "";
+    flex: 1 1 auto;
+    min-width: var(--space-6);
+    height: 2px;
+    border-radius: 1px;
+    background: var(--role-rule);
+}
+
+.armoury-tiles {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.armoury-tile {
+    --tile-fill: var(--color-surface);
+    flex: 0 0 var(--armoury-tile);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 7.5rem;
+    padding: var(--space-3) var(--space-3) var(--space-4);
+    border-radius: var(--radius-control);
+    background: var(--tile-fill);
+    box-shadow: var(--rim), inset 0 0 0 1px var(--color-line);
+}
+
+.armoury-level-1 { --tile-fill: color-mix(in oklab, var(--color-chart-1) 9%, var(--color-surface)); }
+.armoury-level-2 { --tile-fill: color-mix(in oklab, var(--color-chart-1) 18%, var(--color-surface)); }
+.armoury-level-3 { --tile-fill: color-mix(in oklab, var(--color-chart-1) 29%, var(--color-surface)); }
+.armoury-level-4 { --tile-fill: color-mix(in oklab, var(--color-chart-1) 41%, var(--color-surface)); }
+.armoury-level-5 { --tile-fill: color-mix(in oklab, var(--color-chart-1) 54%, var(--color-surface)); }
+
+.armoury-level-1, .armoury-level-2, .armoury-level-3, .armoury-level-4, .armoury-level-5 {
+    box-shadow: var(--rim);
+}
+
+/* Unlit: the job is in the Armoury but nobody here has it. */
+.armoury-level-0 {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--color-line);
+}
+
+.armoury-abbr {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-weight: 700;
+    font-size: var(--step-4);
+    line-height: 1;
+    letter-spacing: 0.01em;
+    color: var(--color-ink);
+}
+
+.armoury-name {
+    margin-top: var(--space-1);
+    font-size: var(--step--1);
+    line-height: var(--leading-tight);
+    color: var(--color-ink-muted);
+}
+
+.armoury-figures {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-top: auto;
+    padding-top: var(--space-3);
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-variant-numeric: tabular-nums;
+}
+
+.armoury-count {
+    font-size: var(--step-1);
+    font-weight: 600;
+    color: var(--color-ink);
+}
+
+.armoury-share {
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+/* On the brighter steps muted ink loses contrast: everything reads in Ink. */
+.armoury-level-3 .armoury-name, .armoury-level-3 .armoury-share,
+.armoury-level-4 .armoury-name, .armoury-level-4 .armoury-share,
+.armoury-level-5 .armoury-name, .armoury-level-5 .armoury-share {
+    color: var(--color-ink);
+}
+
+.armoury-level-0 .armoury-abbr,
+.armoury-level-0 .armoury-count {
+    color: var(--color-ink-muted);
+}
+
+.armoury-gauge {
+    position: absolute;
+    left: var(--space-3);
+    right: var(--space-3);
+    bottom: var(--space-2);
+    width: calc(100% - 2 * var(--space-3));
+    height: 2px;
+    background: color-mix(in oklab, var(--color-night) 55%, transparent);
+    border-radius: 1px;
+}
+
+.armoury-gauge-fill {
+    fill: var(--color-ink);
+}
+
+/* The most common job wears the census crystal in its corner. */
+.armoury-lead::after {
+    content: "";
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-3);
+    width: 0.625rem;
+    height: 0.875rem;
+    background: var(--color-ink);
+    clip-path: polygon(50% 0, 100% 45%, 50% 100%, 0 45%);
+}
+
+.table-note {
+    color: var(--color-ink-muted);
+    font-size: var(--step--1);
+}
+
+@media (max-width: 767px) {
+    .armoury { --armoury-tile: auto; }
+
+    .armoury-role { flex: 1 1 100%; }
+
+    .armoury-tiles {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(5.75rem, 1fr));
+    }
+
+    .armoury-tile { min-height: 6.5rem; padding: var(--space-2) var(--space-2) var(--space-4); }
+
+    .armoury-abbr { font-size: var(--step-3); }
+
+    .armoury-figures { flex-direction: column; align-items: flex-start; gap: 0; padding-top: var(--space-2); }
+
+    .armoury-count { font-size: var(--step-0); }
+
+    .armoury-lead::after { top: var(--space-2); right: var(--space-2); }
+
+    .armoury-gauge { left: var(--space-2); right: var(--space-2); width: calc(100% - 2 * var(--space-2)); }
+}
+
+/* Phones: two compact tiles a row, read like the job list of the game's
+   Character window: the abbreviation and the count on one line, the name and
+   the share beneath. */
+@media (max-width: 599px) {
+    .armoury-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    .armoury-tile {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        grid-template-areas: "abbr figures" "name name";
+        align-items: center;
+        column-gap: var(--space-2);
+        min-height: 0;
+        padding: var(--space-2) var(--space-3) var(--space-4);
+    }
+
+    .armoury-abbr { grid-area: abbr; font-size: var(--step-2); }
+    .armoury-name { grid-area: name; margin-top: var(--space-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .armoury-figures { grid-area: figures; align-items: flex-end; padding-top: 0; margin-top: 0; line-height: 1.2; }
+    .armoury-lead::after { display: none; }
+}
+
+/* The Armoury's entrance: role groups fade in one after another (under
+   400 ms in all), on full page loads only. */
+[data-entrance="roles"] {
+    animation: none;
+}
+
+[data-entrance="roles"] .armoury-role {
+    animation: census-fade 200ms var(--ease-out) both;
+}
+
+[data-entrance="roles"] .armoury-role:nth-of-type(2) { animation-delay: 30ms; }
+[data-entrance="roles"] .armoury-role:nth-of-type(3) { animation-delay: 60ms; }
+[data-entrance="roles"] .armoury-role:nth-of-type(4) { animation-delay: 90ms; }
+[data-entrance="roles"] .armoury-role:nth-of-type(5) { animation-delay: 120ms; }
+[data-entrance="roles"] .armoury-discipline-crafting .armoury-role:nth-of-type(1) { animation-delay: 150ms; }
+[data-entrance="roles"] .armoury-discipline-crafting .armoury-role:nth-of-type(2) { animation-delay: 180ms; }
+
+.census-settled [data-entrance="roles"] .armoury-role {
+    animation: none;
+}
+
+/* ---------- Jobs: party balance ---------- */
+
+.balance-headline {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-bottom: var(--space-5);
+}
+
+.balance-headline-place {
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.balance-headline-ratio {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-weight: 600;
+    font-size: var(--step-3);
+    line-height: var(--leading-tight);
+    color: var(--color-ink);
+}
+
+.role-tank { --slot-color: var(--color-mark-tank); }
+.role-healer { --slot-color: var(--color-mark-healer); }
+.role-dps { --slot-color: var(--color-mark-dps); }
+
+.balance-key {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-5);
+    margin-bottom: var(--space-4);
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.balance-key li {
+    display: inline-flex;
+    align-items: center;
+}
+
+.balance-key-guide {
+    display: inline-block;
+    width: 2px;
+    height: 0.875rem;
+    margin-right: var(--space-2);
+    background: var(--color-ink);
+}
+
+.balance-list {
+    list-style: none;
+    display: grid;
+    gap: var(--space-1);
+}
+
+.balance-row {
+    display: grid;
+    grid-template-columns: 8rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-2) var(--space-3);
+    margin: 0 calc(-1 * var(--space-3));
+    border-radius: var(--radius-control);
+}
+
+.balance-current {
+    background: var(--color-raised);
+}
+
+.balance-name {
+    font-weight: var(--weight-medium);
+    color: var(--color-ink);
+    white-space: nowrap;
+}
+
+.balance-region {
+    margin-left: var(--space-1);
+    font-size: var(--step--1);
+    font-weight: var(--weight-body);
+    color: var(--color-ink-muted);
+    text-decoration: none;
+}
+
+.balance-bar {
+    display: block;
+    width: 100%;
+    height: 0.875rem;
+    overflow: visible;
+}
+
+.balance-segment {
+    fill: var(--slot-color);
+    stroke: var(--color-surface);
+    stroke-width: 2px;
+    vector-effect: non-scaling-stroke;
+}
+
+.balance-current .balance-segment {
+    stroke: var(--color-raised);
+}
+
+.balance-guide {
+    stroke: var(--color-ink);
+    stroke-width: 2px;
+}
+
+.balance-shares {
+    display: grid;
+    grid-template-columns: repeat(3, 3.25rem);
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+    text-align: right;
+}
+
+.balance-current .balance-shares {
+    color: var(--color-ink);
+}
+
+@media (max-width: 599px) {
+    .balance-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: var(--space-2) var(--space-3);
+    }
+
+    .balance-bar {
+        grid-column: 1 / -1;
+        grid-row: 2;
+    }
+}
+
+/* ---------- World detail: most levelled jobs ---------- */
+
+.top-jobs {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+    gap: var(--space-2);
+}
+
+.top-job {
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-3);
+    border-radius: var(--radius-control);
+    background: var(--color-raised);
+    box-shadow: var(--rim);
+}
+
+.top-job-abbr {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-weight: 700;
+    font-size: var(--step-3);
+    line-height: 1;
+    color: var(--color-ink);
+}
+
+.top-job-name {
+    margin-top: var(--space-1);
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.top-job-figures {
+    margin-top: var(--space-3);
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--color-ink);
+}
+
+.top-job-share {
+    margin-left: var(--space-1);
+    font-weight: var(--weight-body);
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
 /* ---------- Private Achievements: the veil ---------- */
 
 /*
@@ -3014,7 +3469,8 @@ input[type="search"] {
 /* ---------- Reduced motion ---------- */
 
 @media (prefers-reduced-motion: reduce) {
-    [data-entrance] {
+    [data-entrance],
+    [data-entrance] .armoury-role {
         animation: none;
     }
 

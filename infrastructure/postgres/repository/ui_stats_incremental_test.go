@@ -20,6 +20,11 @@ func comparableSnapshot(s *contract.UIStatsSnapshot) *contract.UIStatsSnapshot {
 	c := *s
 	c.GeneratedAt = time.Time{}
 	c.RefreshDuration = 0
+	if s.Jobs != nil {
+		jobs := *s.Jobs
+		jobs.BuiltAt = time.Time{}
+		c.Jobs = &jobs
+	}
 	c.PrivacyBuiltAt = time.Time{}
 	c.Groups = append([]contract.ScopedGroupCount(nil), s.Groups...)
 	sort.Slice(c.Groups, func(i, j int) bool {
@@ -119,9 +124,13 @@ func TestUIStatsIncrementalMatchesFullRebuild(t *testing.T) {
 	}
 	// Character 3 gains an achievement after it was counted as unchecked and
 	// is then deleted: the accepted privacy drift, covered with the privacy
-	// tests. Every other figure must match exactly.
-	if !reflect.DeepEqual(withoutPrivacy(comparableSnapshot(inc.Snapshot)), withoutPrivacy(comparableSnapshot(full.Snapshot))) {
-		t.Fatalf("incremental differs from full rebuild\nincremental: %+v\nfull:        %+v", comparableSnapshot(inc.Snapshot), comparableSnapshot(full.Snapshot))
+	// tests. The job section is a nightly figure the incremental refresh
+	// carries forward on purpose (TestUIStatsIncrementalCarriesJobSectionForward).
+	// Every other figure must match exactly.
+	incCmp, fullCmp := withoutPrivacy(comparableSnapshot(inc.Snapshot)), withoutPrivacy(comparableSnapshot(full.Snapshot))
+	incCmp.Jobs, fullCmp.Jobs = nil, nil
+	if !reflect.DeepEqual(incCmp, fullCmp) {
+		t.Fatalf("incremental differs from full rebuild\nincremental: %+v\nfull:        %+v", incCmp, fullCmp)
 	}
 }
 

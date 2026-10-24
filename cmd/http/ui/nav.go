@@ -18,6 +18,7 @@ var primaryNav = []NavItem{
 	{Key: "rankings", Label: "Rankings", Href: "/ui/rankings"},
 	{Key: "races", Label: "Races", Href: "/ui/races"},
 	{Key: "grand-companies", Label: "Grand Companies", Href: "/ui/grand-companies"},
+	{Key: "jobs", Label: "Jobs", Href: "/ui/jobs"},
 	{Key: "expansions", Label: "Expansions", Href: "/ui/expansions"},
 	{Key: "methodology", Label: "Methodology", Href: "/ui/methodology"},
 }

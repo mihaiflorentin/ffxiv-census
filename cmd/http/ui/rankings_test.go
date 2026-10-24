@@ -357,7 +357,10 @@ func TestRankingsWaitForFiguresOnAVersion2Snapshot(t *testing.T) {
 
 func TestRankingsHeaderLinksTheBoards(t *testing.T) {
 	doc := parseHTML(t, serveMuxGet(t, rankingsMux(t, 3), "/ui/rankings").Body.String())
-	navs := findAll(doc, func(n *html.Node) bool { v, _ := attr(n, "aria-label"); return n.DataAtom == atom.Nav && v == "Rankings boards" })
+	navs := findAll(doc, func(n *html.Node) bool {
+		v, _ := attr(n, "aria-label")
+		return n.DataAtom == atom.Nav && v == "Rankings boards"
+	})
 	if len(navs) != 1 {
 		t.Fatalf("want one Rankings boards nav, got %d", len(navs))
 	}

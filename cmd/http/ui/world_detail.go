@@ -27,6 +27,7 @@ type WorldDetailViewData struct {
 	MSQCompletions []ExpansionCard
 	Timeline       Timeline
 	GrandCompanies GrandCompanyBand
+	TopJobs        TopJobsBlock
 }
 
 // WorldDetail handles GET /ui/worlds/{world}.
@@ -103,5 +104,7 @@ func (c *UIController) WorldDetail(w http.ResponseWriter, r *http.Request) {
 		Timeline:           newCharactersTimeline(snapshot, scope),
 		GrandCompanies: grandCompanyBand(census.GrandCompanySplitFor(snapshot, scope),
 			census.SnapshotHasSection(snapshot, census.SectionGrandCompanies), worldName),
+		TopJobs: topJobsBlock(census.ArmouryFor(snapshot, scope),
+			census.SnapshotHasSection(snapshot, census.SectionJobs), worldName),
 	}))
 }

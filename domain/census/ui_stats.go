@@ -68,7 +68,7 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 		}
 		seenDays[key] = struct{}{}
 	}
-	return nil
+	return validateJobsSection(snapshot.Jobs)
 }
 
 // validLocationCounts reports whether the at cap and privacy counts fit

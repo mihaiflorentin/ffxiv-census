@@ -54,6 +54,31 @@
     </div>
 </section>
 
+<section class="panel" aria-labelledby="top-jobs-heading">
+    <div class="panel-header">
+        <h2 id="top-jobs-heading" class="panel-title">Most levelled jobs</h2>
+        <p class="panel-meta"><a href="{{.Data.TopJobs.Href}}">Every job on {{.Data.World}}</a></p>
+    </div>
+    <div class="panel-body">
+        {{if not .Data.TopJobs.Ready}}
+        {{template "next-refresh" (nextRefresh "Job figures")}}
+        {{else if .Data.TopJobs.Jobs}}
+        <ol class="top-jobs">
+            {{range .Data.TopJobs.Jobs}}
+            <li class="top-job">
+                <span class="top-job-abbr" aria-hidden="true">{{.Abbreviation}}</span>
+                <span class="top-job-name">{{.Name}}</span>
+                <span class="top-job-figures"><data value="{{.Count}}">{{formatNumber .Count}}</data> <span class="top-job-share">{{.Share}}</span></span>
+            </li>
+            {{end}}
+        </ol>
+        <p class="chart-summary">Characters on {{.Data.World}} with each job levelled, as a share of those the job figures cover.</p>
+        {{else}}
+        {{template "empty-state" (emptyStateLink "No job figures for this world yet." "They appear after the next nightly rebuild." "/ui/jobs" "See every job")}}
+        {{end}}
+    </div>
+</section>
+
 <div class="dashboard-grid">
     <section class="panel" aria-labelledby="races-heading">
         <div class="panel-header">

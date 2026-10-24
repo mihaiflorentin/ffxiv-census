@@ -47,7 +47,9 @@ type rankingMetric struct {
 type rankingPart func(snapshot *contract.UIStatsSnapshot, level LocationLevel, c LocationCounts) (part, total int64)
 
 func countOf(read func(LocationCounts) int64) rankingPart {
-	return func(_ *contract.UIStatsSnapshot, _ LocationLevel, c LocationCounts) (int64, int64) { return read(c), c.Total }
+	return func(_ *contract.UIStatsSnapshot, _ LocationLevel, c LocationCounts) (int64, int64) {
+		return read(c), c.Total
+	}
 }
 
 // newCharacters is a candidate's new characters in the 30-day window.
