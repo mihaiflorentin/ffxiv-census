@@ -41,7 +41,7 @@
             {{if .Data.RaceLabels}}
             <div class="chart-container" style="height: 340px;"><canvas id="racePieChart"></canvas></div>
             {{else}}
-            <p class="text-dim">No race data available yet.</p>
+            {{template "empty-state" (emptyState "No race data yet." "Statistics appear after the next census refresh.")}}
             {{end}}
         </div>
     </div>
@@ -69,7 +69,7 @@
                 {{end}}
             </div>
             {{else}}
-            <p class="text-dim">No expansion completion data available yet.</p>
+            {{template "empty-state" (emptyState "No expansion completions yet." "Statistics appear after the next census refresh.")}}
             {{end}}
         </div>
     </div>
@@ -123,7 +123,7 @@
             </table>
         </div>
         {{else}}
-        <p class="text-dim">No regional census data available yet. Ingest workers are processing sweeps.</p>
+        {{template "empty-state" (emptyState "No regional data yet." "Statistics appear after the next census refresh.")}}
         {{end}}
     </div>
 </div>

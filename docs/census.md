@@ -150,7 +150,7 @@ If a hidden profile later becomes public, the next census of that character stor
 
 ## UIStatsService
 
-`domain/census/ui_stats_service.go` is the only aggregate-data source wired into production UI and statistics API routes. It validates schema version and metadata, caches an immutable snapshot for the configured TTL, coalesces concurrent reloads, and defensively clones data for callers. A failed warm reload serves the last known-good snapshot; a missing cold snapshot becomes a fast 503 rather than triggering raw fallback queries.
+`domain/census/ui_stats_service.go` is the only aggregate-data source wired into production UI and statistics API routes. It validates schema version and metadata, caches an immutable snapshot for the configured TTL, coalesces concurrent reloads, and defensively clones data for callers. A failed warm reload serves the last known-good snapshot and reports it stale until a reload succeeds; a routine background reload after `cache_ttl` serves the cached copy without marking it stale (only a failed reload or an age of at least `stale_warning` does). A missing cold snapshot becomes a fast 503 rather than triggering raw fallback queries.
 
 The snapshot contains only the dimensions consumed by routes: global summary; global/region/datacenter/world population groups; scoped race, tribe, gender, and race×gender groups; scoped expansion completions; and global/world daily new-character counts. Adding a new aggregate page requires extending the versioned snapshot and refresh query, not adding census-wide SQL to a request handler.
 

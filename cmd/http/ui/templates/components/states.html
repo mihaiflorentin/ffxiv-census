@@ -1,0 +1,37 @@
+{{/*
+Shared state components, parsed into every page and partial.
+
+empty-state: one consistent block for "no data here yet". Build its argument
+with the emptyState helper so absence is phrased as direction:
+    {{template "empty-state" (emptyState "No race data yet." "Statistics appear after the next census refresh.")}}
+    {{template "empty-state" (emptyStateLink "No worlds match these filters." "Try a wider region." "/ui/worlds" "Show all worlds")}}
+
+state-mark: the aetheryte node glyph used by the 404/503 pages. The argument is
+"pending" (lit crystal, snapshot on its way) or "missing" (unlit crystal).
+*/}}
+{{define "empty-state"}}
+<div class="empty-state">
+    <svg class="empty-state-mark" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true" focusable="false">
+        <circle cx="12" cy="12" r="10.5"/>
+        <path d="M12 5.5 8 11.5 12 18.5 16 11.5Z"/>
+    </svg>
+    <div class="empty-state-text">
+        <p class="empty-state-title">{{.Title}}</p>
+        {{if .Hint}}<p class="empty-state-hint">{{.Hint}}</p>{{end}}
+        {{if .Href}}<p class="empty-state-action"><a href="{{.Href}}">{{.Action}}</a></p>{{end}}
+    </div>
+</div>
+{{end}}
+
+{{define "state-mark"}}
+<svg class="state-mark state-mark-{{.}}" viewBox="0 0 96 96" width="96" height="96" aria-hidden="true" focusable="false">
+    <circle class="state-mark-orbit" cx="48" cy="48" r="44"/>
+    <circle class="state-mark-orbit state-mark-orbit-inner" cx="48" cy="48" r="32"/>
+    <circle class="state-mark-node" cx="48" cy="4" r="3.5"/>
+    <circle class="state-mark-node" cx="86.1" cy="70" r="3.5"/>
+    <circle class="state-mark-node" cx="9.9" cy="70" r="3.5"/>
+    <polygon class="state-mark-facet-aether" points="48,22 34,46 48,76"/>
+    <polygon class="state-mark-facet-crystal" points="48,22 62,46 48,76"/>
+    <polygon class="state-mark-facet-crown" points="48,22 41,40 48,45 55,40"/>
+</svg>
+{{end}}

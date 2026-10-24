@@ -52,6 +52,13 @@ func (c *UIController) WorldDetail(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/worlds", http.StatusFound)
 		return
 	}
+	if !isIndexableWorld(worldName) {
+		c.renderNotFound(w, r, NotFoundViewData{
+			Heading: "World not found",
+			Message: fmt.Sprintf("There is no world named %s in the census. Check the spelling, or pick a world from the full list.", worldName),
+		})
+		return
+	}
 
 	snapshot, state, ok := c.currentStats(w, r)
 	if !ok {

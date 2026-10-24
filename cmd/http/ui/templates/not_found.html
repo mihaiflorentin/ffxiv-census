@@ -1,0 +1,12 @@
+{{define "content"}}
+<section class="state-page" aria-labelledby="state-title">
+    {{template "state-mark" "missing"}}
+    <p class="state-code">Error 404</p>
+    <h1 class="state-title" id="state-title">{{.Data.Heading}}</h1>
+    <p class="state-lead">{{.Data.Message}}</p>
+    <ul class="state-actions">
+        <li><a class="btn btn-primary" href="/">Go to the dashboard</a></li>
+        <li><a class="btn btn-outline" href="/ui/worlds">Browse all worlds</a></li>
+    </ul>
+</section>
+{{end}}

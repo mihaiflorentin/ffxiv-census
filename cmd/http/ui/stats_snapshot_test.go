@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
+
 	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
 	mockqueue "github.com/mihaiflorentin88/ffxiv-census/mock/queue"
 	mockrepo "github.com/mihaiflorentin88/ffxiv-census/mock/repository"
@@ -114,8 +117,53 @@ func TestDashboardMarksOldSnapshotStale(t *testing.T) {
 	ctrl := NewUIController(nil, mockqueue.NewFake(), stats, testBaseURL)
 	rec := httptest.NewRecorder()
 	ctrl.Dashboard(rec, httptest.NewRequest(http.MethodGet, "/ui/dashboard", nil))
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "refresh delayed; showing the last available snapshot") {
-		t.Fatalf("status/body = %d / %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	notice := staleNotice(t, rec.Body.String())
+	if notice == "" {
+		t.Fatalf("stale snapshot must render the stale notice: %s", rec.Body.String())
+	}
+	if !strings.Contains(notice, "may be behind") || !strings.Contains(notice, generated.Format("2006-01-02 15:04 UTC")) {
+		t.Fatalf("stale notice = %q, want it to say the figures may be behind and name the snapshot time", notice)
+	}
+}
+
+// staleNotice returns the text of the status notice inside main, or "".
+func staleNotice(t *testing.T, body string) string {
+	t.Helper()
+	doc := parseHTML(t, body)
+	for _, main := range findAll(doc, byAtom(atom.Main)) {
+		for _, n := range findAll(main, func(n *html.Node) bool { role, _ := attr(n, "role"); return role == "status" }) {
+			if text := textOf(n); strings.Contains(strings.ToLower(text), "behind") {
+				return text
+			}
+		}
+	}
+	return ""
+}
+
+func TestDashboardOmitsStaleNoticeDuringRoutineReload(t *testing.T) {
+	generated := time.Now().UTC().Add(-5 * time.Minute)
+	snapshot := &contract.UIStatsSnapshot{
+		SchemaVersion: contract.UIStatsSchemaVersion,
+		GeneratedAt:   generated,
+		ActivitySince: generated.Add(-30 * 24 * time.Hour),
+		MaxLevel:      100,
+	}
+	// A nanosecond cache TTL makes every request after the first serve the
+	// warm copy while a background reload runs.
+	stats := census.NewUIStatsService(mockrepo.NewUIStatsFake(snapshot), time.Nanosecond, 12*time.Hour)
+	ctrl := NewUIController(nil, mockqueue.NewFake(), stats, testBaseURL)
+	for i := range 3 {
+		rec := httptest.NewRecorder()
+		ctrl.Dashboard(rec, httptest.NewRequest(http.MethodGet, "/ui/dashboard", nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("request %d status = %d", i, rec.Code)
+		}
+		if notice := staleNotice(t, rec.Body.String()); notice != "" {
+			t.Fatalf("request %d rendered stale notice %q for a five-minute-old snapshot", i, notice)
+		}
 	}
 }
 

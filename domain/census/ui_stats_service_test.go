@@ -135,7 +135,9 @@ func TestUIStatsServiceReturnsWarmSnapshotWhileReloadRuns(t *testing.T) {
 
 	select {
 	case got := <-done:
-		if got.err != nil || got.snapshot == nil || !got.state.Stale {
+		// A routine stale-while-revalidate reload is not a delayed refresh:
+		// the snapshot is minutes old, so it must not be flagged stale.
+		if got.err != nil || got.snapshot == nil || got.state.Stale {
 			t.Fatalf("Current() = snapshot %#v, state %#v, err %v", got.snapshot, got.state, got.err)
 		}
 	case <-time.After(100 * time.Millisecond):
@@ -169,4 +171,76 @@ func TestUIStatsServiceColdLoadError(t *testing.T) {
 	if _, _, err := svc.Current(context.Background()); !errors.Is(err, ErrUIStatsUnavailable) {
 		t.Fatalf("Current() error = %v, want ErrUIStatsUnavailable", err)
 	}
+}
+
+func TestUIStatsServiceFlagsStaleAfterBackgroundReloadFails(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	repo := &statsRepoStub{snapshot: validUIStatsSnapshot()}
+	svc := NewUIStatsService(repo, time.Minute, 12*time.Hour)
+	svc.now = func() time.Time { return now }
+	if _, _, err := svc.Current(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	now = now.Add(2 * time.Minute)
+	repo.mu.Lock()
+	repo.loadErr = errors.New("database down")
+	repo.mu.Unlock()
+	if _, _, err := svc.Current(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitForReloadToFinish(t, svc)
+
+	_, state, err := svc.Current(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Stale {
+		t.Fatalf("state after failed reload = %#v, want Stale", state)
+	}
+
+	now = now.Add(2 * time.Minute)
+	repo.mu.Lock()
+	repo.loadErr = nil
+	repo.mu.Unlock()
+	if _, _, err := svc.Current(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	waitForReloadToFinish(t, svc)
+	_, state, err = svc.Current(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if state.Stale {
+		t.Fatalf("state after recovered reload = %#v, want not Stale", state)
+	}
+}
+
+func TestUIStatsServiceFlagsStaleByAge(t *testing.T) {
+	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC).Add(12 * time.Hour)
+	repo := &statsRepoStub{snapshot: validUIStatsSnapshot()}
+	svc := NewUIStatsService(repo, time.Minute, 12*time.Hour)
+	svc.now = func() time.Time { return now }
+	_, state, err := svc.Current(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !state.Stale {
+		t.Fatalf("state at age == stale_warning = %#v, want Stale", state)
+	}
+}
+
+func waitForReloadToFinish(t *testing.T, svc *UIStatsService) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		svc.mu.Lock()
+		loading := svc.loading
+		svc.mu.Unlock()
+		if !loading {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("background reload did not finish")
 }

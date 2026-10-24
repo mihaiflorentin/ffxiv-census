@@ -121,7 +121,7 @@
             {{if .Data.TribeLabels}}
             <div class="chart-container" style="height: 340px;"><canvas id="tribePieChart"></canvas></div>
             {{else}}
-            <p class="text-dim">No tribe data available yet.</p>
+            {{template "empty-state" (emptyState "No tribe data yet." "Statistics appear after the next census refresh.")}}
             {{end}}
         </div>
     </div>
@@ -133,7 +133,7 @@
             {{if .Data.GenderLabels}}
             <div class="chart-container" style="height: 340px;"><canvas id="genderPieChart"></canvas></div>
             {{else}}
-            <p class="text-dim">No gender data available yet.</p>
+            {{template "empty-state" (emptyState "No gender data yet." "Statistics appear after the next census refresh.")}}
             {{end}}
         </div>
     </div>
@@ -147,7 +147,7 @@
             {{if .Data.RaceGenderLabels}}
             <div class="chart-container" style="height: 400px;"><canvas id="raceGenderPieChart"></canvas></div>
             {{else}}
-            <p class="text-dim">No race/gender data available yet.</p>
+            {{template "empty-state" (emptyState "No race and gender data yet." "Statistics appear after the next census refresh.")}}
             {{end}}
         </div>
     </div>
@@ -200,7 +200,7 @@
             </table>
         </div>
         {{else}}
-        <p class="text-dim">No race census data available for this selection.</p>
+        {{if or .Data.SelectedRegion .Data.SelectedDC .Data.SelectedWorld}}{{template "empty-state" (emptyStateLink "No race data for this selection." "Try a wider selection, or clear the filters to see every region." "/ui/races" "Clear filters")}}{{else}}{{template "empty-state" (emptyState "No race data yet." "Statistics appear after the next census refresh.")}}{{end}}
         {{end}}
     </div>
 </div>

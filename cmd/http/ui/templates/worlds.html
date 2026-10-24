@@ -105,7 +105,7 @@
             </table>
         </div>
         {{else}}
-        <p class="text-dim">No worlds match the selected filter criteria.</p>
+        {{if or .Data.SelectedRegion .Data.SelectedDC}}{{template "empty-state" (emptyStateLink "No worlds match these filters." "Try another region or datacenter, or show every world." "/ui/worlds" "Show all worlds")}}{{else}}{{template "empty-state" (emptyState "No world data yet." "Statistics appear after the next census refresh.")}}{{end}}
         {{end}}
     </div>
 </div>
