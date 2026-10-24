@@ -250,16 +250,15 @@ func (c *CensusController) NewCharacters(w http.ResponseWriter, r *http.Request)
 		if snapshot == nil {
 			return
 		}
-		windowDays := census.SnapshotNewCharactersWindowDays(snapshot)
-		end := snapshot.GeneratedAt.UTC().Truncate(24 * time.Hour)
+		bounds := census.SnapshotNewCharactersBounds(snapshot)
 		if since.IsZero() {
-			since = end.AddDate(0, 0, -windowDays)
+			since = bounds.CurrentStart
 		}
 		if until.IsZero() {
-			until = end
+			until = bounds.End
 		}
-		maxUntil := end.Add(24 * time.Hour)
-		if since.Before(end.AddDate(0, 0, -2*windowDays)) || until.After(maxUntil) || !until.After(since) {
+		maxUntil := bounds.End.Add(24 * time.Hour)
+		if since.Before(census.SnapshotDailySeriesStart(snapshot)) || until.After(maxUntil) || !until.After(since) {
 			writeError(w, http.StatusBadRequest, "requested range is outside the available statistics snapshot")
 			return
 		}
@@ -275,15 +274,14 @@ func (c *CensusController) NewCharacters(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	today := time.Now().UTC().Truncate(24 * time.Hour)
+	// Like the snapshot path, the live path ends with the last complete UTC
+	// day unless until says otherwise.
+	bounds := census.NewCharactersWindowBounds(time.Now(), census.WindowDays(c.svc.NewCharactersWindow()))
 	if since.IsZero() {
-		since = today.AddDate(0, 0, -census.WindowDays(c.svc.NewCharactersWindow()))
-		if until.IsZero() {
-			until = today
-		}
+		since = bounds.CurrentStart
 	}
 	if until.IsZero() {
-		until = time.Now().UTC()
+		until = bounds.End
 	}
 	days, err := c.svc.NewCharacters(r.Context(), since, until)
 	if err != nil {

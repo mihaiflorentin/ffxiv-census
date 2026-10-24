@@ -51,6 +51,17 @@ func SnapshotNewCharactersBounds(snapshot *contract.UIStatsSnapshot) NewCharacte
 	return NewCharactersWindowBounds(snapshot.GeneratedAt, SnapshotNewCharactersWindowDays(snapshot))
 }
 
+// SnapshotDailySeriesStart is the first UTC day the snapshot's whole-game
+// daily series covers: the previous window's start from schema 4, and for
+// older snapshots (60 days ending with the generation day) the day after.
+func SnapshotDailySeriesStart(snapshot *contract.UIStatsSnapshot) time.Time {
+	bounds := SnapshotNewCharactersBounds(snapshot)
+	if snapshot != nil && snapshot.NewCharactersWindowDays == 0 {
+		return bounds.PreviousStart.AddDate(0, 0, 1)
+	}
+	return bounds.PreviousStart
+}
+
 // InCurrent reports whether t falls in the current window.
 func (b NewCharactersBounds) InCurrent(t time.Time) bool {
 	return !t.Before(b.CurrentStart) && t.Before(b.End)

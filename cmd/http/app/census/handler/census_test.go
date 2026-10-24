@@ -426,6 +426,50 @@ func TestCensusController_NewCharactersUsesTheSnapshotWindow(t *testing.T) {
 	assertError(t, doGET(t, controller.NewCharacters, "/api/v1/stats/new-characters?since=2026-10-03"), http.StatusBadRequest, "outside")
 }
 
+// A stored schema 3 snapshot's series covers the 60 UTC days ending with
+// its generation day: the earliest day it holds is the first one accepted.
+func TestCensusController_NewCharactersOnALegacySnapshotStartsWithItsSeries(t *testing.T) {
+	generated := time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC)
+	snapshot := &contract.UIStatsSnapshot{
+		SchemaVersion: 3,
+		GeneratedAt:   generated,
+		ActivitySince: generated.Add(-90 * 24 * time.Hour),
+		MaxLevel:      100,
+		NewCharacters: []contract.ScopedDailyCount{{Day: "2026-08-26", Count: 1}, {Day: "2026-10-23", Count: 1}},
+	}
+	stats := census.NewUIStatsService(mockrepo.NewUIStatsFake(snapshot), time.Minute, 24*365*time.Hour)
+	controller := NewCensusController(census.NewService(mockrepo.NewCharacterFake(), mockrepo.NewAchievementFake(), mockrepo.NewCensusRunFake()), stats)
+
+	var days []response.NewCharactersDay
+	decodeJSON(t, doGET(t, controller.NewCharacters, "/api/v1/stats/new-characters?since=2026-08-26"), &days)
+	if len(days) != 2 {
+		t.Fatalf("since the series' first day = %+v, want both days", days)
+	}
+	assertError(t, doGET(t, controller.NewCharacters, "/api/v1/stats/new-characters?since=2026-08-25"), http.StatusBadRequest, "outside")
+}
+
+// With since but no until, the live path ends with the last complete UTC
+// day, like the snapshot path: today is still in progress.
+func TestCensusController_NewCharacters_SinceAloneEndsYesterday(t *testing.T) {
+	rig := newRig(t)
+	ctx := context.Background()
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	for id, daysAgo := range map[uint32]int{1: 0, 2: 1} {
+		at := today.AddDate(0, 0, -daysAgo).Add(time.Minute)
+		if err := rig.chars.Upsert(ctx, contract.CharacterRecord{ID: id, Name: "A", World: "Ultros", Datacenter: "Primal", Region: "NA", FirstSeenAt: at}, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := rig.ach.UpsertCharacterMilestones(ctx, id, []contract.CharacterMilestone{{CharacterID: id, AchievementID: 590, AchievedAt: at}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var days []response.NewCharactersDay
+	decodeJSON(t, doGET(t, rig.c.NewCharacters, "/api/v1/stats/new-characters?since="+today.AddDate(0, 0, -5).Format("2006-01-02")), &days)
+	if len(days) != 1 || days[0].Day != today.AddDate(0, 0, -1).Format("2006-01-02") {
+		t.Fatalf("days = %+v, want only yesterday", days)
+	}
+}
+
 func TestCensusController_NewCharacters_InvalidSince(t *testing.T) {
 	rig := newRig(t)
 	assertError(t, doGET(t, rig.c.NewCharacters, "/api/v1/stats/new-characters?since=notadate"), http.StatusBadRequest, "since")

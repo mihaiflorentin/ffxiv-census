@@ -187,7 +187,7 @@ Population per group, sorted by `total` descending. `by` is required; a missing 
 
 ### GET /api/v1/stats/new-characters[?since=YYYY-MM-DD&until=YYYY-MM-DD]
 
-Characters who earned the Chocobo milestone (achievement 590) per UTC day in `[since, until)`, ordered ascending by day, for the whole game. Without parameters it serves the [new-characters window](#new-characters-window): its complete UTC days before the snapshot's generation day. `since` and `until` must parse as dates. The snapshot keeps two windows (current and previous), so `since` may reach back to the start of the previous window, and `until` at most to the day after the generation day; malformed or out-of-range requests are 400s. This keeps response work bounded.
+Characters who earned the Chocobo milestone (achievement 590) per UTC day in `[since, until)`, ordered ascending by day, for the whole game. Without parameters it serves the [new-characters window](#new-characters-window): its complete UTC days before the snapshot's generation day. Without `until` the range ends with the last complete UTC day (before the generation day, or before today when the server has no snapshot store). `since` and `until` must parse as dates. The snapshot keeps two windows (current and previous), so `since` may reach back to the start of the previous window (on a snapshot from before schema 4, to the first of the 60 days ending with its generation day), and `until` at most to the day after the generation day; malformed or out-of-range requests are 400s. This keeps response work bounded.
 
 ```json
 [
