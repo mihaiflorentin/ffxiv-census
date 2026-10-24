@@ -183,7 +183,8 @@ func (r *UIStatsRepository) readCharacterStats(ctx context.Context, tx *sql.Tx, 
 		SELECT `+fineGrainKeyColumns+`,
 		       COUNT(*) AS total,
 		       COUNT(*) FILTER (WHERE latest_achievement_at >= $1) AS active,
-		       COUNT(*) FILTER (WHERE max_job_level >= $2) AS max_level
+		       COUNT(*) FILTER (WHERE max_job_level >= $2) AS max_level,
+		       `+privacyCountColumns+`
 		FROM characters
 		WHERE deleted_at IS NULL
 		GROUP BY `+fineGrainGroupBy, snapshot.ActivitySince, snapshot.MaxLevel)
@@ -192,11 +193,9 @@ func (r *UIStatsRepository) readCharacterStats(ctx context.Context, tx *sql.Tx, 
 	}
 	snapshot.Summary = roll.summary.statsSummary()
 	snapshot.SourceCharacters = roll.summary.Total
+	snapshot.PrivacyBuiltAt = snapshot.GeneratedAt
 	for _, key := range roll.sortedKeys() {
-		counts := roll.groups[key]
-		snapshot.Groups = append(snapshot.Groups, contract.ScopedGroupCount{
-			Scope: key.Scope, Dimension: key.Dimension, Key: key.Key, Total: counts.Total, Active: counts.Active,
-		})
+		snapshot.Groups = append(snapshot.Groups, scopedGroupCount(key, roll.groups[key]))
 	}
 	return nil
 }
@@ -214,7 +213,7 @@ func queryFineGrain(ctx context.Context, tx *sql.Tx, query string, args ...any) 
 		var key fineKey
 		var counts fineCounts
 		if err := rows.Scan(&key.Region, &key.Datacenter, &key.World, &key.Race, &key.Tribe, &key.Gender, &key.GrandCompany,
-			&counts.Total, &counts.Active, &counts.MaxLevel); err != nil {
+			&counts.Total, &counts.Active, &counts.MaxLevel, &counts.Private, &counts.Unchecked); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
 		roll.add(key, counts)
@@ -233,8 +232,12 @@ func queryFineGrain(ctx context.Context, tx *sql.Tx, query string, args ...any) 
 // full refresh. It reports false when there is no usable previous snapshot or
 // the adjusted result is invalid, so the caller falls back to a full rebuild.
 //
+// The privacy counts (private, unchecked) are carried forward from the
+// previous snapshot and move by the same delta, read from each new or deleted
+// character's current row; PrivacyBuiltAt keeps the full rebuild's time.
+//
 // Drift accepted until the next full rebuild: a character whose location,
-// race or Grand Company changes after it was counted, a soft delete that is later reverted,
+// race, Grand Company or achievement privacy changes after it was counted, a soft delete that is later reverted,
 // and a character whose first_seen_at precedes the watermark but that commits
 // after this read snapshot.
 func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, tx *sql.Tx, snapshot *contract.UIStatsSnapshot, watermark time.Time) (bool, error) {
@@ -260,39 +263,51 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 	if err := json.Unmarshal(payload, &prev); err != nil {
 		return false, nil
 	}
+	// The privacy counts can only be carried forward from a snapshot that has
+	// them (one written before they existed has no build time).
+	if prev.PrivacyBuiltAt.IsZero() {
+		return false, nil
+	}
 
-	totals := make(map[groupKey]int64, len(prev.Groups))
+	// carried holds the figures that move by the delta: every group's total
+	// and the location groups' privacy counts.
+	carried := make(map[groupKey]fineCounts, len(prev.Groups))
 	for _, g := range prev.Groups {
-		totals[groupKey{Scope: g.Scope, Dimension: g.Dimension, Key: g.Key}] = g.Total
+		carried[groupKey{Scope: g.Scope, Dimension: g.Dimension, Key: g.Key}] = fineCounts{Total: g.Total, Private: g.Private, Unchecked: g.Unchecked}
 	}
 
 	delta, err := queryFineGrain(ctx, tx, `
 		WITH delta AS (
-			SELECT region, datacenter, world, race, tribe, gender, grand_company, 1 AS sign
+			SELECT region, datacenter, world, race, tribe, gender, grand_company,
+			       achievements_private, latest_achievement_at, 1 AS sign
 			FROM characters
 			WHERE first_seen_at > $1 AND first_seen_at <= $2
 			UNION ALL
-			SELECT region, datacenter, world, race, tribe, gender, grand_company, -1
+			SELECT region, datacenter, world, race, tribe, gender, grand_company,
+			       achievements_private, latest_achievement_at, -1
 			FROM characters
 			WHERE deleted_at > $1 AND deleted_at <= $2
 		)
 		SELECT `+fineGrainKeyColumns+`,
-		       SUM(sign) AS total, 0 AS active, 0 AS max_level
+		       SUM(sign) AS total, 0 AS active, 0 AS max_level,
+		       COALESCE(SUM(sign) FILTER (WHERE achievements_private = 1), 0) AS private,
+		       COALESCE(SUM(sign) FILTER (WHERE achievements_private = 0 AND latest_achievement_at IS NULL), 0) AS unchecked
 		FROM delta
 		GROUP BY `+fineGrainGroupBy, prevWatermark.Time, watermark)
 	if err != nil {
 		return false, fmt.Errorf("query UI statistics delta: %w", err)
 	}
 	for key, counts := range delta.groups {
-		totals[key] += counts.Total
+		carried[key] = carried[key].plus(counts)
 	}
-	summaryTotal := prev.Summary.Total + delta.summary.Total
+	summary := fineCounts{Total: prev.Summary.Total, Private: prev.Summary.Private, Unchecked: prev.Summary.Unchecked}.plus(delta.summary)
 
 	live, err := queryFineGrain(ctx, tx, `
 		SELECT `+fineGrainKeyColumns+`,
 		       COUNT(*) AS total,
 		       COUNT(*) FILTER (WHERE latest_achievement_at >= $1) AS active,
-		       COUNT(*) FILTER (WHERE max_job_level >= $2) AS max_level
+		       COUNT(*) FILTER (WHERE max_job_level >= $2) AS max_level,
+		       0 AS private, 0 AS unchecked
 		FROM characters
 		WHERE deleted_at IS NULL
 		  AND (latest_achievement_at >= $1 OR max_job_level >= $2)
@@ -302,21 +317,22 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 	}
 
 	for key := range live.groups {
-		if _, ok := totals[key]; !ok {
-			totals[key] = 0 // an active group the totals do not know: invalid, forces a full rebuild
+		if _, ok := carried[key]; !ok {
+			carried[key] = fineCounts{} // an active group the totals do not know: invalid, forces a full rebuild
 		}
 	}
-	for _, key := range sortGroupKeys(totals) {
-		total, active := totals[key], live.groups[key].Active
-		if total == 0 && active == 0 {
+	for _, key := range sortGroupKeys(carried) {
+		counts := carried[key]
+		counts.Active, counts.MaxLevel = live.groups[key].Active, live.groups[key].MaxLevel
+		if counts.Total == 0 && counts.Active == 0 {
 			continue
 		}
-		snapshot.Groups = append(snapshot.Groups, contract.ScopedGroupCount{
-			Scope: key.Scope, Dimension: key.Dimension, Key: key.Key, Total: total, Active: active,
-		})
+		snapshot.Groups = append(snapshot.Groups, scopedGroupCount(key, counts))
 	}
-	snapshot.Summary = contract.StatsSummary{Total: summaryTotal, Active: live.summary.Active, MaxLevel: live.summary.MaxLevel}
-	snapshot.SourceCharacters = summaryTotal
+	summary.Active, summary.MaxLevel = live.summary.Active, live.summary.MaxLevel
+	snapshot.Summary = summary.statsSummary()
+	snapshot.SourceCharacters = summary.Total
+	snapshot.PrivacyBuiltAt = prev.PrivacyBuiltAt
 
 	if err := census.ValidateUIStatsSnapshot(snapshot); err != nil {
 		return false, nil

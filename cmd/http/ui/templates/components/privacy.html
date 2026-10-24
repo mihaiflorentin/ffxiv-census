@@ -1,0 +1,7 @@
+{{/*
+privacy-note: the one-sentence note on how many characters hide their
+achievements, linking to the Private Achievements page. Renders nothing until
+the snapshot has privacy figures.
+    {{template "privacy-note" (privacyNoteFor .Data.PrivacyNote "they can’t count as active")}}
+*/}}
+{{define "privacy-note"}}{{if .Ready}}<p class="privacy-note"><a href="/ui/privacy">{{.Share}} of characters hide their achievements</a>, so {{.Consequence}}.</p>{{end}}{{end}}

@@ -47,6 +47,15 @@ func TestValidateUIStatsSnapshot(t *testing.T) {
 		{name: "negative total", mutate: func(s *contract.UIStatsSnapshot) { s.Summary.Total = -1 }},
 		{name: "active over total", mutate: func(s *contract.UIStatsSnapshot) { s.Summary.Active = 4 }},
 		{name: "duplicate group", mutate: func(s *contract.UIStatsSnapshot) { s.Groups = append(s.Groups, s.Groups[0]) }},
+		{name: "negative private", mutate: func(s *contract.UIStatsSnapshot) { s.Summary.Private = -1 }},
+		{name: "private and unchecked over total", mutate: func(s *contract.UIStatsSnapshot) { s.Summary.Private, s.Summary.Unchecked = 2, 2 }},
+		{name: "group unchecked negative", mutate: func(s *contract.UIStatsSnapshot) { s.Groups[0].Unchecked = -1 }},
+		{name: "group private over total", mutate: func(s *contract.UIStatsSnapshot) { s.Groups[0].Private = 3 }},
+		{name: "group at cap over total", mutate: func(s *contract.UIStatsSnapshot) { s.Groups[0].MaxLevel = 3 }},
+		{name: "privacy within total", ok: true, mutate: func(s *contract.UIStatsSnapshot) {
+			s.Summary.Private, s.Summary.Unchecked = 1, 2
+			s.Groups[0].Private, s.Groups[0].Unchecked, s.Groups[0].MaxLevel = 1, 1, 2
+		}},
 		{name: "bad day", mutate: func(s *contract.UIStatsSnapshot) { s.NewCharacters[0].Day = "08/23/2026" }},
 	}
 

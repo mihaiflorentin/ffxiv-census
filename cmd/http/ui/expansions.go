@@ -11,6 +11,7 @@ import (
 type ExpansionsViewData struct {
 	TotalCharacters int64
 	Expansions      []ExpansionProgression
+	PrivacyNote     PrivacyNote
 }
 
 // ExpansionProgression is one step of the main scenario progression.
@@ -79,5 +80,6 @@ func (c *UIController) Expansions(w http.ResponseWriter, r *http.Request) {
 	c.render(w, "templates/expansions.html", statsPageData("Expansion Progression", "expansions", "/ui/expansions", "Main scenario quest completion rates for every Final Fantasy XIV expansion from A Realm Reborn to Dawntrail, with retention and drop-off metrics.", state, ExpansionsViewData{
 		TotalCharacters: totalChars,
 		Expansions:      list,
+		PrivacyNote:     privacyNote(snapshot),
 	}))
 }

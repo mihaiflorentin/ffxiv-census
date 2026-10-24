@@ -28,9 +28,13 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 	if snapshot.Summary.Active > snapshot.Summary.Total || snapshot.Summary.MaxLevel > snapshot.Summary.Total {
 		return errors.New("UI statistics summary subset exceeds total")
 	}
+	if !validLocationCounts(snapshot.Summary.Total, snapshot.Summary.MaxLevel, snapshot.Summary.Private, snapshot.Summary.Unchecked) {
+		return errors.New("invalid UI statistics summary privacy counts")
+	}
 	seenGroups := make(map[string]struct{}, len(snapshot.Groups))
 	for _, group := range snapshot.Groups {
-		if group.Dimension == "" || group.Total < 0 || group.Active < 0 || group.Active > group.Total {
+		if group.Dimension == "" || group.Total < 0 || group.Active < 0 || group.Active > group.Total ||
+			!validLocationCounts(group.Total, group.MaxLevel, group.Private, group.Unchecked) {
 			return errors.New("invalid UI statistics group")
 		}
 		key := scopeKey(group.Scope) + "\x00" + group.Dimension + "\x00" + group.Key
@@ -65,6 +69,13 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 		seenDays[key] = struct{}{}
 	}
 	return nil
+}
+
+// validLocationCounts reports whether the at cap and privacy counts fit
+// inside total: none negative, at cap at most total, and private and
+// unchecked (disjoint) together at most total.
+func validLocationCounts(total, atCap, private, unchecked int64) bool {
+	return atCap >= 0 && private >= 0 && unchecked >= 0 && atCap <= total && private+unchecked <= total
 }
 
 func SnapshotGroups(snapshot *contract.UIStatsSnapshot, dimension string, scope contract.StatsScope) []contract.GroupCount {

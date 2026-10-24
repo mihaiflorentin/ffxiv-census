@@ -902,28 +902,33 @@
       "dimension": "datacenter",
       "key": "Chaos",
       "total": 2,
-      "active": 1
+      "active": 1,
+      "max_level": 1
     },
     {
       "scope": {},
       "dimension": "datacenter",
       "key": "Crystal",
       "total": 4,
-      "active": 2
+      "active": 2,
+      "max_level": 2,
+      "unchecked": 1
     },
     {
       "scope": {},
       "dimension": "datacenter",
       "key": "Elemental",
       "total": 1,
-      "active": 1
+      "active": 1,
+      "max_level": 1
     },
     {
       "scope": {},
       "dimension": "datacenter",
       "key": "Light",
       "total": 1,
-      "active": 0
+      "active": 0,
+      "unchecked": 1
     },
     {
       "scope": {},
@@ -1091,21 +1096,26 @@
       "dimension": "region",
       "key": "EU",
       "total": 3,
-      "active": 1
+      "active": 1,
+      "max_level": 1,
+      "unchecked": 1
     },
     {
       "scope": {},
       "dimension": "region",
       "key": "JP",
       "total": 1,
-      "active": 1
+      "active": 1,
+      "max_level": 1
     },
     {
       "scope": {},
       "dimension": "region",
       "key": "NA",
       "total": 4,
-      "active": 2
+      "active": 2,
+      "max_level": 2,
+      "unchecked": 1
     },
     {
       "scope": {},
@@ -1161,35 +1171,41 @@
       "dimension": "world",
       "key": "Balmung",
       "total": 3,
-      "active": 2
+      "active": 2,
+      "max_level": 1
     },
     {
       "scope": {},
       "dimension": "world",
       "key": "Coeurl",
       "total": 1,
-      "active": 0
+      "active": 0,
+      "max_level": 1,
+      "unchecked": 1
     },
     {
       "scope": {},
       "dimension": "world",
       "key": "Lich",
       "total": 1,
-      "active": 0
+      "active": 0,
+      "unchecked": 1
     },
     {
       "scope": {},
       "dimension": "world",
       "key": "Ragnarok",
       "total": 2,
-      "active": 1
+      "active": 1,
+      "max_level": 1
     },
     {
       "scope": {},
       "dimension": "world",
       "key": "Tonberry",
       "total": 1,
-      "active": 1
+      "active": 1,
+      "max_level": 1
     }
   ],
   "expansions": null,
@@ -1197,6 +1213,8 @@
   "summary": {
     "total": 8,
     "active": 4,
-    "max_level": 4
-  }
+    "max_level": 4,
+    "unchecked": 2
+  },
+  "privacy_built_at": "0001-01-01T00:00:00Z"
 }
