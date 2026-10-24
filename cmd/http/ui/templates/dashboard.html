@@ -42,7 +42,7 @@
 
 <section class="stat-grid stat-grid-trio" aria-label="Key figures">
     <div class="stat-card">
-        <p class="stat-label">Active players, last 30 days</p>
+        <p class="stat-label">Active players, last {{$.ActivityWindow.Long}}</p>
         <p class="stat-value">{{formatNumber .Data.ActiveCharacters}}</p>
         <p class="stat-subtext">{{.Data.ActivePercent}} of the census</p>
         {{template "privacy-note" (privacyNoteFor .Data.PrivacyNote "they can’t count as active")}}
@@ -160,7 +160,7 @@
                     <tr>
                         <th scope="col">Region</th>
                         <th scope="col" class="text-right">Characters</th>
-                        <th scope="col" class="text-right">Active, 30 days</th>
+                        <th scope="col" class="text-right">Active, {{$.ActivityWindow.Long}}</th>
                         <th scope="col" class="text-right">Active share</th>
                     </tr>
                 </thead>

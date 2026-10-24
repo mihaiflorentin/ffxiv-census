@@ -30,10 +30,11 @@
 
     <section class="prose-section" aria-labelledby="active-players">
         <h2 id="active-players">Active players</h2>
-        <p>Square Enix does not publish login figures or subscription counts, so the census estimates activity from public achievements within a rolling 30-day window.</p>
-        <p>A character counts as <strong>active</strong> when their globally latest public achievement was earned in the last 30 days. This is an achievement-based signal, not a measure of logins or subscriptions.</p>
+        <p>Square Enix does not publish login figures or subscription counts, so the census estimates activity from public achievements earned in the last {{$.ActivityWindow.Long}}.</p>
+        <p>A character counts as <strong>active</strong> when their globally latest public achievement was earned in the last {{$.ActivityWindow.Long}}. This is an achievement-based signal, not a measure of logins or subscriptions.</p>
+        <p><strong>Why {{$.ActivityWindow.Long}}?</strong> A full census pass takes months. The census revisits characters in turn, so a character’s latest achievement is only as recent as the census’s last visit. A short window would miss players the census has not revisited yet. A wide window catches more of them, but while a pass takes longer than the window, the figure still undercounts active players.</p>
         <p>Each refresh reads the latest achievement from one achievement-history request. Missing story milestones are then checked one by one in release order, stopping at the first one the character has not earned.</p>
-        <p class="prose-aside">Characters can play without earning achievements. A character counts as inactive when their latest public achievement is older than 30 days or their achievements are private, so this figure never claims activity the public achievement history cannot show.</p>
+        <p class="prose-aside">Characters can play without earning achievements. A character counts as inactive when their latest public achievement is older than {{$.ActivityWindow.Long}} or their achievements are private, so this figure never claims activity the public achievement history cannot show.</p>
     </section>
 
     <section class="prose-section" aria-labelledby="new-characters">
@@ -79,14 +80,14 @@
     <section class="prose-section" aria-labelledby="grand-companies">
         <h2 id="grand-companies">Grand Companies</h2>
         <p>A character’s Grand Company is read from their public Lodestone profile: the Maelstrom, the Order of the Twin Adder or the Immortal Flames. A profile that names no company counts as <strong>No Grand Company</strong>, a group of its own, so the shares always add up to 100%.</p>
-        <p>Each company’s <strong>active share</strong> is how many of its members are active players, using the same 30-day achievement signal as everywhere else. The race lean compares races across the whole game.</p>
+        <p>Each company’s <strong>active share</strong> is how many of its members are active players, using the same signal as everywhere else: a public achievement in the last {{$.ActivityWindow.Long}}. The race lean compares races across the whole game.</p>
         <p class="prose-aside">The figures follow characters as they are first found or removed throughout the day. A character who changes Grand Company after being counted keeps their old company until the nightly rebuild, which recounts every character. See the <a href="/ui/grand-companies">Grand Companies</a> for the current figures.</p>
     </section>
 
     <section class="prose-section" aria-labelledby="free-companies">
         <h2 id="free-companies">Free Companies</h2>
         <p>A character’s Free Company is read from their public Lodestone profile. A company’s <strong>members</strong> are the members seen by the census: the characters it has found in that company. It is not the official roster, which only the Lodestone shows, so a company whose members the census hasn’t reached yet looks smaller than it is.</p>
-        <p>A member is <strong>active</strong> after earning a public achievement in the last 30 days, the same signal as everywhere else. Members who hide their achievements can’t count as active, so active counts are a lower bound.</p>
+        <p>A member is <strong>active</strong> after earning a public achievement in the last {{$.ActivityWindow.Long}}, the same signal as everywhere else. Members who hide their achievements can’t count as active, so active counts are a lower bound.</p>
         <p>Each board ranks the top 100 companies of a world, datacenter, region or the whole game, by members or by active members. A company needs at least 2 members seen to be ranked. Ties go to the company with more of the other measure, then by name. A company belongs to one world, so the census keeps each world’s top 100 for both boards and builds every wider board from those lists. When companies tie on both counts at a world’s 100th place, the name decides, as it does everywhere on the board (up to 20 tied companies per world are considered; beyond that, the lower Lodestone ids).</p>
         <p class="prose-aside">The boards are rebuilt nightly, and say when they last were. A company’s name comes from one of its members the census has seen, so a company that has been renamed shows its new name once the census has visited its members again. The census lists companies only: no member lists and no individual characters. See the <a href="/ui/rankings/free-companies">Free Company rankings</a> for the current boards.</p>
     </section>

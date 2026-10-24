@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"net/http"
 	"sort"
 
@@ -68,6 +69,8 @@ type RegionSummary struct {
 type WorldDrilldownData struct {
 	Region string
 	Worlds []WorldRow
+	// ActivityWindow heads the active column.
+	ActivityWindow Window
 }
 
 // WorldRow holds stats for an individual world.
@@ -158,12 +161,12 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 		PrivacyNote:          c.privacyNote(snapshot),
 	}
 
-	c.render(w, "templates/dashboard.html", statsPageData("Dashboard", "dashboard", "/", "Final Fantasy XIV population census: total characters, active players, race demographics, and 30-day growth trends across every region and datacenter.", state, viewData))
+	c.render(w, "templates/dashboard.html", statsPageData("Dashboard", "dashboard", "/", fmt.Sprintf("Final Fantasy XIV population census: total characters, players active in the last %s, race demographics and new-character trends across every region and datacenter.", Window{Days: state.ActivityWindowDays}.Long()), state, viewData))
 }
 
 // WorldDrilldown handles GET /ui/partials/world-breakdown?region=NA.
 func (c *UIController) WorldDrilldown(w http.ResponseWriter, r *http.Request) {
-	snapshot, _, ok := c.currentStats(w, r)
+	snapshot, state, ok := c.currentStats(w, r)
 	if !ok {
 		return
 	}
@@ -202,5 +205,7 @@ func (c *UIController) WorldDrilldown(w http.ResponseWriter, r *http.Request) {
 	c.renderPartial(w, "templates/partials/world_drilldown.html", WorldDrilldownData{
 		Region: region,
 		Worlds: worlds,
+
+		ActivityWindow: Window{Days: state.ActivityWindowDays},
 	})
 }

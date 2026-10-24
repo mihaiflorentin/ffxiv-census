@@ -44,7 +44,7 @@
             <div class="table-scroll" role="region" aria-label="Characters by Grand Company" tabindex="0">
                 <table class="data-table">
                     <caption class="visually-hidden">Characters by Grand Company, {{.Data.Scope}}</caption>
-                    <thead><tr><th scope="col">Grand Company</th><th scope="col" class="text-right">Characters</th><th scope="col" class="text-right">Share</th><th scope="col" class="text-right">Active, 30 days</th><th scope="col" class="text-right">Active share</th></tr></thead>
+                    <thead><tr><th scope="col">Grand Company</th><th scope="col" class="text-right">Characters</th><th scope="col" class="text-right">Share</th><th scope="col" class="text-right">Active, {{$.ActivityWindow.Long}}</th><th scope="col" class="text-right">Active share</th></tr></thead>
                     <tbody>
                         {{range .Data.Companies}}
                         <tr><th scope="row"><span class="swatch gc-swatch gc-{{.Slug}}" aria-hidden="true"></span>{{.Label}}</th><td class="text-right">{{formatNumber .Total}}</td><td class="text-right">{{.Share}}</td><td class="text-right">{{formatNumber .Active}}</td><td class="text-right">{{.ActiveShare}}</td></tr>
@@ -60,7 +60,7 @@
     <section class="panel" aria-labelledby="gc-active-heading">
         <div class="panel-header">
             <h2 id="gc-active-heading" class="panel-title">Who still plays</h2>
-            <p class="panel-meta">Members active in the last 30 days</p>
+            <p class="panel-meta">Members active in the last {{$.ActivityWindow.Long}}</p>
         </div>
         <div class="panel-body">
             <ul class="gc-active-list">
@@ -75,7 +75,7 @@
                 </li>
                 {{end}}
             </ul>
-            <p class="chart-summary">A member counts as active when their latest public achievement is from the last 30 days. Characters who hide their achievements never count as active, so these are lower bounds.</p>
+            <p class="chart-summary">A member counts as active when their latest public achievement is from the last {{$.ActivityWindow.Long}}. Characters who hide their achievements never count as active, so these are lower bounds.</p>
         </div>
     </section>
 

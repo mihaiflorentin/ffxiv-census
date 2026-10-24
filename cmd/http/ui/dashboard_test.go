@@ -193,7 +193,7 @@ func TestDashboardHandler(t *testing.T) {
 	body := textOf(parseHTML(t, rec.Body.String()))
 	for _, want := range []string{
 		"Characters in the census 2",
-		"Active players, last 30 days 1 50.0% of the census",
+		"Active players, last 90 days 1 50.0% of the census",
 		"At level 100 1 50.0% of the census",
 		"North America",
 		"Europe",

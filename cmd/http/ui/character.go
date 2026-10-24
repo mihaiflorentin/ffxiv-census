@@ -194,6 +194,8 @@ func (c *UIController) CharacterDetail(w http.ResponseWriter, r *http.Request) {
 		Title:     detail.Character.Name,
 		ActiveNav: "characters",
 		Data:      viewData,
+
+		ActivityWindow: Window{Days: census.WindowDays(c.svc.ActivityWindow())},
 	})
 }
 

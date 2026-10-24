@@ -13,7 +13,7 @@
         <p class="stat-subtext">In the census, {{.Data.Scope}}</p>
     </div>
     <div class="stat-card">
-        <p class="stat-label">Active players, last 30 days</p>
+        <p class="stat-label">Active players, last {{$.ActivityWindow.Long}}</p>
         <p class="stat-value">{{formatNumber .Data.ActiveCharacters}}</p>
         <p class="stat-subtext">{{.Data.ActivePercent}} of these characters</p>
     </div>
@@ -153,7 +153,7 @@
                         <th scope="col">Race</th>
                         <th scope="col" class="text-right">Characters</th>
                         <th scope="col" class="text-right">Share</th>
-                        <th scope="col" class="text-right">Active, 30 days</th>
+                        <th scope="col" class="text-right">Active, {{$.ActivityWindow.Long}}</th>
                         <th scope="col" class="text-right">Active share</th>
                     </tr>
                 </thead>
