@@ -14,6 +14,7 @@ const (
 	RoleMeleeDPS           = "melee"
 	RolePhysicalRangedDPS  = "physical-ranged"
 	RoleMagicalRangedDPS   = "magical-ranged"
+	RoleLimited            = "limited"
 	RoleDisciplesOfTheHand = "hand"
 	RoleDisciplesOfTheLand = "land"
 )
@@ -25,8 +26,9 @@ const DefaultMaxLevel uint32 = 100
 // below the game's level cap (80 since patch 6.45, unchanged in Dawntrail).
 const BlueMageLevelCap uint32 = 80
 
-// blueMageID is Blue Mage's official job id.
-const blueMageID uint8 = 36
+// BeastmasterLevelCap is the level cap of Beastmaster, the limited job
+// added in patch 7.56.
+const BeastmasterLevelCap uint32 = 50
 
 // Role is one role group: its code and display name.
 type Role struct {
@@ -40,6 +42,7 @@ var roles = []Role{
 	{Code: RoleMeleeDPS, Name: "Melee DPS"},
 	{Code: RolePhysicalRangedDPS, Name: "Physical Ranged DPS"},
 	{Code: RoleMagicalRangedDPS, Name: "Magical Ranged DPS"},
+	{Code: RoleLimited, Name: "Limited Jobs"},
 	{Code: RoleDisciplesOfTheHand, Name: "Disciples of the Hand"},
 	{Code: RoleDisciplesOfTheLand, Name: "Disciples of the Land"},
 }
@@ -93,7 +96,8 @@ var jobs = func() []Job {
 		{ID: 27, Abbreviation: "SMN", Name: "Summoner", Role: RoleMagicalRangedDPS},
 		{ID: 35, Abbreviation: "RDM", Name: "Red Mage", Role: RoleMagicalRangedDPS},
 		{ID: 42, Abbreviation: "PCT", Name: "Pictomancer", Role: RoleMagicalRangedDPS},
-		{ID: blueMageID, Abbreviation: "BLU", Name: "Blue Mage", Role: RoleMagicalRangedDPS, cap: BlueMageLevelCap},
+		{ID: 36, Abbreviation: "BLU", Name: "Blue Mage", Role: RoleLimited, cap: BlueMageLevelCap},
+		{ID: 43, Abbreviation: "BST", Name: "Beastmaster", Role: RoleLimited, cap: BeastmasterLevelCap},
 		{ID: 8, Abbreviation: "CRP", Name: "Carpenter", Role: RoleDisciplesOfTheHand},
 		{ID: 9, Abbreviation: "BSM", Name: "Blacksmith", Role: RoleDisciplesOfTheHand},
 		{ID: 10, Abbreviation: "ARM", Name: "Armorer", Role: RoleDisciplesOfTheHand},

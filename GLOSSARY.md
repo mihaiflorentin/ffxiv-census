@@ -235,7 +235,7 @@ A character whose census record shows at least one class or job at the current l
 _Avoid_: maxed character, max-level jobs (the census counts characters, not jobs)
 
 **Job bitmask**:
-One of the two 64-bit values stored on each character recording which jobs it has at any level and which it has at their level cap, one bit per job (base classes folded into their jobs; Blue Mage measured against its own lower cap). Empty until computed, by a census write or the one-off backfill.
+One of the two 64-bit values stored on each character recording which jobs it has at any level and which it has at their level cap, one bit per job (base classes folded into their jobs; the limited jobs, Blue Mage and Beastmaster, measured against their own lower caps). Empty until computed, by a census write or the one-off backfill.
 _Avoid_: job flags, job set
 
 **Any level**:
@@ -247,7 +247,7 @@ How many characters the job figures include: those whose job bitmasks were compu
 _Avoid_: job completeness
 
 **Party balance**:
-The split of combat jobs at the level cap into tanks, healers and DPS for a datacenter or selection, counted per job (a character with two tanks at the cap counts twice) and leaving out Blue Mage. Compared against a light party's 1 tank, 1 healer and 2 DPS.
+The split of combat jobs at the level cap into tanks, healers and DPS for a datacenter or selection, counted per job (a character with two tanks at the cap counts twice) and leaving out the limited jobs (Blue Mage, Beastmaster). Compared against a light party's 1 tank, 1 healer and 2 DPS.
 _Avoid_: role ratio, role distribution
 
 **Members seen**:

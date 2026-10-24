@@ -14,6 +14,7 @@ func TestRolesAreTheArmouryOrder(t *testing.T) {
 		{Code: RoleMeleeDPS, Name: "Melee DPS"},
 		{Code: RolePhysicalRangedDPS, Name: "Physical Ranged DPS"},
 		{Code: RoleMagicalRangedDPS, Name: "Magical Ranged DPS"},
+		{Code: RoleLimited, Name: "Limited Jobs"},
 		{Code: RoleDisciplesOfTheHand, Name: "Disciples of the Hand"},
 		{Code: RoleDisciplesOfTheLand, Name: "Disciples of the Land"},
 	}
@@ -54,7 +55,8 @@ var armoury = []struct {
 	{27, "SMN", "Summoner", RoleMagicalRangedDPS},
 	{35, "RDM", "Red Mage", RoleMagicalRangedDPS},
 	{42, "PCT", "Pictomancer", RoleMagicalRangedDPS},
-	{36, "BLU", "Blue Mage", RoleMagicalRangedDPS},
+	{36, "BLU", "Blue Mage", RoleLimited},
+	{43, "BST", "Beastmaster", RoleLimited},
 	{8, "CRP", "Carpenter", RoleDisciplesOfTheHand},
 	{9, "BSM", "Blacksmith", RoleDisciplesOfTheHand},
 	{10, "ARM", "Armorer", RoleDisciplesOfTheHand},
@@ -115,7 +117,8 @@ func TestFoldJobID(t *testing.T) {
 		{"Blue Mage", 36, 36, true},
 		{"Fisher", 18, 18, true},
 		{"unknown 0", 0, 0, false},
-		{"unknown 43", 43, 0, false},
+		{"Beastmaster", 43, 43, true},
+		{"unknown 44", 44, 0, false},
 	}
 	for _, c := range cases {
 		got, ok := FoldJobID(c.classID)
@@ -128,8 +131,11 @@ func TestFoldJobID(t *testing.T) {
 func TestJobLevelCap(t *testing.T) {
 	for _, j := range Jobs() {
 		want := uint32(100)
-		if j.ID == 36 {
+		switch j.ID {
+		case 36:
 			want = 80
+		case 43:
+			want = 50
 		}
 		if got := j.LevelCap(100); got != want {
 			t.Errorf("%s.LevelCap(100) = %d, want %d", j.Abbreviation, got, want)
@@ -186,5 +192,22 @@ func TestJobMasks(t *testing.T) {
 		if levelled != c.levelled || atCap != c.atCap {
 			t.Errorf("%s: JobMasks = %b, %b; want %b, %b", c.name, levelled, atCap, c.levelled, c.atCap)
 		}
+	}
+}
+
+// TestLimitedJobsHaveTheirOwnGroup puts Blue Mage and Beastmaster, the two
+// limited jobs, in their own Armoury group with their own caps.
+func TestLimitedJobsHaveTheirOwnGroup(t *testing.T) {
+	for id, want := range map[uint8]struct {
+		abbr string
+		cap  uint32
+	}{36: {"BLU", 80}, 43: {"BST", 50}} {
+		j, ok := JobByID(id)
+		if !ok || j.Abbreviation != want.abbr || j.Role != RoleLimited || j.LevelCap(100) != want.cap {
+			t.Errorf("JobByID(%d) = %+v, %v; want %s in %q capped at %d", id, j, ok, want.abbr, RoleLimited, want.cap)
+		}
+	}
+	if id, ok := FoldJobID(29); !ok || id != 30 {
+		t.Errorf("FoldJobID(29 Rogue) = %d, %v; want 30 Ninja", id, ok)
 	}
 }

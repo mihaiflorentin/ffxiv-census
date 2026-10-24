@@ -106,6 +106,8 @@ var lodestoneJobIDs = map[string]uint8{
 	"Red Mage":    35,
 	"Pictomancer": 42,
 	"Blue Mage":   36,
+	// Limited jobs (the "(Limited Job)" suffix is stripped before lookup)
+	"Beastmaster": 43,
 	// Disciples of the Hand (Crafters)
 	"Carpenter":     8,
 	"Blacksmith":    9,

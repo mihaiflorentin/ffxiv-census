@@ -62,8 +62,8 @@ type ArmouryRole struct {
 }
 
 // RoleBalance counts at-cap combat jobs per party role: a character with two
-// tanks at the cap counts twice. Blue Mage, a limited job that cannot join
-// ordinary duties, is left out.
+// tanks at the cap counts twice. The limited jobs (Blue Mage, Beastmaster),
+// which cannot join ordinary duties, are left out.
 type RoleBalance struct {
 	Tank, Healer, DPS int64
 }
@@ -78,7 +78,7 @@ func (b RoleBalance) DPSShare() float64    { return ratio(b.DPS, b.Total()) }
 
 func (b *RoleBalance) add(job Job, atCap int64) {
 	switch {
-	case job.ID == blueMageID:
+	case job.Role == RoleLimited:
 	case job.Role == RoleTank:
 		b.Tank += atCap
 	case job.Role == RoleHealer:

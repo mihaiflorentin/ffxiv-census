@@ -956,3 +956,24 @@ func TestCustomClient_CloseIdleConnections(t *testing.T) {
 		t.Fatal("idle connection still open after CloseIdleConnections")
 	}
 }
+
+// TestParseClassJobs_RogueAndLevelledBeastmaster keeps the two entries the
+// job table once missed: Rogue (29, Ninja's base class) and Beastmaster
+// (43, the limited job added in patch 7.56).
+func TestParseClassJobs_RogueAndLevelledBeastmaster(t *testing.T) {
+	html := `<div class="character__level__list"><ul>
+		<li><img src="x" data-tooltip="Rogue">27</li>
+		<li><img src="x" data-tooltip="Beastmaster (Limited Job)">50</li>
+	</ul></div>`
+
+	jobs := parseClassJobs(html, 12345)
+	if len(jobs) != 2 {
+		t.Fatalf("parseClassJobs returned %d jobs, want 2: %+v", len(jobs), jobs)
+	}
+	if jobs[0].Name != "Rogue" || jobs[0].ClassJobID != 29 || jobs[0].Level != 27 {
+		t.Errorf("job[0] = %+v, want Rogue 29 at 27", jobs[0])
+	}
+	if jobs[1].Name != "Beastmaster" || jobs[1].ClassJobID != 43 || jobs[1].Level != 50 {
+		t.Errorf("job[1] = %+v, want Beastmaster 43 at 50", jobs[1])
+	}
+}
