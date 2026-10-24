@@ -1399,35 +1399,6 @@ input[type="search"] {
     stroke-width: 4px;
 }
 
-.realm-tooltip {
-    position: absolute;
-    bottom: calc(100% + var(--space-2));
-    transform: translateX(-50%);
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: var(--space-2) var(--space-3);
-    background: var(--color-raised);
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-control);
-    box-shadow: var(--shadow-overlay);
-    font-size: var(--step--1);
-    color: var(--color-ink-muted);
-    white-space: nowrap;
-    pointer-events: none;
-    z-index: 5;
-}
-
-.realm-tooltip[hidden] {
-    display: none;
-}
-
-.realm-tooltip strong {
-    color: var(--color-ink);
-    font-size: var(--step-0);
-    font-weight: var(--weight-display);
-}
-
 .realm-key {
     list-style: none;
     display: flex;
@@ -3003,32 +2974,33 @@ input[type="search"] {
 }
 
 /* The command strip: every choice of the board, above a hairline. */
+/* The board's controls: one row per choice, labels in a fixed first column
+   and every switch starting on the same line in the second. */
 .rankings-controls {
-    display: flex;
-    flex-direction: column;
-    gap: var(--space-3);
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    column-gap: var(--space-5);
+    row-gap: var(--space-3);
+    align-items: center;
     padding: var(--space-4) var(--space-5);
     border-bottom: 1px solid var(--color-line);
 }
 
-.rankings-control-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--space-3) var(--space-6);
-}
-
 .rankings-control {
-    display: flex;
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
     align-items: center;
-    gap: var(--space-3);
     min-width: 0;
 }
 
 .rankings-control-label {
-    flex: 0 0 auto;
-    min-width: 4.5rem;
     font-size: var(--step--1);
     color: var(--color-ink-muted);
+}
+
+.rankings-control .switch-scroller {
+    justify-self: start;
 }
 
 /* A switch wider than the screen scrolls sideways instead of overflowing. */
@@ -3337,10 +3309,13 @@ input[type="search"] {
 }
 
 @media (max-width: 599px) {
+    /* Phones: each label sits over its switch, all flush left. */
+    .rankings-controls {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
     .rankings-control {
-        flex-direction: column;
-        align-items: flex-start;
-        gap: var(--space-1);
+        row-gap: var(--space-1);
     }
 
     /* The detail line moves under the note so the figure keeps its room. */
@@ -3547,6 +3522,76 @@ input[type="search"] {
 .timeline-date { font-size: var(--step--1); color: var(--color-ink-muted); margin-top: var(--space-1); }
 
 .search-input { width: 100%; }
+
+/* ---------- Hover tips ---------- */
+
+/* The one tooltip census.js shows for every data-tip mark, matching the
+   Chart.js tooltips: a muted title with the colour key, then the figures. */
+.census-tip {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: min(20rem, calc(100vw - 16px));
+    padding: 10px;
+    background: var(--color-raised);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-control);
+    box-shadow: var(--shadow-overlay);
+    font-size: 12px;
+    line-height: 1.35;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--duration-fast) ease;
+}
+
+.census-tip[hidden] {
+    display: none;
+}
+
+.census-tip-shown {
+    opacity: 1;
+}
+
+.census-tip-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-ink-muted);
+    font-weight: var(--weight-medium);
+}
+
+.census-tip-value {
+    color: var(--color-ink);
+    font-weight: var(--weight-heading);
+    font-variant-numeric: tabular-nums;
+}
+
+:where(.census-tip-swatch) {
+    background: var(--slot-color, var(--color-chart-other));
+}
+
+.census-tip-swatch {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    margin: 0;
+    border-radius: 50%;
+}
+
+/* Marks that take focus for their tip: a ring that suits each shape. */
+.balance-segment:focus-visible,
+.veil-segment:focus-visible,
+.gc-band-segment:focus-visible {
+    outline: none;
+    stroke: var(--color-ink);
+    stroke-width: 2px;
+    stroke-dasharray: none;
+    vector-effect: non-scaling-stroke;
+}
 
 /* ---------- Reduced motion ---------- */
 

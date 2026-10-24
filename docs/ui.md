@@ -108,7 +108,7 @@ cmd/http/ui/
 ├── assets/
 │   ├── chart.umd.min.js    # Vendored Chart.js v4.4.7 UMD bundle
 │   ├── chart-theme.js      # Shared Chart.js theme + window.CensusCharts (palette, race, role and Grand Company colours, formatting)
-│   ├── census.js           # Deferred site script: nav current-into-view, switch focus + announcement, entrance settle
+│   ├── census.js           # Deferred site script: nav current-into-view, switch focus + announcement, hover tips, entrance settle
 │   ├── htmx.min.js         # Vendored HTMX v2.0.4 library
 │   ├── favicon.png         # Site icon served at /favicon.ico
 │   ├── fonts/
@@ -312,7 +312,7 @@ they are redesigned): `.page-header` / `.page-title` / `.page-desc`, `.stat-grid
 `.table-responsive`, `.badge`, `.btn` (`.btn-small`), `.progress-bar-*`, `.visually-hidden`.
 Page-specific components: `.node-breadcrumb` / `.node-crumb` (world detail), `.progression` /
 `.progression-step` (Expansions) and `.prose` (Methodology), described under Page layouts. Dashboard components: `.realm-tally` / `.realm-band` / `.realm-segment` /
-`.realm-key` / `.realm-tooltip`, `.trend` (`.trend-up` / `.trend-down` / `.trend-flat`), `.dashboard-grid`,
+`.realm-key`, `.census-tip` (the shared hover tip), `.trend` (`.trend-up` / `.trend-down` / `.trend-flat`), `.dashboard-grid`,
 `.panel-meta`, `.chart-summary` and `.chart-data` (chart text alternatives), `.progress-list` /
 `.progress-meter` (`<meter>` bars), `.drilldown-row` / `.drilldown-body`. `.chart-slot-0` … `.chart-slot-8`
 set `--slot-color` for SVG marks and swatches.
@@ -348,12 +348,28 @@ inventing their own. Each is covered by tests in `design_v2_test.go` and `switch
   `wantsSwitchRegion(r, id)` (HTMX request whose `HX-Target` is the region, never a history-restore
   request) via `c.renderRegion(w, page, block, data)`, and the full page otherwise. After the swap,
   `census.js` focuses the heading and writes the announcement into `#census-announcer`. Unknown values
-  fall back to the default view. First used by the Worlds rankings ("Characters / Active players").
+  fall back to the default view. First used by the Worlds rankings ("Characters / Active players"). On the Rankings boards each switch
+  sits in a `.rankings-control` row (a muted label, then the switch) directly inside the
+  `.rankings-controls` grid: labels share one column and every switch starts on the same line; on phones
+  each label sits above its switch.
 - **Entrance**: mark the page's one signature element with `data-entrance` (unfurls from the left),
   `data-entrance="rise"` (grows up from the baseline) or `data-entrance="fade"`. It runs once, in 360ms,
   on a full page load only: `census.js` adds `.census-settled` to the root after 400ms, which switches
   entrances off for anything HTMX swaps in later, and reduced motion switches them off entirely. One per
   page (`TestOneEntrancePerPage`); the dashboard's is the realm band.
+- **Hover tips**: every hand-built bar, meter, band and tile shows its figures on hover, keyboard focus
+  and tap in one shared tooltip drawn by `census.js` (`.census-tip`, styled like the Chart.js tooltips:
+  a muted title with an optional colour dot, then the figures in Ink 600). Mark the host with
+  `data-tip="<label>"` and `data-tip-value="<count and share>"`, both formatted by the server, and
+  optionally `data-tip-swatch="<swatch classes>"` (`chart-slot-N`, `swatch gc-swatch gc-<slug>`,
+  `swatch role-swatch role-<mark>`, `veil-swatch veil-swatch-<kind>`). The host must be reachable by
+  keyboard: it holds a link, a named focusable element (a `<meter tabindex="0">` with its `aria-label`),
+  or carries `tabindex="0"` itself; a focusable SVG segment is `role="img"` with an `aria-label` holding
+  the same figures, inside an SVG that is `role="group"` (never `aria-hidden`). The tooltip itself is
+  `aria-hidden`: the figures are also in the page text or a table. Escape, scrolling away and leaving the
+  host hide it. Used by the realm band, main-scenario meters and expansion steps, the Grand Company
+  standards, active-share meters and world band, every ladder rung, the Armoury tiles, party-balance
+  segments, the privacy veil and the most/least private worlds (`TestEveryCustomVisualShowsItsNumbersOnHover`).
 - **`ladder`** (`components/ladder.html`, `Ladder` / `LadderRung` in `ladder.go`): the shared ranked
   board, used by the world and datacenter Rankings, the Free Company boards and the world page's largest
   Free Companies. A rung may link its `Note` (`NoteHref`: a Free Company's world) and carry an outbound
@@ -503,12 +519,12 @@ The markup is a `<section aria-labelledby>` whose heading is the page `h1` ("Cha
 - the total as an oversized Saira semi-condensed 600 figure in Aether (`<data value>`), with
   proportional figures;
 - an inline SVG band (`role="group"`, "Population by region") on the Raised track. Each segment is an SVG
-  `<a>` with an `aria-label` ("Europe: 10,138 characters, 25.3% of the census") and a `<title>`, so it is
+  `<a>` with an `aria-label` ("Europe: 10,138 characters, 25.3% of the census"), so it is
   in the tab order and works without JavaScript. Widths are SVG `x`/`width` attributes, not inline
   styles. Segments of at least 9% carry their region code in Night 800 (AA large text on every slot);
   a 2px Night stroke separates neighbours;
-- a small script on the dashboard shows one positioned tooltip (count first, then region and share) on
-  hover and keyboard focus; the other segments dim and the focused one gets an Ink outline;
+- each segment is a hover tip (see **Hover tips**): region, then count and share; the other segments
+  dim and the focused one gets an Ink outline;
 - a visible key (swatch, name, share, count; `aria-hidden`) and a visually hidden table captioned
   "Population by region" with the same figures for screen readers.
 

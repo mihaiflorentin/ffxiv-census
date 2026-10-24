@@ -19,7 +19,7 @@
     <div class="panel-body">
         <ol class="standards" data-entrance="rise" aria-describedby="standards-summary">
             {{range .Data.Companies}}
-            <li class="standard standard-{{.Slug}}">
+            <li class="standard standard-{{.Slug}}" tabindex="0" data-tip="{{.Label}}" data-tip-value="{{formatNumber .Total}} characters, {{.Share}}" data-tip-swatch="swatch gc-swatch gc-{{.Slug}}">
                 <div class="standard-flag">
                     <svg class="standard-banner" viewBox="0 0 {{$.Data.StandardWidth}} {{$.Data.StandardHeight}}" preserveAspectRatio="none" aria-hidden="true" focusable="false">
                         <defs>
@@ -65,7 +65,7 @@
         <div class="panel-body">
             <ul class="gc-active-list">
                 {{range .Data.Companies}}
-                <li class="gc-active gc-{{.Slug}}">
+                <li class="gc-active gc-{{.Slug}}" tabindex="0" data-tip="{{.Label}}" data-tip-value="{{formatNumber .Active}} of {{formatNumber .Total}} members active, {{.ActiveShare}}" data-tip-swatch="swatch gc-swatch gc-{{.Slug}}">
                     <div class="gc-active-head">
                         <span class="gc-active-name"><span class="swatch gc-swatch gc-{{.Slug}}" aria-hidden="true"></span>{{.Label}}</span>
                         <span class="gc-active-value">{{.ActiveShare}}</span>

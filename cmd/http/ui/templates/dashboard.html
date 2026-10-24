@@ -8,14 +8,12 @@
         <svg class="realm-band" data-entrance width="100%" height="56" role="group" aria-label="Population by region">
             <rect class="realm-band-track" x="0" y="0" width="100%" height="100%"/>
             {{range .}}
-            <a class="realm-segment chart-slot-{{.Slot}}" href="{{.Href}}" aria-label="{{.Name}}: {{formatNumber .Total}} characters, {{.Share}} of the census" data-region="{{.Name}}" data-count="{{formatNumber .Total}}" data-share="{{.Share}}">
-                <title>{{.Name}}: {{formatNumber .Total}} characters ({{.Share}})</title>
+            <a class="realm-segment chart-slot-{{.Slot}}" href="{{.Href}}" aria-label="{{.Name}}: {{formatNumber .Total}} characters, {{.Share}} of the census" data-tip="{{.Name}}" data-tip-value="{{formatNumber .Total}} characters, {{.Share}}" data-tip-swatch="chart-slot-{{.Slot}}">
                 <rect class="realm-segment-fill" x="{{.Offset}}" y="0" width="{{.Width}}" height="100%"/>
                 {{if .ShowLabel}}<text class="realm-segment-label" x="{{.LabelX}}" y="50%" dy="0.35em" aria-hidden="true">{{.Code}}</text>{{end}}
             </a>
             {{end}}
         </svg>
-        <div class="realm-tooltip" aria-hidden="true" hidden></div>
     </div>
     <ul class="realm-key" aria-hidden="true">
         {{range .}}
@@ -104,12 +102,12 @@
             {{if .Data.ExpansionCompletions}}
             <ol class="progress-list">
                 {{range .Data.ExpansionCompletions}}
-                <li class="progress-item">
+                <li class="progress-item" data-tip="{{.Name}}" data-tip-value="{{formatNumber .Count}} characters, {{.Percent}}">
                     <div class="progress-row">
                         <span class="progress-name">{{.Name}}</span>
                         <span class="progress-value">{{.Percent}} <span class="progress-count">{{formatNumber .Count}}</span></span>
                     </div>
-                    <meter class="progress-meter" min="0" max="100" value="{{printf "%.1f" .Value}}" aria-label="{{.Name}} completion">{{.Percent}}</meter>
+                    <meter class="progress-meter" min="0" max="100" value="{{printf "%.1f" .Value}}" aria-label="{{.Name}} completion" tabindex="0">{{.Percent}}</meter>
                 </li>
                 {{end}}
             </ol>
@@ -266,35 +264,6 @@ document.addEventListener("DOMContentLoaded", function () {
                     y: { beginAtZero: true, ticks: { precision: 0, callback: theme.compact, maxTicksLimit: 5 } }
                 }
             }
-        });
-    }
-
-    // Realm tally: one positioned tooltip shared by every segment, shown on
-    // hover and keyboard focus. Values also live in the key and the table.
-    var wrap = document.querySelector(".realm-band-wrap");
-    var tip = wrap && wrap.querySelector(".realm-tooltip");
-    if (wrap && tip) {
-        var show = function (segment) {
-            tip.textContent = "";
-            var value = document.createElement("strong");
-            value.textContent = segment.getAttribute("data-count");
-            var name = document.createElement("span");
-            name.textContent = segment.getAttribute("data-region") + ", " + segment.getAttribute("data-share");
-            tip.appendChild(value);
-            tip.appendChild(name);
-            tip.hidden = false;
-            var band = wrap.getBoundingClientRect();
-            var box = segment.getBoundingClientRect();
-            var centre = box.left + box.width / 2 - band.left;
-            var half = tip.offsetWidth / 2;
-            tip.style.left = Math.max(half, Math.min(band.width - half, centre)) + "px";
-        };
-        var hide = function () { tip.hidden = true; };
-        wrap.querySelectorAll(".realm-segment").forEach(function (segment) {
-            segment.addEventListener("pointerenter", function () { show(segment); });
-            segment.addEventListener("pointerleave", hide);
-            segment.addEventListener("focus", function () { show(segment); });
-            segment.addEventListener("blur", hide);
         });
     }
 

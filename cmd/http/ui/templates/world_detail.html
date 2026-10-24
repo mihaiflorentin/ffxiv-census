@@ -39,8 +39,8 @@
         {{template "next-refresh" (nextRefresh "Grand Company figures")}}
         {{else if .Data.GrandCompanies.Segments}}
         <div class="gc-band-wrap">
-            <svg class="gc-band" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-                {{range .Data.GrandCompanies.Segments}}<rect class="gc-band-segment gc-{{.Slug}}" x="{{.X}}" y="0" width="{{.Width}}" height="10"/>{{end}}
+            <svg class="gc-band" viewBox="0 0 100 10" preserveAspectRatio="none" role="group" aria-label="Grand Companies on {{.Data.World}}">
+                {{range .Data.GrandCompanies.Segments}}<rect class="gc-band-segment gc-{{.Slug}}" x="{{.X}}" y="0" width="{{.Width}}" height="10" tabindex="0" role="img" aria-label="{{.Label}}: {{formatNumber .Total}} characters, {{.Share}}" data-tip="{{.Label}}" data-tip-value="{{formatNumber .Total}} characters, {{.Share}}" data-tip-swatch="swatch gc-swatch gc-{{.Slug}}"/>{{end}}
             </svg>
             <ul class="gc-band-key">
                 {{range .Data.GrandCompanies.Segments}}
@@ -140,12 +140,12 @@
             {{if .Data.TotalCharacters}}
             <ol class="progress-list">
                 {{range .Data.MSQCompletions}}
-                <li class="progress-item">
+                <li class="progress-item" data-tip="{{.Name}}" data-tip-value="{{formatNumber .Count}} characters, {{.Percent}}">
                     <div class="progress-row">
                         <span class="progress-name">{{.Name}}</span>
                         <span class="progress-value">{{.Percent}} <span class="progress-count">{{formatNumber .Count}}</span></span>
                     </div>
-                    <meter class="progress-meter" min="0" max="100" value="{{printf "%.1f" .Value}}" aria-label="{{.Name}} completion">{{.Percent}}</meter>
+                    <meter class="progress-meter" min="0" max="100" value="{{printf "%.1f" .Value}}" aria-label="{{.Name}} completion" tabindex="0">{{.Percent}}</meter>
                 </li>
                 {{end}}
             </ol>

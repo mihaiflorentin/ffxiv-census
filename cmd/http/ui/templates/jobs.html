@@ -38,10 +38,10 @@
             {{range .Data.DatacenterBalances}}
             <li class="balance-row{{if .Current}} balance-current{{end}}"{{if .Current}} aria-current="true"{{end}}>
                 <span class="balance-name">{{.Name}} <abbr class="balance-region" title="{{regionName .Region}}">{{.Region}}</abbr></span>
-                <svg class="balance-bar" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false">
-                    {{range .Segments}}<rect class="balance-segment role-{{.Mark}}" x="{{.X}}" y="0" width="{{.Width}}" height="10"/>{{end}}
-                    <line class="balance-guide" x1="25" y1="0" x2="25" y2="10" vector-effect="non-scaling-stroke"/>
-                    <line class="balance-guide" x1="50" y1="0" x2="50" y2="10" vector-effect="non-scaling-stroke"/>
+                {{$dc := .Name}}<svg class="balance-bar" viewBox="0 0 100 10" preserveAspectRatio="none" role="group" aria-label="{{.Name}} party balance">
+                    {{range .Segments}}<rect class="balance-segment role-{{.Mark}}" x="{{.X}}" y="0" width="{{.Width}}" height="10" tabindex="0" role="img" aria-label="{{.Label}}: {{formatNumber .Count}} jobs, {{.Share}}" data-tip="{{$dc}}" data-tip-value="{{.Label}}: {{formatNumber .Count}} jobs, {{.Share}}" data-tip-swatch="swatch role-swatch role-{{.Mark}}"/>{{end}}
+                    <line class="balance-guide" aria-hidden="true" x1="25" y1="0" x2="25" y2="10" vector-effect="non-scaling-stroke"/>
+                    <line class="balance-guide" aria-hidden="true" x1="50" y1="0" x2="50" y2="10" vector-effect="non-scaling-stroke"/>
                 </svg>
                 <span class="balance-shares">{{range .Segments}}<span class="balance-share"><span class="visually-hidden">{{.Label}} </span>{{.Share}}</span>{{end}}</span>
             </li>
@@ -114,7 +114,7 @@
     <h4 id="role-{{.Code}}" class="armoury-role-name">{{.Name}}</h4>
     <ul class="armoury-tiles">
         {{range .Jobs}}
-        <li class="armoury-tile armoury-level-{{.Level}}{{if .Lead}} armoury-lead{{end}}">
+        <li class="armoury-tile armoury-level-{{.Level}}{{if .Lead}} armoury-lead{{end}}" tabindex="0" data-tip="{{.Name}}" data-tip-value="{{formatNumber .Count}} characters, {{.Share}}">
             <span class="armoury-abbr" aria-hidden="true">{{.Abbreviation}}</span>
             <span class="armoury-name">{{.Name}}</span>
             <span class="armoury-figures"><data class="armoury-count" value="{{.Count}}">{{formatNumber .Count}}</data> <span class="armoury-share">{{.Share}}</span></span>

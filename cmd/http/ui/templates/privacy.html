@@ -15,15 +15,15 @@
         <p class="panel-meta">Of {{formatNumber .Data.Total}} characters</p>
     </div>
     <div class="panel-body">
-        <svg class="veil" data-entrance width="100%" height="100%" aria-hidden="true" focusable="false">
-            <defs>
+        <svg class="veil" data-entrance width="100%" height="100%" role="group" aria-label="Characters by achievement privacy">
+            <defs aria-hidden="true">
                 <pattern id="veil-hatch" class="veil-hatch" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)">
                     <rect class="veil-hatch-ground" width="8" height="8"/>
                     <rect class="veil-hatch-thread" width="3" height="8"/>
                 </pattern>
             </defs>
-            <rect class="veil-track" width="100%" height="100%"/>
-            {{range .Data.Veil}}<rect class="veil-segment veil-{{.Kind}}" x="{{.X}}" y="0" width="{{.Width}}" height="100%"{{if eq .Kind "private"}} fill="url(#veil-hatch)"{{end}}><title>{{.Label}}: {{.Share}}, {{formatNumber .Count}} characters</title></rect>{{end}}
+            <rect class="veil-track" width="100%" height="100%" aria-hidden="true"/>
+            {{range .Data.Veil}}<rect class="veil-segment veil-{{.Kind}}" x="{{.X}}" y="0" width="{{.Width}}" height="100%"{{if eq .Kind "private"}} fill="url(#veil-hatch)"{{end}} tabindex="0" role="img" aria-label="{{.Label}}: {{formatNumber .Count}} characters, {{.Share}}" data-tip="{{.Label}}" data-tip-value="{{formatNumber .Count}} characters, {{.Share}}" data-tip-swatch="veil-swatch veil-swatch-{{.Kind}}"/>{{end}}
         </svg>
         <ul class="veil-key">
             {{range .Data.Veil}}
@@ -119,7 +119,7 @@
         {{if .Rows}}
         <ol class="privacy-worlds">
             {{range .Rows}}
-            <li class="privacy-world">
+            <li class="privacy-world" data-tip="{{.Name}}" data-tip-value="{{formatNumber .Private}} of {{formatNumber .Total}} characters private, {{.PrivateShare}}">
                 <span class="privacy-world-name"><a href="{{.Href}}">{{.Name}}</a>{{if .Datacenter}} <span class="privacy-world-dc">{{.Datacenter}}</span>{{end}}</span>
                 <span class="privacy-world-share">{{.PrivateShare}}</span>
                 <svg class="privacy-world-bar" width="100%" height="6" aria-hidden="true" focusable="false"><rect class="privacy-world-track" width="100%" height="6"/><rect class="privacy-world-fill" width="{{.BarWidth}}" height="6" fill="url(#veil-hatch)"/></svg>

@@ -48,7 +48,7 @@ numbers" repeats the whole board as a data table.
 {{end}}
 
 {{define "ladder-rung"}}
-<li class="ladder-rung{{if .Leader}} ladder-leader{{end}}{{if .ExternalHref}} ladder-rung-linked{{end}}">
+<li class="ladder-rung{{if .Leader}} ladder-leader{{end}}{{if .ExternalHref}} ladder-rung-linked{{end}}"{{if not (or .Href .ExternalHref)}} tabindex="0"{{end}} data-tip="{{.Rank}}. {{.Name}}" data-tip-value="{{.Value}}{{if .Unit}} {{.Unit}}{{end}}{{if .Detail}}, {{.Detail}}{{end}}">
     <span class="ladder-rank"><span class="visually-hidden">Rank </span>{{.Rank}}</span>
     <span class="ladder-name">{{if .Href}}<a href="{{.Href}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</span>
     {{if .Note}}<span class="ladder-note">{{if .NoteHref}}<a href="{{.NoteHref}}">{{.Note}}</a>{{else}}{{.Note}}{{end}}</span>{{end}}

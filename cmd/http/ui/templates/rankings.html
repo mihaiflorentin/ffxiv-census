@@ -29,15 +29,13 @@
             <div class="switch-scroller">{{template "switch" .}}</div>
         </div>
         {{end}}
-        <div class="rankings-control-row">
-            <div class="rankings-control">
-                <span class="rankings-control-label" aria-hidden="true">Rank</span>
-                <div class="switch-scroller">{{template "switch" .Data.BySwitch}}</div>
-            </div>
-            <div class="rankings-control">
-                <span class="rankings-control-label" aria-hidden="true">Region</span>
-                <div class="switch-scroller">{{template "switch" .Data.RegionSwitch}}</div>
-            </div>
+        <div class="rankings-control">
+            <span class="rankings-control-label" aria-hidden="true">Rank</span>
+            <div class="switch-scroller">{{template "switch" .Data.BySwitch}}</div>
+        </div>
+        <div class="rankings-control">
+            <span class="rankings-control-label" aria-hidden="true">Region</span>
+            <div class="switch-scroller">{{template "switch" .Data.RegionSwitch}}</div>
         </div>
     </div>
     <div class="rankings-head">
