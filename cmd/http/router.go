@@ -50,11 +50,13 @@ func NewRouter() Router {
 	}
 }
 
-func (r *Router) RegisterRoutes(mux *http.ServeMux) {
+// RegisterRoutes mounts every route on mux and returns the handler to serve:
+// mux wrapped so unmatched non-API paths get the UI's styled 404 page.
+func (r *Router) RegisterRoutes(mux *http.ServeMux) http.Handler {
 	mux.HandleFunc(RouteHealth, r.HealthController.Check)
 	mux.HandleFunc(RouteHealthLive, r.HealthController.Check)
 	mux.HandleFunc(RouteHealthReady, r.HealthController.Ready)
 	mux.HandleFunc(RouteMetrics, r.MetricsController.Metrics)
 	census.Register(mux)
-	ui.Register(mux)
+	return ui.Register(mux)
 }

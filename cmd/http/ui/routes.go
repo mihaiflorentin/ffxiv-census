@@ -13,13 +13,15 @@ import (
 //go:embed templates/* templates/partials/* assets/*
 var content embed.FS
 
-// Register mounts the UI routes and static assets on mux.
-func Register(mux *http.ServeMux) {
+// Register mounts the UI routes and static assets on mux and returns the
+// server handler: mux wrapped in the styled not-found fallback.
+func Register(mux *http.ServeMux) http.Handler {
 	svc := container.Load.CensusService()
 	stats := container.Load.UIStatsService()
 	q := container.Load.Queue()
 	ctrl := NewUIController(svc, q, stats, container.Load.Config().App.BaseURL)
 	ctrl.RegisterRoutes(mux)
+	return ctrl.NotFoundFallback(mux)
 }
 
 // RegisterRoutes mounts all controller routes and the embedded asset server to the mux.
@@ -63,5 +65,22 @@ func assetHandler() http.Handler {
 			w.Header().Set("Cache-Control", fontCacheControl)
 		}
 		fileServer.ServeHTTP(w, r)
+	})
+}
+
+// NotFoundFallback wraps the server's mux so a GET or HEAD for a path no route
+// matches gets the styled 404 page instead of the mux's plain-text one. Paths
+// under /api/ keep the plain 404 their clients expect, and any request a route
+// matches (including a handler's own 404, a method mismatch's 405 or a
+// trailing-slash redirect) is served by the mux unchanged.
+func (c *UIController) NotFoundFallback(mux *http.ServeMux) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && !strings.HasPrefix(r.URL.Path, "/api/") {
+			if _, pattern := mux.Handler(r); pattern == "" {
+				c.NotFound(w, r)
+				return
+			}
+		}
+		mux.ServeHTTP(w, r)
 	})
 }

@@ -164,19 +164,21 @@ func (c *UIController) renderNotFound(w http.ResponseWriter, r *http.Request, vi
 		NoIndex:       true,
 		Data:          view,
 	}
-	c.fillFreshness(r, &data)
+	c.fillFreshness(&data)
 	// A not-found page shows no figures, so the stale notice would be noise.
 	data.StatsStale = false
 	c.renderStatus(w, notFoundTemplate, data, http.StatusNotFound)
 }
 
-// fillFreshness sets the footer freshness from the current snapshot, if any,
-// for pages that do not otherwise depend on it.
-func (c *UIController) fillFreshness(r *http.Request, data *PageData) {
+// fillFreshness sets the footer freshness for pages that do not otherwise
+// depend on the snapshot. It reads only the snapshot already held in memory,
+// so these pages never wait on (or trigger) a database load; with nothing
+// cached they render without freshness.
+func (c *UIController) fillFreshness(data *PageData) {
 	if c.stats == nil {
 		return
 	}
-	if _, state, err := c.stats.Current(r.Context()); err == nil {
+	if state, ok := c.stats.Cached(); ok {
 		data.StatsUpdated = formatStatsUpdated(state)
 		data.StatsStale = state.Stale
 	}
@@ -247,7 +249,7 @@ func (c *UIController) Methodology(w http.ResponseWriter, r *http.Request) {
 	// The footer shows snapshot freshness on every page. Methodology does not
 	// depend on the snapshot, so a missing snapshot never fails this page and
 	// its caching headers stay unchanged.
-	c.fillFreshness(r, &data)
+	c.fillFreshness(&data)
 	c.render(w, "templates/methodology.html", data)
 }
 
