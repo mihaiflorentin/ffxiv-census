@@ -2920,9 +2920,8 @@ input[type="search"] {
     max-width: var(--measure);
 }
 
-/* The privacy notes on the dashboard's active-players and level-cap tiles and on Expansions. */
-.privacy-note,
-.job-privacy-note {
+/* The privacy note on the dashboard's active-players tile and Expansions. */
+.privacy-note {
     margin-top: var(--space-2);
     font-size: var(--step--1);
     color: var(--color-ink-muted);
