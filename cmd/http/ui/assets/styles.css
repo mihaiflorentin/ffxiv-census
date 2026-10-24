@@ -2332,7 +2332,7 @@ input[type="search"] {
 
 .veil-key {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 9.5rem), 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: var(--space-4) var(--space-5);
     margin: var(--space-5) 0 0;
     padding: 0;
@@ -2507,8 +2507,12 @@ input[type="search"] {
         height: 3rem;
     }
 
+    .veil-key {
+        column-gap: var(--space-3);
+    }
+
     .veil-key-share {
-        font-size: var(--step-4);
+        font-size: var(--step-3);
     }
 }
 

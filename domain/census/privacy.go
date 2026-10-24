@@ -27,7 +27,7 @@ const (
 // Total and the active and at cap counts move every refresh; Private and
 // Unchecked are rebuilt nightly (UIStatsSnapshot.PrivacyBuiltAt).
 type LocationCounts struct {
-	Key                                     string
+	Key                                      string
 	Total, Active, AtCap, Private, Unchecked int64
 }
 
@@ -178,9 +178,13 @@ func PrivacyWorlds(snapshot *contract.UIStatsSnapshot, region string, n int) Pri
 	})
 	most := min(n, (len(ranked)+1)/2)
 	board.MostPrivate = ranked[:most]
-	rest := ranked[most:]
-	for i := len(rest) - 1; i >= 0 && len(board.LeastPrivate) < n; i-- {
-		board.LeastPrivate = append(board.LeastPrivate, rest[i])
-	}
+	rest := append([]PrivacyShare(nil), ranked[most:]...)
+	sort.SliceStable(rest, func(i, j int) bool {
+		if rest[i].PrivateShare != rest[j].PrivateShare {
+			return rest[i].PrivateShare < rest[j].PrivateShare
+		}
+		return rest[i].Key < rest[j].Key
+	})
+	board.LeastPrivate = rest[:min(n, len(rest))]
 	return board
 }

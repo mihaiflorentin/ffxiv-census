@@ -127,9 +127,18 @@ func TestPrivacyWorldsBreaksTiesByName(t *testing.T) {
 		{Dimension: "world", Key: "Lich", Total: 100, Private: 10},
 		{Dimension: "world", Key: "Odin", Total: 100, Private: 10},
 	}
+	s.Groups = append(s.Groups,
+		contract.ScopedGroupCount{Dimension: "world", Key: "Alpha", Total: 100, Private: 5},
+		contract.ScopedGroupCount{Dimension: "world", Key: "Zalera", Total: 100, Private: 5},
+		contract.ScopedGroupCount{Dimension: "world", Key: "Cerberus", Total: 100, Private: 20},
+	)
+	if got := worldKeys(PrivacyWorlds(s, "", 3).LeastPrivate); got != "Alpha,Zalera,Ragnarok" {
+		t.Errorf("least private with ties = %s, want Alpha,Zalera,Ragnarok", got)
+	}
+	s.Groups = s.Groups[:3]
 	board := PrivacyWorlds(s, "", 1)
-	if got := worldKeys(board.MostPrivate) + "|" + worldKeys(board.LeastPrivate); got != "Lich|Ragnarok" {
-		t.Errorf("tied worlds most|least = %s, want Lich|Ragnarok (name order)", got)
+	if got := worldKeys(board.MostPrivate) + "|" + worldKeys(board.LeastPrivate); got != "Lich|Odin" {
+		t.Errorf("tied worlds most|least = %s, want Lich|Odin (name order on both boards)", got)
 	}
 }
 

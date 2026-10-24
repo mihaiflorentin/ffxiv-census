@@ -22,7 +22,8 @@
 | `/ui/worlds` | `GET` | Global server rankings table (including a per-world New (30d) column) with interactive region/datacenter filters, a filter-scoped new-characters (30d) card and a "Characters / Active players" ranking switch (`?sort=active`; an HTMX request targeting `world-rankings` gets just that region) |
 | `/ui/worlds/{world}` | `GET` | World detail page (an unknown world answers the styled `404`): node breadcrumbs (region › datacenter › world, linking to the filtered Worlds page), stat tiles (characters, active players (30d), new characters from chocobo milestone 590 with a worded trend vs the previous 30 days), a compact Grand Company band (linking to `/ui/grand-companies?world=…`), race distribution bar chart, main-scenario completion meters and the 30-day new-character line chart, each chart with a text alternative |
 | `/ui/expansions` | `GET` | Main scenario progression from A Realm Reborn to Dawntrail as stepped, connected nodes: each step shows completions, share of all characters and retention from the previous expansion |
-| `/ui/methodology` | `GET` | How the census works: data collection, the active-player signal, the new-character (chocobo) milestone, the capstone achievement of each expansion and Grand Company data. Renders without a snapshot. |
+| `/ui/methodology` | `GET` | How the census works: data collection, the active-player signal, the new-character (chocobo) milestone, the capstone achievement of each expansion, Grand Company data and achievement privacy (public, private, not yet checked, the lower-bound effect). Renders without a snapshot. |
+| `/ui/privacy` | `GET` | Private achievements (linked from Methodology and the privacy notes, not the main nav; Methodology is the current nav item): "the veil" (one band split into public, hatched private and dashed not-yet-checked, with a key of large shares), the nightly freshness line, "What this means" (the lower-bound effect on active players and story progress), a region table, and the five most and least private worlds (worlds under the minimum size left out, with a footnote saying how many). On a snapshot without privacy figures it shows the "arrives with the next refresh" state. |
 | `/ui/characters/{id}` | `GET` | Detailed character profile with Dawntrail Lv 100 job matrix, story milestone timeline, Free Company badge, and external links |
 | `/ui/characters` | `GET` | Paginated directory browser of discovered player characters |
 | `/ui/characters/search` | `GET` | Global search handler: numeric IDs redirect directly to `/ui/characters/{id}`, text queries filter by character name |
@@ -31,7 +32,7 @@
 
 ### Head Metadata & Canonical URLs
 
-Every indexable page (dashboard, races, Grand Companies, worlds, per-world, expansions, methodology) renders SEO head
+Every indexable page (dashboard, races, Grand Companies, worlds, per-world, expansions, methodology, private achievements) renders SEO head
 metadata from the shared `PageData` struct:
 
 - `<link rel="canonical">` with the absolute URL built from `app.base_url` (`container.Load.Config().App.BaseURL`,
@@ -65,7 +66,9 @@ The Helm chart runs two CronJobs, both with `concurrencyPolicy: Forbid`: `refres
 
 **Fine-grain roll-up.** Every character query of the refresh groups by one fine grain, (region, datacenter, world, race, clan, gender), with plain or filtered counts per group. The full rebuild reads live characters in a single statement (one sequential scan feeding a HashAggregate; a few thousand groups even at production scale), apart from the milestone query. Go then rolls those rows up (`statsRollup` in `infrastructure/postgres/repository/ui_stats_rollup.go`) into the summary, the region, datacenter and world totals, and race, clan, gender and race-and-gender at the global, region, datacenter and world scopes. The incremental delta and the incremental active pass return the same fine-grain rows through the same roll-up, so the two modes cannot disagree about grouping. A character with an empty region, datacenter or world counts in the global demographics and the location totals but in no scope for that empty location. On the 40k-character demo database the full query runs in about 33 ms against about 97 ms for the former GROUPING SETS plan. The fine grain also carries the Grand Company (spec #56), giving the `grand_company` dimension (keys `Maelstrom`, `Order of the Twin Adder`, `Immortal Flames`, and `None` for no company) at every scope and the global-only `grand_company_race` cross (`<company>|<race>`).
 
-**Schema versions.** The refreshes write schema 3 (`contract.UIStatsSchemaVersion`); readers accept 2 and 3 (`contract.UIStatsMinSchemaVersion`), so a v2 snapshot stored before an upgrade keeps the existing pages working, and the incremental refresh rebuilds fully on it, so the first refresh after deploy writes v3. A page that needs a v3 part asks `census.SnapshotHasSection(snapshot, census.SectionGrandCompanies)` (`domain/census/snapshot_sections.go`) and shows the shared `next-refresh` state when it is missing. A new section adds its constant and the schema version that introduced it to `sectionSince`. On the demo database the v3 payload is about 648 KB.
+**Location counts (spec #56, ticket #61).** The summary and the location groups (the global-scope `region`, `datacenter` and `world` groups; no other group carries them, to keep the payload small) hold three more counts: `max_level` (at cap: highest job level at the configured maximum), `private` (`achievements_private = 1`) and `unchecked` (not private and `latest_achievement_at IS NULL`: the census has not read the character's achievements yet). The full refresh counts all three as filtered counts in its single pass and stamps `privacy_built_at` with its generation time. The incremental refresh recomputes at cap exactly in its active pass and carries private and unchecked forward from the previous snapshot, moved by the same new/deleted delta (read from each delta character's current row); `privacy_built_at` is carried with them. A character whose privacy changes after it was counted moves at the next nightly rebuild. A previous snapshot without `privacy_built_at` (written before these counts existed) forces a full rebuild. Validation rejects negative counts, at cap above total, and private plus unchecked above total, so a bad carry-forward also falls back to a full rebuild. Pages and other dashboards read them through `census.SnapshotLocation(snapshot, scope)` / `census.SnapshotLocations(snapshot, census.LocationWorld)` (`LocationCounts{Key, Total, Active, AtCap, Private, Unchecked}`, `Public()`), and the privacy figures through `census.PrivacyReady`, `PrivacyFor`, `PrivacyRegions` and `PrivacyWorlds` (`domain/census/privacy.go`). Rate boards leave out locations below `census.MinimumRankedSize`: a quarter of the median population of the candidates.
+
+**Schema versions.** The refreshes write schema 3 (`contract.UIStatsSchemaVersion`); readers accept 2 and 3 (`contract.UIStatsMinSchemaVersion`), so a v2 snapshot stored before an upgrade keeps the existing pages working, and the incremental refresh rebuilds fully on it, so the first refresh after deploy writes v3. A page that needs a v3 part asks `census.SnapshotHasSection(snapshot, census.SectionGrandCompanies)` (the privacy figures use `census.PrivacyReady`, which also needs `privacy_built_at`) (`domain/census/snapshot_sections.go`) and shows the shared `next-refresh` state when it is missing. A new section adds its constant and the schema version that introduced it to `sectionSince`. On the demo database the v3 payload is about 648 KB.
 
 **Incremental mode.** The snapshot stores a watermark (`ui_stats_snapshots.watermark_at`, the database clock when the counts were read). An incremental pass takes the previous snapshot's group totals and adds the characters with `first_seen_at` in (watermark, now] and subtracts those with `deleted_at` in the same window (soft deletes only). Active and max-level counts are recomputed exactly each pass from `latest_achievement_at` and `max_job_level` (partial index `idx_characters_max_job_level`), and the milestone figures are recomputed in full. It falls back to a full rebuild when there is no previous snapshot, the schema version or watermark is unusable, or the adjusted result fails validation. Accepted drift until the next nightly rebuild (every fine-grain key column can drift this way): a character whose world, datacenter, region, race, tribe, gender or Grand Company changes after it was counted, a soft delete later reverted, and a character that commits after the read snapshot with a `first_seen_at` before the watermark. The advisory lock keeps the two jobs from overlapping (the later one reports "skipped"). Each server process reloads the database row no more frequently than `cache_ttl`; concurrent cold loads are coalesced. If a reload fails after a successful load, the last good snapshot remains available. A cold process with no snapshot returns `503 Service Unavailable` with `Retry-After: 60` and the styled "Statistics are being prepared" page (see section 5, Error, stale and empty states); there is deliberately no fallback to unbounded aggregate queries.
 
@@ -117,6 +120,7 @@ cmd/http/ui/
 │   ├── dashboard.html      # Realm tally, stat tiles, race and MSQ panels, 30-day chart, region table
 │   ├── races.html          # Races and clans: filter bar, stat tiles, race/gender doughnuts, clan and race×gender bars, race table
 │   ├── grand_companies.html # Grand Companies: filter bar, the standards, who still plays, race lean, number tables
+│   ├── privacy.html        # Private achievements: the veil, what this means, region table, most/least private worlds
 │   ├── worlds.html         # Worlds: filter bar, stat tiles, world rankings data table
 │   ├── world_detail.html   # World: node breadcrumbs, stat tiles, race and MSQ panels, 30-day chart
 │   ├── expansions.html     # Main scenario progression steps (completions, share, retention)
@@ -139,6 +143,7 @@ cmd/http/ui/
 ├── filters.go              # FilterBar view model and filterChips (URL with one filter removed)
 ├── races.go                # Controller for /ui/races (clans grouped by race, race x gender)
 ├── grand_companies.go      # Controller for /ui/grand-companies (the standards, active share, race lean) + world band
+├── privacy.go              # Controller for /ui/privacy (the veil, region table, world lists) + the privacy note
 ├── worlds.go               # Controller for /ui/worlds
 ├── world_detail.go         # Controller for /ui/worlds/{world}
 ├── timeline.go             # 30-day new-character series: the 30 complete UTC days before the snapshot day
@@ -333,6 +338,11 @@ inventing their own. Each is covered by tests in `design_v2_test.go` and `switch
   on a full page load only: `census.js` adds `.census-settled` to the root after 400ms, which switches
   entrances off for anything HTMX swaps in later, and reduced motion switches them off entirely. One per
   page (`TestOneEntrancePerPage`); the dashboard's is the realm band.
+- **`privacy-note`** (`components/privacy.html`): one sentence with the census-wide private share,
+  linking to `/ui/privacy`, followed by the page's consequence clause. Renders nothing until the
+  snapshot has privacy figures. The dashboard's active-players tile ("…, so they can’t count as
+  active.") and the Expansions page header ("…, so these completions are a lower bound.") use it:
+  `{{template "privacy-note" (privacyNoteFor .Data.PrivacyNote "they can’t count as active")}}`.
 - **Semantic colours in charts**: `CensusCharts.role("tank" | "healer" | "dps")` and
   `CensusCharts.grandCompany("maelstrom" | "twin-adder" | "immortal-flames")`; in CSS the
   `--color-mark-*` and `--color-gc-*` tokens.
@@ -359,6 +369,14 @@ inventing their own. Each is covered by tests in `design_v2_test.go` and `switch
   and character count below. Colour reaches each banner, swatch, meter and band segment through
   `--slot-color` from `.gc-<slug>` / `.standard-<slug>`. The row has the page's one entrance
   (`data-entrance="rise"`).
+- **The veil** (Private achievements, the signature element): one 72px band (48px on phones) drawn as
+  an SVG whose `rect`s are sized in percentages rather than a stretched `viewBox`, so the hatching keeps
+  its pitch. Public is the Aether chart hue (`--color-chart-1`); private is a `<pattern>` of Crystal
+  threads (`--color-chart-2`) at 45° over the Raised track, a veil drawn across the data; not yet checked
+  is an empty dashed outline (the census's backlog, not a choice, drawn like No Grand Company). Each
+  segment has a `<title>`; the key below names every segment with its share in Saira and its count, in
+  three columns at every width. The band has the page's one entrance (it unfurls). The world lists reuse
+  the hatch for a thin bar scaled to the most private world, with Saira rank numerals in the gutter.
 - **Progression steps** (Expansions): one `<li>` per expansion in an `<ol class="progression">`. Each
   step has a node on a vertical connector, the expansion name (`h3`) with patch, level cap and finale,
   a `<meter>` for its share of all characters (so the bars step down), and a `<dl>` of Completed, Share
