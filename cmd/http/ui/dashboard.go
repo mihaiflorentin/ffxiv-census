@@ -15,28 +15,50 @@ type DashboardViewData struct {
 	ActiveCharacters     int64
 	ActivePercent        string
 	MaxLevelCharacters   int64
+	MaxLevelPercent      string
 	MaxLevel             uint32
 	NewCharacters30d     int64
-	NewCharactersTrend   string
+	NewCharactersTrend   Trend
 	ChartLabels          []string
+	ChartDates           []string
 	ChartData            []int64
+	Timeline             TimelineSummary
 	Regions              []RegionSummary
 	RaceLabels           []string
 	RaceData             []int64
+	Races                []ShareRow
 	ExpansionCompletions []ExpansionCard
+	RealmTally           RealmTally
+}
+
+// ShareRow is one category's count and share of the census, used as the
+// text alternative of part-to-whole charts.
+type ShareRow struct {
+	Name  string
+	Total int64
+	Share string
+}
+
+// TimelineSummary feeds the one-sentence text alternative of the 30-day chart.
+type TimelineSummary struct {
+	Total     int64
+	PeakDate  string
+	PeakCount int64
 }
 
 // ExpansionCard holds completion stats for one expansion.
 type ExpansionCard struct {
-	Icon    string
 	Name    string
 	Count   int64
 	Percent string
+	// Value is the completion share as a plain number (0-100) for the meter.
+	Value string
 }
 
 // RegionSummary holds aggregated stats for a region in the dashboard.
 type RegionSummary struct {
 	Region      string
+	Name        string
 	Total       int64
 	Active      int64
 	ActiveRatio string
@@ -74,19 +96,22 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var regions []RegionSummary
-	for _, row := range census.SnapshotGroups(snapshot, "region", contract.StatsScope{}) {
+	regionGroups := census.SnapshotGroups(snapshot, "region", contract.StatsScope{})
+	for _, row := range regionGroups {
 		name := row.Key
 		if name == "" {
 			name = "Unknown"
 		}
-		regions = append(regions, RegionSummary{Region: name, Total: row.Total, Active: row.Active, ActiveRatio: formatPercent(row.Active, row.Total)})
+		regions = append(regions, RegionSummary{Region: name, Name: regionDisplayName(name), Total: row.Total, Active: row.Active, ActiveRatio: formatPercent(row.Active, row.Total)})
 	}
 	var raceLabels []string
 	var raceData []int64
+	var raceRows []ShareRow
 	for _, row := range census.SnapshotGroups(snapshot, "race", contract.StatsScope{}) {
 		if row.Key != "" {
 			raceLabels = append(raceLabels, row.Key)
 			raceData = append(raceData, row.Total)
+			raceRows = append(raceRows, ShareRow{Name: row.Key, Total: row.Total, Share: formatPercent(row.Total, total)})
 		}
 	}
 
@@ -101,7 +126,7 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	var expansionCards []ExpansionCard
 	for _, expansion := range expansions {
-		expansionCards = append(expansionCards, ExpansionCard{Icon: expansion.Icon, Name: expansion.Name, Count: countMap[expansion.Name]})
+		expansionCards = append(expansionCards, ExpansionCard{Name: expansion.Name, Count: countMap[expansion.Name]})
 	}
 
 	dailyMap := make(map[string]int64)
@@ -109,17 +134,26 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 		dailyMap[day.Day] = day.Count
 	}
 	now := snapshot.GeneratedAt.UTC()
-	var chartLabels []string
+	var chartLabels, chartDates []string
 	var chartData []int64
+	var timeline TimelineSummary
 	for i := 29; i >= 0; i-- {
-		day := now.AddDate(0, 0, -i).Format("2006-01-02")
-		chartLabels = append(chartLabels, day[5:])
-		chartData = append(chartData, dailyMap[day])
+		date := now.AddDate(0, 0, -i)
+		day := date.Format("2006-01-02")
+		count := dailyMap[day]
+		chartLabels = append(chartLabels, date.Format("Jan 2"))
+		chartDates = append(chartDates, day)
+		chartData = append(chartData, count)
+		timeline.Total += count
+		if count > timeline.PeakCount {
+			timeline.PeakCount, timeline.PeakDate = count, day
+		}
 	}
 
 	// Fix expansion percents now that total is known
 	for i := range expansionCards {
 		expansionCards[i].Percent = formatPercent(expansionCards[i].Count, total)
+		expansionCards[i].Value = strings.TrimSuffix(expansionCards[i].Percent, "%")
 	}
 
 	newCharactersWindow := census.NewCharactersWindow(snapshot, contract.StatsScope{})
@@ -129,15 +163,20 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 		ActiveCharacters:     active,
 		ActivePercent:        formatPercent(active, total),
 		NewCharacters30d:     newCharactersWindow.Current,
-		NewCharactersTrend:   formatTrend(newCharactersWindow.Current, newCharactersWindow.Previous),
+		NewCharactersTrend:   newTrend(newCharactersWindow.Current, newCharactersWindow.Previous),
 		MaxLevelCharacters:   maxLevelCount,
+		MaxLevelPercent:      formatPercent(maxLevelCount, total),
 		MaxLevel:             maxLevel,
 		ChartLabels:          chartLabels,
+		ChartDates:           chartDates,
 		ChartData:            chartData,
+		Timeline:             timeline,
 		Regions:              regions,
 		RaceLabels:           raceLabels,
 		RaceData:             raceData,
+		Races:                raceRows,
 		ExpansionCompletions: expansionCards,
+		RealmTally:           newRealmTally(total, regionGroups),
 	}
 
 	c.render(w, "templates/dashboard.html", statsPageData("Dashboard", "dashboard", "/", "Final Fantasy XIV population census: total characters, active players, race demographics, and 30-day growth trends across every region and datacenter.", state, viewData))

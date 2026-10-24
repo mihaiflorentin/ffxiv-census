@@ -48,6 +48,25 @@
     --color-role-crafter: #3CC4B4;
     --color-role-gatherer: #E8C14A;
 
+    /*
+     * Colour: categorical chart palette. Eight slots in a fixed order, never
+     * cycled; slot 1 is the Aether hue and slot 2 the Crystal hue, stepped into
+     * the dark-mode chart band (OKLCH L 0.48-0.67). Validated with the dataviz
+     * palette validator on Night and Surface: adjacent CVD dE >= 8.2,
+     * normal-vision dE >= 17.0, every slot >= 3:1 on Surface; slots 1-4 also
+     * pass all-pairs. Races and regions map to fixed slots (chart-theme.js,
+     * realm_tally.go). Single-series charts use Aether, comparisons Crystal.
+     */
+    --color-chart-1: #00A4C5;
+    --color-chart-2: #917EF4;
+    --color-chart-3: #BA8C01;
+    --color-chart-4: #D24C49;
+    --color-chart-5: #4194F9;
+    --color-chart-6: #27AF57;
+    --color-chart-7: #DD61A2;
+    --color-chart-8: #DD7303;
+    --color-chart-other: #7C869E;  /* neutral for unmapped categories */
+
     /* Type: one family, contrast from weight and size */
     --font-sans: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -771,6 +790,347 @@ input[type="search"] {
     height: 100%;
     background: var(--color-aether);
     border-radius: var(--radius-pill);
+}
+
+/* ---------- Chart slots ---------- */
+
+/* Sets --slot-color for SVG marks and HTML swatches. */
+.chart-slot-0 { --slot-color: var(--color-chart-other); }
+.chart-slot-1 { --slot-color: var(--color-chart-1); }
+.chart-slot-2 { --slot-color: var(--color-chart-2); }
+.chart-slot-3 { --slot-color: var(--color-chart-3); }
+.chart-slot-4 { --slot-color: var(--color-chart-4); }
+.chart-slot-5 { --slot-color: var(--color-chart-5); }
+.chart-slot-6 { --slot-color: var(--color-chart-6); }
+.chart-slot-7 { --slot-color: var(--color-chart-7); }
+.chart-slot-8 { --slot-color: var(--color-chart-8); }
+
+/* ---------- Components: realm tally (the dashboard headline) ---------- */
+
+.realm-tally {
+    margin-bottom: var(--space-7);
+}
+
+.realm-tally-heading {
+    font-size: var(--step-1);
+    font-weight: var(--weight-heading);
+    color: var(--color-ink-muted);
+    line-height: var(--leading-tight);
+}
+
+.realm-tally-figure {
+    font-size: clamp(3.5rem, 15vw, 8.5rem);
+    font-weight: var(--weight-display);
+    letter-spacing: -0.035em;
+    line-height: 0.95;
+    color: var(--color-aether);
+    /* Proportional figures read tighter at display size. */
+    font-variant-numeric: proportional-nums;
+    margin: var(--space-2) 0 var(--space-4);
+}
+
+.realm-tally-lede {
+    color: var(--color-ink-muted);
+    max-width: var(--measure);
+    margin-bottom: var(--space-5);
+}
+
+.realm-band-wrap {
+    position: relative;
+}
+
+.realm-band {
+    display: block;
+    border-radius: var(--radius-control);
+    overflow: hidden;
+}
+
+.realm-band-track {
+    fill: var(--color-raised);
+}
+
+.realm-segment-fill {
+    fill: var(--slot-color);
+    /* 2px gap in the page colour between neighbouring segments. */
+    stroke: var(--color-night);
+    stroke-width: 2px;
+    transition: opacity var(--duration-fast) ease;
+}
+
+.realm-segment-label {
+    fill: var(--color-night);
+    font-size: 1.25rem;
+    font-weight: var(--weight-display);
+    pointer-events: none;
+}
+
+.realm-segment {
+    text-decoration: none;
+}
+
+.realm-segment:focus {
+    outline: none;
+}
+
+.realm-band:hover .realm-segment-fill,
+.realm-band:focus-within .realm-segment-fill {
+    opacity: 0.55;
+}
+
+.realm-band .realm-segment:hover .realm-segment-fill,
+.realm-band .realm-segment:focus-visible .realm-segment-fill {
+    opacity: 1;
+}
+
+.realm-segment:focus-visible .realm-segment-fill {
+    stroke: var(--color-ink);
+    stroke-width: 4px;
+}
+
+.realm-tooltip {
+    position: absolute;
+    bottom: calc(100% + var(--space-2));
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-raised);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-control);
+    box-shadow: var(--shadow-overlay);
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+    white-space: nowrap;
+    pointer-events: none;
+    z-index: 5;
+}
+
+.realm-tooltip[hidden] {
+    display: none;
+}
+
+.realm-tooltip strong {
+    color: var(--color-ink);
+    font-size: var(--step-0);
+    font-weight: var(--weight-display);
+}
+
+.realm-key {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-6);
+    margin-top: var(--space-4);
+}
+
+.realm-key-item {
+    display: grid;
+    grid-template-columns: auto auto;
+    column-gap: var(--space-2);
+    align-items: baseline;
+    padding-left: var(--space-4);
+    position: relative;
+}
+
+.realm-key-item::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.45em;
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+    background: var(--slot-color);
+}
+
+.realm-key-name {
+    font-weight: var(--weight-heading);
+    color: var(--color-ink);
+}
+
+.realm-key-share {
+    color: var(--color-ink);
+}
+
+.realm-key-count {
+    grid-column: 1 / -1;
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+/* ---------- Components: trend ---------- */
+
+.trend {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0 var(--space-1);
+}
+
+.trend-icon {
+    fill: currentColor;
+    flex-shrink: 0;
+}
+
+.trend-value {
+    font-weight: var(--weight-heading);
+}
+
+.trend-up .trend-icon,
+.trend-up .trend-value { color: var(--color-active); }
+.trend-down .trend-icon,
+.trend-down .trend-value { color: var(--color-negative); }
+
+/* ---------- Layout: dashboard ---------- */
+
+.dashboard-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr));
+    gap: var(--space-5);
+    margin-bottom: var(--space-6);
+}
+
+.dashboard-grid > .panel {
+    margin-bottom: 0;
+}
+
+.panel-meta {
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.panel-body-flush {
+    padding: 0;
+}
+
+.panel-body-flush .empty-state {
+    padding: var(--space-5);
+}
+
+/* ---------- Components: chart text alternatives ---------- */
+
+.chart-container-bars {
+    height: 320px;
+}
+
+.chart-summary {
+    margin-top: var(--space-4);
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+    max-width: var(--measure);
+}
+
+.chart-data {
+    margin-top: var(--space-3);
+    font-size: var(--step--1);
+}
+
+.chart-data summary {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2rem;
+    color: var(--color-aether);
+    font-weight: var(--weight-heading);
+    cursor: pointer;
+}
+
+.chart-data[open] summary {
+    margin-bottom: var(--space-3);
+}
+
+.chart-data .table-responsive {
+    max-height: 22rem;
+    overflow-y: auto;
+}
+
+/* ---------- Components: progress list (expansion completion) ---------- */
+
+.progress-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-4);
+}
+
+.progress-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+}
+
+.progress-name {
+    font-weight: var(--weight-heading);
+}
+
+.progress-value {
+    font-weight: var(--weight-heading);
+    white-space: nowrap;
+}
+
+.progress-count {
+    margin-left: var(--space-2);
+    font-weight: var(--weight-body);
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.progress-meter {
+    display: block;
+    width: 100%;
+    height: 8px;
+    border: 0;
+    border-radius: var(--radius-pill);
+    background: var(--color-raised);
+    -webkit-appearance: none;
+    appearance: none;
+}
+
+.progress-meter::-webkit-meter-bar {
+    background: var(--color-raised);
+    border: 0;
+    border-radius: var(--radius-pill);
+    height: 8px;
+}
+
+.progress-meter::-webkit-meter-optimum-value {
+    background: var(--color-aether);
+    border-radius: var(--radius-pill);
+}
+
+.progress-meter::-moz-meter-bar {
+    background: var(--color-aether);
+    border-radius: var(--radius-pill);
+}
+
+/* ---------- Components: region drill-down ---------- */
+
+.btn-small {
+    min-height: 2rem;
+    padding: var(--space-1) var(--space-3);
+}
+
+.data-table th[scope="row"] {
+    font-weight: var(--weight-heading);
+    color: var(--color-ink);
+    border-bottom: 1px solid var(--color-line);
+    background: transparent;
+}
+
+.drilldown-row > td {
+    padding: 0;
+    background: var(--color-night);
+}
+
+.drilldown-row:hover {
+    background: transparent;
+}
+
+.drilldown-body {
+    padding: var(--space-2) var(--space-4) var(--space-4);
+    overflow-x: auto;
 }
 
 /* ---------- Character profile (routes disabled; kept rendering) ---------- */

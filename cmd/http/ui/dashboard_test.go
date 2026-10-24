@@ -186,92 +186,17 @@ func TestDashboardHandler(t *testing.T) {
 		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	body := rec.Body.String()
-	if !strings.Contains(body, "Total Population") {
-		t.Errorf("expected body to contain 'Total Population', got:\n%s", body)
-	}
-	if !strings.Contains(body, "Active Players") {
-		t.Errorf("expected body to contain 'Active Players', got:\n%s", body)
-	}
-	if !strings.Contains(body, "Max Level (Lv. 100)") {
-		t.Errorf("expected body to contain 'Max Level (Lv. 100)', got:\n%s", body)
-	}
-	if !strings.Contains(body, "Characters at Cap") {
-		t.Errorf("expected body to contain 'Characters at Cap', got:\n%s", body)
-	}
-	if !strings.Contains(body, "Crystal") && !strings.Contains(body, "NA") {
-		t.Errorf("expected body to contain region stats, got:\n%s", body)
-	}
-}
-
-func TestDashboardHandler_RaceChartLayout(t *testing.T) {
-	rig := newTestRig(t)
-	now := time.Now().UTC()
-	recent := now.Add(-1 * time.Hour)
-
-	// Seed characters with distinct races so the chart renders.
-	races := []string{"Hyur", "Elezen", "Lalafell", "Miqo'te", "Roegadyn", "Au Ra", "Hrothgar", "Viera"}
-	for i, race := range races {
-		_ = rig.chars.Upsert(context.Background(), contract.CharacterRecord{
-			ID:                  uint32(5001 + i),
-			Name:                "Char " + race,
-			World:               "Balmung",
-			Datacenter:          "Crystal",
-			Region:              "NA",
-			Race:                race,
-			FirstSeenAt:         recent,
-			LatestAchievementAt: &recent,
-		}, nil)
-	}
-
-	req := httptest.NewRequest(http.MethodGet, "/ui/dashboard", nil)
-	rec := httptest.NewRecorder()
-	rig.ctrl.Dashboard(rec, req)
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
-	}
-
-	body := rec.Body.String()
-
-	// Responsive grid replaces fixed 1fr 1fr.
-	if !strings.Contains(body, "repeat(auto-fit, minmax(360px, 1fr)") {
-		t.Error("expected responsive grid with repeat(auto-fit, minmax(360px, 1fr))")
-	}
-	// Race chart container must be 340px.
-	if !strings.Contains(body, "height: 340px") {
-		t.Error("expected race chart container height 340px")
-	}
-	// Chart.js options: maintainAspectRatio must be false.
-	if !strings.Contains(body, "maintainAspectRatio: false") {
-		t.Error("expected maintainAspectRatio: false in race chart options")
-	}
-	// Chart.js options: cutout must be 65%.
-	if !strings.Contains(body, `cutout: "65%"`) && !strings.Contains(body, `cutout:'65%'`) {
-		t.Error(`expected cutout: "65%" in race chart options`)
-	}
-	// Legend must be at bottom, not right.
-	if strings.Contains(body, `position: "right"`) || strings.Contains(body, `position:"right"`) {
-		t.Error("race chart legend should not be position right")
-	}
-	if !strings.Contains(body, `position: "bottom"`) && !strings.Contains(body, `position:"bottom"`) {
-		t.Error(`expected legend position: "bottom"`)
-	}
-	// Legend must be centered.
-	if !strings.Contains(body, `align: "center"`) && !strings.Contains(body, `align:"center"`) {
-		t.Error(`expected legend align: "center"`)
-	}
-	// Legend must use circular point style markers, not stretched rectangles.
-	if !strings.Contains(body, `usePointStyle: true`) {
-		t.Error("expected usePointStyle: true in race chart legend")
-	}
-	if !strings.Contains(body, `pointStyle: "circle"`) {
-		t.Error(`expected pointStyle: "circle" in race chart legend`)
-	}
-	// pointStyleWidth forces a fixed 10px marker that stretches differently
-	// from the font-derived height; it must be absent.
-	if strings.Contains(body, `pointStyleWidth`) {
-		t.Error("race chart legend must not contain pointStyleWidth")
+	body := textOf(parseHTML(t, rec.Body.String()))
+	for _, want := range []string{
+		"Characters in the census 2",
+		"Active players, last 30 days 1 50.0% of the census",
+		"At level 100 1 50.0% of the census",
+		"North America",
+		"Europe",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected dashboard text to contain %q, got:\n%s", want, body)
+		}
 	}
 }
 
@@ -369,12 +294,22 @@ func TestDashboardHandler_NewCharactersCard(t *testing.T) {
 		{
 			name:      "growth vs previous window",
 			days:      map[int]int64{1: 20, 5: 10, 40: 4, 50: 6},
-			wantTrend: "▲ 20 (200.0%) vs previous 30d",
+			wantTrend: "Up +20 (+200.0%) on the previous 30 days",
+		},
+		{
+			name:      "decline vs previous window",
+			days:      map[int]int64{1: 5, 40: 15, 50: 5},
+			wantTrend: "Down −15 (−75.0%) on the previous 30 days",
 		},
 		{
 			name:      "zero previous window",
 			days:      map[int]int64{3: 12},
-			wantTrend: "▲ 12 vs previous 30d",
+			wantTrend: "Up +12 on the previous 30 days",
+		},
+		{
+			name:      "no change",
+			days:      map[int]int64{3: 6, 40: 6},
+			wantTrend: "No change on the previous 30 days",
 		},
 		{
 			name:        "both windows zero",
@@ -410,16 +345,16 @@ func TestDashboardHandler_NewCharactersCard(t *testing.T) {
 				t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
 			}
 
-			body := rec.Body.String()
-			if !strings.Contains(body, "New Characters (30d)") {
-				t.Errorf("expected card label 'New Characters (30d)' in body:\n%s", body)
+			body := textOf(parseHTML(t, rec.Body.String()))
+			if !strings.Contains(body, "New characters, last 30 days") {
+				t.Errorf("expected tile label 'New characters, last 30 days' in body:\n%s", body)
 			}
 			if tt.wantNoTrend {
 				if !strings.Contains(body, "No new characters recorded") {
-					t.Errorf("expected fallback subtext 'No new characters recorded' in body:\n%s", body)
+					t.Errorf("expected fallback 'No new characters recorded' in body:\n%s", body)
 				}
-				if strings.Contains(body, "vs previous 30d") {
-					t.Errorf("did not expect 'vs previous 30d' when both windows are zero:\n%s", body)
+				if strings.Contains(body, "on the previous 30 days") {
+					t.Errorf("did not expect a trend when both windows are zero:\n%s", body)
 				}
 				return
 			}
