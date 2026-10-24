@@ -17,6 +17,17 @@
     unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
 }
 
+/* Figures face: Saira, variable in weight (400-800) and width (75-100%). */
+@font-face {
+    font-family: "Saira";
+    src: url("fonts/saira-latin-var.woff2") format("woff2");
+    font-weight: 400 800;
+    font-stretch: 75% 100%;
+    font-style: normal;
+    font-display: swap;
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 :root {
     color-scheme: dark;
 
@@ -25,6 +36,7 @@
     --color-surface: #151C2E;  /* panels and tiles */
     --color-raised: #1D2640;   /* hover, selected rows, open menus, band track */
     --color-line: #28324D;     /* hairline separators and table rules only */
+    --color-rim: #2F3B5C;      /* the lit top edge of panels and tiles, as on the game's windows */
 
     /* Colour: accents (data and focus only) */
     --color-aether: #5FD4F4;   /* links, primary series, focus ring, active nav */
@@ -49,6 +61,26 @@
     --color-role-gatherer: #E8C14A;
 
     /*
+     * Colour: semantic mark palettes, taken from the game for meaning. Marks
+     * only (bars, banners, rules, swatches); labels stay in ink and the name
+     * is always printed beside the mark. Validated with the dataviz palette
+     * validator (dark mode, all pairs) on Surface and Raised: every check
+     * passes, every colour >= 3:1 on both.
+     *   Roles: CVD worst dE 9.1 (deutan), normal-vision worst dE 23.6.
+     *     DPS L 0.575 < tank L 0.60 < healer L 0.665, so the three also
+     *     differ in lightness.
+     *   Grand Companies: CVD worst dE 10.4 (deutan), normal-vision worst
+     *     dE 18.7. Immortal Flames is a pale steel: the in-game black
+     *     disappears on Night. "No company" is drawn as an outline, not a hue.
+     */
+    --color-mark-tank: #427FD8;
+    --color-mark-healer: #03AF73;
+    --color-mark-dps: #D2393A;
+    --color-gc-maelstrom: #D1364C;
+    --color-gc-twin-adder: #C38616;
+    --color-gc-immortal-flames: #6896D1;
+
+    /*
      * Colour: categorical chart palette. Eight slots in a fixed order, never
      * cycled; slot 1 is the Aether hue and slot 2 the Crystal hue, stepped
      * down to the top of the dark-mode chart band (OKLCH L 0.48-0.67; the
@@ -70,8 +102,15 @@
     --color-chart-8: #DD7303;  /* orange */
     --color-chart-other: #7C869E;  /* neutral for unmapped categories */
 
-    /* Type: one family, contrast from weight and size */
+    /*
+     * Type: Manrope for text and labels; Saira, semi-condensed, for figures,
+     * rank numerals, page titles and the wordmark (the HUD-like numeric voice
+     * of the game's own interface). Contrast comes from weight, size and width.
+     */
     --font-sans: "Manrope", ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-figures: "Saira", "Manrope", ui-sans-serif, system-ui, sans-serif;
+    --width-semi-condensed: 87.5%;
+    --width-condensed: 80%;
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     --weight-body: 400;
     --weight-medium: 500;
@@ -108,8 +147,10 @@
     --radius-control: 8px;
     --radius-pill: 9999px;
 
-    /* Depth: only open menus and tooltips cast a shadow */
+    /* Depth: only open menus and tooltips cast a shadow. Panels and tiles
+       get a 1px lit top edge instead (an inset line, not a shadow). */
     --shadow-overlay: 0 8px 24px rgba(4, 7, 15, 0.6);
+    --rim: inset 0 1px 0 var(--color-rim);
 
     /* Focus */
     --focus-ring: 2px solid var(--color-aether);
@@ -123,6 +164,9 @@
     /* Motion: functional only, removed under reduced motion */
     --duration-fast: 120ms;
     --duration-base: 200ms;
+    /* One entrance per page, on full page loads only (see [data-entrance]). */
+    --duration-entrance: 360ms;
+    --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
 
     /*
      * Legacy aliases, referenced only by the inline styles of the disabled
@@ -285,7 +329,7 @@ input[type="search"] {
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
-    gap: var(--space-4);
+    gap: 0 var(--space-4);
 }
 
 .brand {
@@ -294,10 +338,12 @@ input[type="search"] {
     gap: var(--space-3);
     color: var(--color-ink);
     text-decoration: none;
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
     font-size: var(--step-1);
-    font-weight: var(--weight-display);
-    letter-spacing: var(--tracking-display);
-    padding: var(--space-2) 0;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    padding: var(--space-3) 0 var(--space-2);
 }
 
 .brand:hover {
@@ -315,107 +361,91 @@ input[type="search"] {
 .brand-facet-crown { fill: var(--color-ink); opacity: 0.85; }
 
 /*
- * Phone disclosure: a native checkbox toggled by its label. It stays in the
- * accessibility tree and keyboard order (Space toggles it), so the menu
- * opens and closes with no JavaScript.
+ * Primary nav: one bar on every width. On phones it takes its own row under
+ * the brand and scrolls sideways (census.js scrolls the current item into
+ * view); faded edges hint that there is more to scroll. Focus rings sit
+ * inside the bar so the scroller never clips them.
  */
-.nav-toggle {
-    position: absolute;
-    opacity: 0;
-    width: 1px;
-    height: 1px;
-    pointer-events: none;
-}
-
-.nav-toggle-label {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--space-2);
-    min-height: 2.75rem;
-    padding: var(--space-2) var(--space-3);
-    border-radius: var(--radius-control);
-    color: var(--color-ink);
-    font-weight: var(--weight-heading);
-    cursor: pointer;
-    user-select: none;
-}
-
-.nav-toggle-label:hover {
-    background: var(--color-raised);
-}
-
-.nav-toggle:focus-visible + .nav-toggle-label {
-    outline: var(--focus-ring);
-    outline-offset: var(--focus-offset);
-}
-
-.nav-toggle:checked + .nav-toggle-label {
-    background: var(--color-raised);
-}
-
 .primary-nav {
-    display: none;
     flex-basis: 100%;
-    padding-bottom: var(--space-3);
+    min-width: 0;
+    margin: 0 calc(-1 * var(--gutter));
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scrollbar-width: none;
+    -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--gutter), #000 calc(100% - var(--space-7)), transparent 100%);
+    mask-image: linear-gradient(to right, transparent 0, #000 var(--gutter), #000 calc(100% - var(--space-7)), transparent 100%);
 }
 
-.nav-toggle:checked ~ .primary-nav {
-    display: block;
+.primary-nav::-webkit-scrollbar {
+    display: none;
 }
 
 .primary-nav-list {
     list-style: none;
     display: flex;
-    flex-direction: column;
     gap: var(--space-1);
+    width: max-content;
+    padding: 0 var(--space-7) 0 var(--gutter);
 }
 
 .primary-nav a {
-    display: block;
-    padding: var(--space-3) var(--space-3);
-    border-radius: var(--radius-control);
+    position: relative;
+    display: flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: 0 var(--space-3);
     color: var(--color-ink-muted);
     font-weight: var(--weight-medium);
     text-decoration: none;
-    transition: color var(--duration-fast) ease, background-color var(--duration-fast) ease;
+    white-space: nowrap;
+    transition: color var(--duration-fast) ease;
 }
 
 .primary-nav a:hover {
     color: var(--color-ink);
-    background: var(--color-raised);
 }
 
+.primary-nav a:focus-visible {
+    outline-offset: -4px;
+    border-radius: var(--radius-control);
+}
+
+/* The current page: ink text over a lit aether rule, like a selected tab. */
 .primary-nav a[aria-current="page"] {
-    color: var(--color-aether);
+    color: var(--color-ink);
     font-weight: var(--weight-heading);
-    box-shadow: inset 3px 0 0 var(--color-aether);
 }
 
-@media (min-width: 768px) {
-    .nav-toggle,
-    .nav-toggle-label {
-        display: none;
+.primary-nav a[aria-current="page"]::after {
+    content: "";
+    position: absolute;
+    left: var(--space-3);
+    right: var(--space-3);
+    bottom: 0;
+    height: 2px;
+    border-radius: 2px 2px 0 0;
+    background: var(--color-aether);
+}
+
+@media (min-width: 900px) {
+    .site-header-inner {
+        flex-wrap: nowrap;
     }
 
-    .primary-nav,
-    .nav-toggle:checked ~ .primary-nav {
-        display: block;
+    .primary-nav {
         flex-basis: auto;
-        padding-bottom: 0;
+        margin: 0;
+        -webkit-mask-image: none;
+        mask-image: none;
     }
 
     .primary-nav-list {
-        flex-direction: row;
-        gap: var(--space-1);
+        padding: 0;
     }
 
     .primary-nav a {
-        padding: var(--space-2) var(--space-3);
-    }
-
-    .primary-nav a[aria-current="page"] {
-        box-shadow: inset 0 -2px 0 var(--color-aether);
-        border-radius: var(--radius-control) var(--radius-control) 0 0;
+        min-height: var(--header-height);
     }
 }
 
@@ -591,9 +621,11 @@ input[type="search"] {
 }
 
 .state-title {
-    font-size: var(--step-4);
-    font-weight: var(--weight-display);
-    letter-spacing: var(--tracking-display);
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-5);
+    font-weight: 700;
+    letter-spacing: -0.005em;
     line-height: var(--leading-tight);
     color: var(--color-ink);
 }
@@ -621,7 +653,7 @@ input[type="search"] {
 
 @media (max-width: 479px) {
     .state-page { padding-top: var(--space-5); }
-    .state-title { font-size: var(--step-3); }
+    .state-title { font-size: var(--step-4); }
     .state-lead { font-size: var(--step-0); }
 }
 
@@ -632,9 +664,11 @@ input[type="search"] {
 }
 
 .page-title {
-    font-size: var(--step-4);
-    font-weight: var(--weight-display);
-    letter-spacing: var(--tracking-display);
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-5);
+    font-weight: 700;
+    letter-spacing: -0.005em;
     line-height: var(--leading-tight);
     color: var(--color-ink);
     display: flex;
@@ -652,7 +686,7 @@ input[type="search"] {
 
 @media (max-width: 767px) {
     .page-title {
-        font-size: var(--step-3);
+        font-size: var(--step-4);
     }
 }
 
@@ -684,13 +718,14 @@ input[type="search"] {
    still fits on one line. */
 @media (max-width: 599px) {
     .stat-grid .stat-card { padding: var(--space-4); }
-    .stat-grid .stat-value { font-size: clamp(var(--step-1), 6.5vw, var(--step-3)); }
-    .stat-grid-trio > .stat-card:first-child .stat-value { font-size: var(--step-3); }
+    .stat-grid .stat-value { font-size: clamp(var(--step-2), 8vw, var(--step-4)); }
+    .stat-grid-trio > .stat-card:first-child .stat-value { font-size: var(--step-4); }
 }
 
 .stat-card {
     background: var(--color-surface);
     border-radius: var(--radius-panel);
+    box-shadow: var(--rim);
     padding: var(--space-5);
 }
 
@@ -702,10 +737,11 @@ input[type="search"] {
 }
 
 .stat-value {
-    font-size: var(--step-3);
-    font-weight: var(--weight-display);
-    letter-spacing: var(--tracking-display);
-    line-height: var(--leading-tight);
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-4);
+    font-weight: 600;
+    line-height: 1.05;
     color: var(--color-ink);
 }
 
@@ -720,6 +756,7 @@ input[type="search"] {
 .panel {
     background: var(--color-surface);
     border-radius: var(--radius-panel);
+    box-shadow: var(--rim);
     margin-bottom: var(--space-6);
     overflow: hidden;
     /* clip, not hidden: no scroll container, so table headers can stick to the viewport */
@@ -849,10 +886,13 @@ input[type="search"] {
 /* Rank number before a world name in the rankings. */
 .row-rank {
     display: inline-block;
-    min-width: 2.25ch;
+    min-width: 2.5ch;
     margin-right: var(--space-3);
     color: var(--color-ink-muted);
-    font-weight: var(--weight-body);
+    font-family: var(--font-figures);
+    font-stretch: var(--width-condensed);
+    font-size: var(--step-0);
+    font-weight: 600;
     text-align: right;
 }
 
@@ -1079,14 +1119,17 @@ input[type="search"] {
 
 .progression-figure dd {
     margin-top: var(--space-1);
-    font-size: var(--step-2);
-    font-weight: var(--weight-display);
-    letter-spacing: var(--tracking-display);
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-3);
+    font-weight: 600;
     line-height: var(--leading-tight);
     color: var(--color-ink);
 }
 
 .progression-figure dd.progression-muted {
+    font-family: var(--font-sans);
+    font-stretch: normal;
     font-size: var(--step-0);
     font-weight: var(--weight-heading);
     letter-spacing: normal;
@@ -1284,10 +1327,12 @@ input[type="search"] {
 }
 
 .realm-tally-figure {
-    font-size: clamp(3.5rem, 15vw, 8.5rem);
-    font-weight: var(--weight-display);
-    letter-spacing: -0.035em;
-    line-height: 0.95;
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: clamp(4rem, 19vw, 10rem);
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    line-height: 0.9;
     color: var(--color-aether);
     /* Proportional figures read tighter at display size. */
     font-variant-numeric: proportional-nums;
@@ -1324,8 +1369,10 @@ input[type="search"] {
 
 .realm-segment-label {
     fill: var(--color-night);
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
     font-size: 1.25rem;
-    font-weight: var(--weight-display);
+    font-weight: 700;
     pointer-events: none;
 }
 
@@ -1350,35 +1397,6 @@ input[type="search"] {
 .realm-segment:focus-visible .realm-segment-fill {
     stroke: var(--color-ink);
     stroke-width: 4px;
-}
-
-.realm-tooltip {
-    position: absolute;
-    bottom: calc(100% + var(--space-2));
-    transform: translateX(-50%);
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: var(--space-2) var(--space-3);
-    background: var(--color-raised);
-    border: 1px solid var(--color-line);
-    border-radius: var(--radius-control);
-    box-shadow: var(--shadow-overlay);
-    font-size: var(--step--1);
-    color: var(--color-ink-muted);
-    white-space: nowrap;
-    pointer-events: none;
-    z-index: 5;
-}
-
-.realm-tooltip[hidden] {
-    display: none;
-}
-
-.realm-tooltip strong {
-    color: var(--color-ink);
-    font-size: var(--step-0);
-    font-weight: var(--weight-display);
 }
 
 .realm-key {
@@ -1734,6 +1752,7 @@ input[type="search"] {
     margin-bottom: var(--space-4);
     background: var(--color-surface);
     border-radius: var(--radius-panel);
+    box-shadow: var(--rim);
 }
 
 .filter-field {
@@ -1873,6 +1892,1501 @@ input[type="search"] {
     }
 }
 
+/* ---------- Components: switch (segmented link pair) ---------- */
+
+/*
+ * A set of links choosing one view of a region. Reads as one control: a
+ * recessed track with the current option lifted onto it and marked by a lit
+ * aether rule, distinct from the filter pills (which narrow the data rather
+ * than change the view).
+ */
+.switch {
+    display: inline-flex;
+    flex-wrap: nowrap;
+    gap: 2px;
+    padding: 3px;
+    border-radius: var(--radius-control);
+    background: var(--color-night);
+    box-shadow: inset 0 0 0 1px var(--color-line);
+    font-size: var(--step--1);
+}
+
+.switch-option {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.25rem;
+    padding: 0 var(--space-3);
+    border-radius: calc(var(--radius-control) - 3px);
+    color: var(--color-ink-muted);
+    font-weight: var(--weight-medium);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color var(--duration-fast) ease, background-color var(--duration-fast) ease;
+}
+
+.switch-option:hover {
+    color: var(--color-ink);
+    background: var(--color-surface);
+}
+
+.switch-option[aria-current="true"] {
+    color: var(--color-ink);
+    background: var(--color-raised);
+    font-weight: var(--weight-heading);
+    box-shadow: inset 0 -2px 0 var(--color-aether);
+}
+
+@media (max-width: 599px) {
+    .switch-option { min-height: 2.75rem; }
+}
+
+/* A heading that takes focus after a switch: no ring on programmatic focus
+   (keyboard users still see :focus-visible on the switch itself). */
+[data-switch-heading]:focus {
+    outline: none;
+}
+
+/* ---------- Components: freshness line ---------- */
+
+.freshness {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    margin-top: var(--space-3);
+    color: var(--color-ink-muted);
+    font-size: var(--step--1);
+}
+
+.freshness-icon {
+    flex-shrink: 0;
+    width: 0.875rem;
+    height: 0.875rem;
+    fill: none;
+    stroke: var(--color-aether);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+}
+
+.freshness time {
+    color: var(--color-ink);
+    font-weight: var(--weight-medium);
+}
+
+/* ---------- Components: arrives with the next refresh ---------- */
+
+/*
+ * A section whose data the stored snapshot predates. The crystal is lit but
+ * its orbit is dashed: the node exists and is on its way into the network.
+ */
+.next-refresh {
+    display: flex;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-5);
+    margin-bottom: var(--space-6);
+    border-radius: var(--radius-panel);
+    border: 1px dashed var(--color-line);
+}
+
+.next-refresh-mark {
+    flex-shrink: 0;
+}
+
+.next-refresh-orbit {
+    fill: none;
+    stroke: var(--color-ink-muted);
+    stroke-width: 1.5;
+    stroke-dasharray: 3 5;
+}
+
+.next-refresh-node { fill: var(--color-aether); }
+.next-refresh-facet-aether { fill: var(--color-aether); }
+.next-refresh-facet-crystal { fill: var(--color-crystal); }
+
+.next-refresh-text { max-width: var(--measure); }
+
+.next-refresh-title {
+    color: var(--color-ink);
+    font-weight: var(--weight-heading);
+    font-size: var(--step-1);
+    line-height: var(--leading-tight);
+}
+
+.next-refresh-hint {
+    margin-top: var(--space-2);
+    color: var(--color-ink-muted);
+    font-size: var(--step--1);
+}
+
+@media (max-width: 479px) {
+    .next-refresh {
+        flex-direction: column;
+        align-items: flex-start;
+        padding: var(--space-4);
+    }
+}
+
+/* ---------- Grand Companies: the standards ---------- */
+
+/*
+ * Each company's mark colour reaches its swatches, meters, band segments and
+ * standard through --slot-color. "No Grand Company" has no hue: it is drawn
+ * as an outline (see .gc-none and .standard-none).
+ */
+.gc-maelstrom { --slot-color: var(--color-gc-maelstrom); }
+.gc-twin-adder { --slot-color: var(--color-gc-twin-adder); }
+.gc-immortal-flames { --slot-color: var(--color-gc-immortal-flames); }
+.gc-none { --slot-color: transparent; }
+
+.gc-swatch.gc-none {
+    box-shadow: inset 0 0 0 1px var(--color-ink-muted);
+}
+
+/* The signature element: three hanging standards and an empty outline one,
+ * each filled from the swallowtail up to its company's share. */
+.standards {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: var(--space-2);
+    max-width: 52rem;
+    margin: 0 auto;
+    padding: var(--space-2) 0 0;
+    list-style: none;
+}
+
+.standard {
+    --slot-color: var(--color-ink-muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-width: 0;
+    text-align: center;
+}
+
+.standard-maelstrom { --slot-color: var(--color-gc-maelstrom); }
+.standard-twin-adder { --slot-color: var(--color-gc-twin-adder); }
+.standard-immortal-flames { --slot-color: var(--color-gc-immortal-flames); }
+
+.standard-flag {
+    position: relative;
+    width: 100%;
+    max-width: 9.5rem;
+    padding: 0 6%;
+}
+
+/* The crossbar the standard hangs from, wider than the cloth. */
+.standard-flag::before {
+    content: "";
+    display: block;
+    height: 5px;
+    margin: 0 -6% 3px;
+    border-radius: var(--radius-pill);
+    background: var(--color-ink-muted);
+}
+
+.standard-banner {
+    display: block;
+    width: 100%;
+    height: clamp(11rem, 36vw, 21rem);
+    overflow: visible;
+}
+
+/* The unfilled cloth carries a faint tint of its company, so an empty
+ * standard still reads as that company's banner. */
+.standard-cloth {
+    fill: color-mix(in oklab, var(--slot-color) 12%, var(--color-surface));
+}
+
+.standard-fill {
+    fill: var(--slot-color);
+}
+
+.standard-edge {
+    fill: none;
+    stroke: var(--slot-color);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+    vector-effect: non-scaling-stroke;
+}
+
+.standard-none .standard-cloth {
+    fill: none;
+}
+
+.standard-none .standard-fill {
+    fill: none;
+    stroke: var(--color-ink-muted);
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+}
+
+.standard-none .standard-edge {
+    stroke: var(--color-line);
+    stroke-dasharray: 5 4;
+}
+
+.standard-share {
+    position: absolute;
+    top: var(--space-4);
+    left: 0;
+    right: 0;
+    margin: 0;
+    font-family: var(--font-figures);
+    font-stretch: var(--width-condensed);
+    font-size: var(--step-1);
+    font-weight: 700;
+    line-height: 1;
+    color: var(--color-ink);
+}
+
+.standard-name {
+    margin: var(--space-3) 0 0;
+    font-size: var(--step--1);
+    font-weight: var(--weight-heading);
+    line-height: var(--leading-tight);
+    color: var(--color-ink);
+    overflow-wrap: anywhere;
+}
+
+.standard-count {
+    margin: var(--space-1) 0 0;
+    font-size: var(--step--2);
+    color: var(--color-ink-muted);
+}
+
+@media (min-width: 600px) {
+    .standards { gap: var(--space-5); }
+    .standard-share {
+        top: var(--space-5);
+        font-stretch: var(--width-semi-condensed);
+        font-size: var(--step-3);
+    }
+    .standard-name { font-size: var(--step-0); }
+    .standard-count { font-size: var(--step--1); }
+}
+
+@media (min-width: 1024px) {
+    .standards { gap: var(--space-7); }
+    .standard-share { font-size: var(--step-4); }
+}
+
+/* Who still plays: one meter per company in its own colour. */
+.gc-active-list {
+    display: grid;
+    gap: var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.gc-active-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    margin-bottom: var(--space-2);
+}
+
+.gc-active-name {
+    font-weight: var(--weight-heading);
+}
+
+.gc-active-value {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-1);
+    font-weight: 600;
+    line-height: 1;
+}
+
+.gc-active-note {
+    margin: var(--space-1) 0 0;
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.gc-meter::-webkit-meter-optimum-value {
+    background: var(--slot-color);
+}
+
+.gc-meter::-moz-meter-bar {
+    background: var(--slot-color);
+}
+
+.gc-none .gc-meter::-webkit-meter-optimum-value {
+    background: var(--color-ink-muted);
+}
+
+.gc-none .gc-meter::-moz-meter-bar {
+    background: var(--color-ink-muted);
+}
+
+/* World detail: the compact Grand Company band. */
+.gc-band {
+    display: block;
+    width: 100%;
+    height: 14px;
+    border-radius: var(--radius-pill);
+    background: var(--color-raised);
+}
+
+.gc-band-segment {
+    fill: var(--slot-color);
+    stroke: var(--color-surface);
+    stroke-width: 2;
+    vector-effect: non-scaling-stroke;
+}
+
+.gc-band-key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-5);
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--step--1);
+}
+
+.gc-band-share {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-weight: 600;
+    color: var(--color-ink);
+}
+
+/* ---------- Jobs: the Armoury ---------- */
+
+/*
+ * The signature element: every job as a tile, grouped by role the way the
+ * game's Armoury and Character window group them. Role headings carry the
+ * role colour as a thin rule, never a fill. The tile fill is one sequential
+ * hue (Aether into Surface), stepped by how common the job is relative to the
+ * most common job of the measure; a job nobody has stays unlit, like a job
+ * not yet unlocked in game. The hairline along each tile's foot is its share
+ * of characters, read like the experience bar under a job's level.
+ */
+.jobs-status {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0 var(--space-5);
+    margin: calc(-1 * var(--space-3)) 0 var(--space-5);
+}
+
+.coverage-line {
+    margin-top: var(--space-3);
+    color: var(--color-ink);
+    font-size: var(--step--1);
+    padding-left: var(--space-3);
+    box-shadow: inset 2px 0 0 var(--color-warning);
+}
+
+.armoury-lede {
+    max-width: var(--measure);
+    margin-bottom: var(--space-5);
+    color: var(--color-ink);
+}
+
+.armoury {
+    --armoury-tile: 8.25rem;
+    display: grid;
+    gap: var(--space-6);
+}
+
+.armoury-discipline {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-5) var(--space-6);
+}
+
+.armoury-discipline-name {
+    flex: 0 0 100%;
+    font-size: var(--step--1);
+    font-weight: var(--weight-medium);
+    color: var(--color-ink-muted);
+    padding-bottom: var(--space-2);
+    border-bottom: 1px solid var(--color-line);
+}
+
+.armoury-role {
+    --role-rule: var(--color-line);
+    flex: 0 1 auto;
+    min-width: 0;
+    max-width: 100%;
+}
+
+.armoury-role-tank { --role-rule: var(--color-mark-tank); }
+.armoury-role-healer { --role-rule: var(--color-mark-healer); }
+.armoury-role-dps { --role-rule: var(--color-mark-dps); }
+
+/* The role name, then its colour drawn out as a thin rule to the row's end. */
+.armoury-role-name {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-bottom: var(--space-3);
+    font-size: var(--step-0);
+    font-weight: var(--weight-heading);
+    color: var(--color-ink);
+}
+
+.armoury-role-name::after {
+    content: "";
+    flex: 1 1 auto;
+    min-width: var(--space-6);
+    height: 2px;
+    border-radius: 1px;
+    background: var(--role-rule);
+}
+
+.armoury-tiles {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.armoury-tile {
+    --tile-fill: var(--color-surface);
+    flex: 0 0 var(--armoury-tile);
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 7.5rem;
+    padding: var(--space-3) var(--space-3) var(--space-4);
+    border-radius: var(--radius-control);
+    background: var(--tile-fill);
+    box-shadow: var(--rim), inset 0 0 0 1px var(--color-line);
+}
+
+.armoury-level-1 { --tile-fill: color-mix(in oklab, var(--color-chart-1) 9%, var(--color-surface)); }
+.armoury-level-2 { --tile-fill: color-mix(in oklab, var(--color-chart-1) 18%, var(--color-surface)); }
+.armoury-level-3 { --tile-fill: color-mix(in oklab, var(--color-chart-1) 29%, var(--color-surface)); }
+.armoury-level-4 { --tile-fill: color-mix(in oklab, var(--color-chart-1) 41%, var(--color-surface)); }
+.armoury-level-5 { --tile-fill: color-mix(in oklab, var(--color-chart-1) 54%, var(--color-surface)); }
+
+.armoury-level-1, .armoury-level-2, .armoury-level-3, .armoury-level-4, .armoury-level-5 {
+    box-shadow: var(--rim);
+}
+
+/* Unlit: the job is in the Armoury but nobody here has it. */
+.armoury-level-0 {
+    background: transparent;
+    box-shadow: inset 0 0 0 1px var(--color-line);
+}
+
+.armoury-abbr {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-weight: 700;
+    font-size: var(--step-4);
+    line-height: 1;
+    letter-spacing: 0.01em;
+    color: var(--color-ink);
+}
+
+.armoury-name {
+    margin-top: var(--space-1);
+    font-size: var(--step--1);
+    line-height: var(--leading-tight);
+    color: var(--color-ink-muted);
+}
+
+.armoury-figures {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-2);
+    margin-top: auto;
+    padding-top: var(--space-3);
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-variant-numeric: tabular-nums;
+}
+
+.armoury-count {
+    font-size: var(--step-1);
+    font-weight: 600;
+    color: var(--color-ink);
+}
+
+.armoury-share {
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+/* On the brighter steps muted ink loses contrast: everything reads in Ink. */
+.armoury-level-3 .armoury-name, .armoury-level-3 .armoury-share,
+.armoury-level-4 .armoury-name, .armoury-level-4 .armoury-share,
+.armoury-level-5 .armoury-name, .armoury-level-5 .armoury-share {
+    color: var(--color-ink);
+}
+
+.armoury-level-0 .armoury-abbr,
+.armoury-level-0 .armoury-count {
+    color: var(--color-ink-muted);
+}
+
+.armoury-gauge {
+    position: absolute;
+    left: var(--space-3);
+    right: var(--space-3);
+    bottom: var(--space-2);
+    width: calc(100% - 2 * var(--space-3));
+    height: 2px;
+    background: color-mix(in oklab, var(--color-night) 55%, transparent);
+    border-radius: 1px;
+}
+
+.armoury-gauge-fill {
+    fill: var(--color-ink);
+}
+
+/* The most common job wears the census crystal in its corner. */
+.armoury-lead::after {
+    content: "";
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-3);
+    width: 0.625rem;
+    height: 0.875rem;
+    background: var(--color-ink);
+    clip-path: polygon(50% 0, 100% 45%, 50% 100%, 0 45%);
+}
+
+.table-note {
+    color: var(--color-ink-muted);
+    font-size: var(--step--1);
+}
+
+@media (max-width: 767px) {
+    .armoury { --armoury-tile: auto; }
+
+    .armoury-role { flex: 1 1 100%; }
+
+    .armoury-tiles {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(5.75rem, 1fr));
+    }
+
+    .armoury-tile { min-height: 6.5rem; padding: var(--space-2) var(--space-2) var(--space-4); }
+
+    .armoury-abbr { font-size: var(--step-3); }
+
+    .armoury-figures { flex-direction: column; align-items: flex-start; gap: 0; padding-top: var(--space-2); }
+
+    .armoury-count { font-size: var(--step-0); }
+
+    .armoury-lead::after { top: var(--space-2); right: var(--space-2); }
+
+    .armoury-gauge { left: var(--space-2); right: var(--space-2); width: calc(100% - 2 * var(--space-2)); }
+}
+
+/* Phones: two compact tiles a row, read like the job list of the game's
+   Character window: the abbreviation and the count on one line, the name and
+   the share beneath. */
+@media (max-width: 599px) {
+    .armoury-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+    .armoury-tile {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        grid-template-areas: "abbr figures" "name name";
+        align-items: center;
+        column-gap: var(--space-2);
+        min-height: 0;
+        padding: var(--space-2) var(--space-3) var(--space-4);
+    }
+
+    .armoury-abbr { grid-area: abbr; font-size: var(--step-2); }
+    .armoury-name { grid-area: name; margin-top: var(--space-1); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .armoury-figures { grid-area: figures; align-items: flex-end; padding-top: 0; margin-top: 0; line-height: 1.2; }
+    .armoury-lead::after { display: none; }
+}
+
+/* The Armoury's entrance: role groups fade in one after another (under
+   400 ms in all), on full page loads only. */
+[data-entrance="roles"] {
+    animation: none;
+}
+
+[data-entrance="roles"] .armoury-role {
+    animation: census-fade 200ms var(--ease-out) both;
+}
+
+[data-entrance="roles"] .armoury-role:nth-of-type(2) { animation-delay: 30ms; }
+[data-entrance="roles"] .armoury-role:nth-of-type(3) { animation-delay: 60ms; }
+[data-entrance="roles"] .armoury-role:nth-of-type(4) { animation-delay: 90ms; }
+[data-entrance="roles"] .armoury-role:nth-of-type(5) { animation-delay: 120ms; }
+[data-entrance="roles"] .armoury-discipline-crafting .armoury-role:nth-of-type(1) { animation-delay: 150ms; }
+[data-entrance="roles"] .armoury-discipline-crafting .armoury-role:nth-of-type(2) { animation-delay: 180ms; }
+
+.census-settled [data-entrance="roles"] .armoury-role {
+    animation: none;
+}
+
+/* ---------- Jobs: party balance ---------- */
+
+.balance-headline {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    margin-bottom: var(--space-5);
+}
+
+.balance-headline-place {
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.balance-headline-ratio {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-weight: 600;
+    font-size: var(--step-3);
+    line-height: var(--leading-tight);
+    color: var(--color-ink);
+}
+
+.role-tank { --slot-color: var(--color-mark-tank); }
+.role-healer { --slot-color: var(--color-mark-healer); }
+.role-dps { --slot-color: var(--color-mark-dps); }
+
+.balance-key {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-2) var(--space-5);
+    margin-bottom: var(--space-4);
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.balance-key li {
+    display: inline-flex;
+    align-items: center;
+}
+
+.balance-key-guide {
+    display: inline-block;
+    width: 2px;
+    height: 0.875rem;
+    margin-right: var(--space-2);
+    background: var(--color-ink);
+}
+
+.balance-list {
+    list-style: none;
+    display: grid;
+    gap: var(--space-1);
+}
+
+.balance-row {
+    display: grid;
+    grid-template-columns: 8rem minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-2) var(--space-3);
+    margin: 0 calc(-1 * var(--space-3));
+    border-radius: var(--radius-control);
+}
+
+.balance-current {
+    background: var(--color-raised);
+}
+
+.balance-name {
+    font-weight: var(--weight-medium);
+    color: var(--color-ink);
+    white-space: nowrap;
+}
+
+.balance-region {
+    margin-left: var(--space-1);
+    font-size: var(--step--1);
+    font-weight: var(--weight-body);
+    color: var(--color-ink-muted);
+    text-decoration: none;
+}
+
+.balance-bar {
+    display: block;
+    width: 100%;
+    height: 0.875rem;
+    overflow: visible;
+}
+
+.balance-segment {
+    fill: var(--slot-color);
+    stroke: var(--color-surface);
+    stroke-width: 2px;
+    vector-effect: non-scaling-stroke;
+}
+
+.balance-current .balance-segment {
+    stroke: var(--color-raised);
+}
+
+.balance-guide {
+    stroke: var(--color-ink);
+    stroke-width: 2px;
+}
+
+.balance-shares {
+    display: grid;
+    grid-template-columns: repeat(3, 3.25rem);
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+    text-align: right;
+}
+
+.balance-current .balance-shares {
+    color: var(--color-ink);
+}
+
+@media (max-width: 599px) {
+    .balance-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: var(--space-2) var(--space-3);
+    }
+
+    .balance-bar {
+        grid-column: 1 / -1;
+        grid-row: 2;
+    }
+}
+
+/* ---------- World detail: most levelled jobs ---------- */
+
+.top-jobs {
+    list-style: none;
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+    gap: var(--space-2);
+}
+
+.top-job {
+    display: flex;
+    flex-direction: column;
+    padding: var(--space-3);
+    border-radius: var(--radius-control);
+    background: var(--color-raised);
+    box-shadow: var(--rim);
+}
+
+.top-job-abbr {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-weight: 700;
+    font-size: var(--step-3);
+    line-height: 1;
+    color: var(--color-ink);
+}
+
+.top-job-name {
+    margin-top: var(--space-1);
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.top-job-figures {
+    margin-top: var(--space-3);
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-variant-numeric: tabular-nums;
+    font-weight: 600;
+    color: var(--color-ink);
+}
+
+.top-job-share {
+    margin-left: var(--space-1);
+    font-weight: var(--weight-body);
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+/* ---------- Private Achievements: the veil ---------- */
+
+/*
+ * One wide band split into public (the Aether chart hue), private (Crystal
+ * threads hatched at 45 degrees over the track: a veil drawn across the
+ * data) and not yet checked (an empty dashed outline: the census's backlog,
+ * not a choice, drawn like "No Grand Company"). The segments are SVG rects
+ * sized in percentages, so the hatching keeps its true pitch at any width.
+ * Every segment is named with its share in the key, so colour is never the
+ * only cue.
+ */
+.veil {
+    display: block;
+    width: 100%;
+    height: 4.5rem;
+    border-radius: var(--radius-control);
+    overflow: hidden;
+}
+
+.veil-track {
+    fill: var(--color-raised);
+}
+
+.veil-segment {
+    stroke: var(--color-surface);
+    stroke-width: 2px;
+}
+
+.veil-public {
+    fill: var(--color-chart-1);
+}
+
+.veil-hatch-ground {
+    fill: var(--color-raised);
+}
+
+.veil-hatch-thread {
+    fill: var(--color-chart-2);
+}
+
+.veil-unchecked {
+    fill: var(--color-surface);
+    stroke: var(--color-ink-muted);
+    stroke-dasharray: 5 4;
+}
+
+.veil-key {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-4) var(--space-5);
+    margin: var(--space-5) 0 0;
+    padding: 0;
+    list-style: none;
+}
+
+.veil-key-item {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    column-gap: var(--space-2);
+}
+
+.veil-swatch {
+    width: 0.875rem;
+    height: 0.875rem;
+    border-radius: 2px;
+}
+
+.veil-swatch-public {
+    background: var(--color-chart-1);
+}
+
+.veil-swatch-private {
+    background: repeating-linear-gradient(45deg, var(--color-chart-2) 0 3px, var(--color-raised) 3px 6px);
+}
+
+.veil-swatch-unchecked {
+    border: 1px dashed var(--color-ink-muted);
+}
+
+.veil-key-name {
+    font-size: var(--step--1);
+    font-weight: var(--weight-heading);
+    color: var(--color-ink-muted);
+}
+
+.veil-key-share {
+    grid-column: 1 / -1;
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-5);
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: var(--tracking-display);
+    color: var(--color-ink);
+}
+
+.veil-key-count {
+    grid-column: 1 / -1;
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.veil-panel .freshness {
+    margin-top: var(--space-3);
+}
+
+.veil-notes {
+    display: grid;
+    gap: var(--space-5);
+}
+
+@media (min-width: 720px) {
+    .veil-notes {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        column-gap: var(--space-6);
+    }
+}
+
+.veil-note-title {
+    font-size: var(--step-0);
+    margin-bottom: var(--space-2);
+}
+
+.veil-note p {
+    color: var(--color-ink-muted);
+    max-width: var(--measure);
+}
+
+.veil-more {
+    margin-top: var(--space-5);
+    font-weight: var(--weight-heading);
+}
+
+.privacy-worlds {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    counter-reset: privacy-world;
+}
+
+.privacy-world {
+    counter-increment: privacy-world;
+    display: grid;
+    grid-template-columns: 1.75rem 1fr auto;
+    align-items: baseline;
+    column-gap: var(--space-2);
+    row-gap: var(--space-1);
+    padding: var(--space-3) 0;
+    border-top: 1px solid var(--color-line);
+}
+
+.privacy-world:first-child {
+    border-top: 0;
+    padding-top: 0;
+}
+
+.privacy-world::before {
+    content: counter(privacy-world);
+    grid-row: 1 / span 3;
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-2);
+    font-weight: 700;
+    line-height: 1;
+    color: var(--color-ink-muted);
+}
+
+.privacy-world-name {
+    font-weight: var(--weight-heading);
+}
+
+.privacy-world-dc {
+    margin-left: var(--space-1);
+    font-size: var(--step--1);
+    font-weight: var(--weight-body);
+    color: var(--color-ink-muted);
+}
+
+.privacy-world-share {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-1);
+    font-weight: 700;
+}
+
+.privacy-world-bar {
+    grid-column: 2 / -1;
+    display: block;
+    border-radius: var(--radius-pill);
+    overflow: hidden;
+}
+
+.privacy-world-track {
+    fill: var(--color-raised);
+}
+
+.privacy-world-count {
+    grid-column: 2 / -1;
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.veil-footnote {
+    margin: calc(-1 * var(--space-4)) 0 var(--space-6);
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+    max-width: var(--measure);
+}
+
+/* The privacy note on the dashboard's active-players tile and Expansions. */
+.privacy-note {
+    margin-top: var(--space-2);
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+    max-width: var(--measure);
+}
+
+@media (max-width: 599px) {
+    .veil {
+        height: 3rem;
+    }
+
+    .veil-key {
+        column-gap: var(--space-3);
+    }
+
+    .veil-key-share {
+        font-size: var(--step-3);
+    }
+}
+
+/* ---------- Rankings: board tabs, controls and the ladder ---------- */
+
+/* "Worlds and datacenters | Free Companies": the Rankings boards, as plain links. */
+.board-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1) var(--space-5);
+    margin-bottom: var(--space-3);
+}
+
+.board-tab {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    color: var(--color-ink-muted);
+    font-weight: var(--weight-medium);
+    text-decoration: none;
+    box-shadow: inset 0 -2px 0 transparent;
+    transition: color var(--duration-fast) ease, box-shadow var(--duration-fast) ease;
+}
+
+.board-tab:hover {
+    color: var(--color-ink);
+}
+
+.board-tab[aria-current="page"] {
+    color: var(--color-ink);
+    font-weight: var(--weight-heading);
+    box-shadow: inset 0 -2px 0 var(--color-aether);
+}
+
+/* The command strip: every choice of the board, above a hairline. */
+/* The board's controls: one row per choice, labels in a fixed first column
+   and every switch starting on the same line in the second. */
+.rankings-controls {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    column-gap: var(--space-5);
+    row-gap: var(--space-3);
+    align-items: center;
+    padding: var(--space-4) var(--space-5);
+    border-bottom: 1px solid var(--color-line);
+}
+
+.rankings-control {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: subgrid;
+    align-items: center;
+    min-width: 0;
+}
+
+.rankings-control-label {
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.rankings-control .switch-scroller {
+    justify-self: start;
+}
+
+/* A switch wider than the screen scrolls sideways instead of overflowing. */
+.switch-scroller {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: none;
+}
+
+.switch-scroller::-webkit-scrollbar {
+    display: none;
+}
+
+.rankings-head {
+    padding: var(--space-5) var(--space-5) 0;
+}
+
+.rankings-title {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-4);
+    font-weight: 700;
+    line-height: var(--leading-tight);
+    color: var(--color-ink);
+}
+
+.rankings-scope {
+    margin-top: var(--space-1);
+    font-weight: var(--weight-medium);
+    color: var(--color-aether);
+}
+
+/* The Free Company board's one place-level figure: how many belong to any company. */
+.rankings-membership {
+    margin-top: var(--space-2);
+    color: var(--color-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+/* The world page's share of characters in a Free Company, beside the top five. */
+.fc-share {
+    /* Sits beside the panel title; the link keeps the far edge. */
+    margin: 0 auto 0 0;
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.fc-share-value {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-1);
+    font-weight: 600;
+    color: var(--color-ink);
+    font-variant-numeric: tabular-nums;
+}
+
+.rankings-explain {
+    margin-top: var(--space-2);
+    max-width: var(--measure);
+    color: var(--color-ink-muted);
+}
+
+.rankings-body {
+    padding: var(--space-5);
+}
+
+.rankings-footnote {
+    margin-top: var(--space-4);
+    max-width: var(--measure);
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+/*
+ * The ladder: a real sequence, so the rank numerals carry it. They sit in a
+ * left gutter, oversized and condensed; the leader is set apart by size alone.
+ * Each rung ends in a hairline bar measured against the leader, which doubles
+ * as the rule between rungs.
+ */
+.ladder-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.ladder-rung {
+    display: grid;
+    grid-template-columns: 4.25rem minmax(0, 1fr) auto;
+    grid-template-areas:
+        "rank name value"
+        "rank note detail"
+        "rank bar bar";
+    align-items: baseline;
+    column-gap: var(--space-3);
+    padding: var(--space-3) 0 0;
+}
+
+.ladder-rank {
+    grid-area: rank;
+    align-self: start;
+    font-family: var(--font-figures);
+    font-stretch: var(--width-condensed);
+    font-size: var(--step-4);
+    font-weight: 600;
+    line-height: 0.9;
+    text-align: right;
+    color: var(--color-ink-muted);
+    font-variant-numeric: tabular-nums;
+}
+
+.ladder-name {
+    grid-area: name;
+    min-width: 0;
+    font-weight: var(--weight-heading);
+    overflow-wrap: break-word;
+    hyphens: auto;
+}
+
+.ladder-name a {
+    color: var(--color-ink);
+    text-decoration: none;
+}
+
+.ladder-name a:hover {
+    color: var(--color-aether);
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+}
+
+.ladder-note {
+    grid-area: note;
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.ladder-note a {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: var(--color-line);
+    text-underline-offset: 0.2em;
+}
+
+.ladder-note a:hover {
+    color: var(--color-aether);
+    text-decoration-color: currentColor;
+}
+
+/*
+ * A rung with an outbound link (a Free Company's Lodestone page) keeps the
+ * link beside the note, so the official profile sits next to the world.
+ */
+.ladder-rung-linked {
+    grid-template-columns: 4.25rem auto minmax(0, 1fr) auto;
+    grid-template-areas:
+        "rank name name value"
+        "rank note external detail"
+        "rank bar bar bar";
+}
+
+.ladder-external {
+    grid-area: external;
+    justify-self: start;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2em;
+    font-size: var(--step--1);
+    font-weight: var(--weight-heading);
+    color: var(--color-aether);
+    text-decoration: none;
+}
+
+.ladder-external:hover {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+}
+
+.ladder-external-icon {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.ladder-value {
+    grid-area: value;
+    text-align: right;
+    white-space: nowrap;
+}
+
+.ladder-figure {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-2);
+    font-weight: 700;
+    line-height: 1;
+}
+
+.ladder-unit {
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.ladder-detail {
+    grid-area: detail;
+    text-align: right;
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.ladder-bar {
+    grid-area: bar;
+    display: block;
+    margin-top: var(--space-3);
+}
+
+.ladder-track {
+    fill: var(--color-line);
+}
+
+.ladder-fill {
+    fill: var(--color-aether);
+}
+
+/* Grand Company boards draw their bars in the company's colour. */
+.ladder-tone-maelstrom .ladder-fill { fill: var(--color-gc-maelstrom); }
+.ladder-tone-twin-adder .ladder-fill { fill: var(--color-gc-twin-adder); }
+.ladder-tone-immortal-flames .ladder-fill { fill: var(--color-gc-immortal-flames); }
+
+.ladder-leader {
+    padding-top: 0;
+}
+
+.ladder-leader .ladder-rank {
+    font-size: var(--step-6);
+    font-weight: 700;
+    color: var(--color-ink);
+}
+
+.ladder-leader .ladder-name {
+    font-size: var(--step-2);
+}
+
+.ladder-leader .ladder-figure {
+    font-size: var(--step-5);
+}
+
+.ladder-leader .ladder-bar {
+    margin-top: var(--space-4);
+}
+
+.ladder-more {
+    margin-top: var(--space-4);
+}
+
+.ladder-more-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: 2.75rem;
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-control);
+    box-shadow: inset 0 0 0 1px var(--color-line);
+    color: var(--color-aether);
+    font-weight: var(--weight-heading);
+    cursor: pointer;
+    list-style: none;
+}
+
+.ladder-more-toggle::-webkit-details-marker {
+    display: none;
+}
+
+.ladder-more-toggle::after {
+    content: "";
+    width: 0.45rem;
+    height: 0.45rem;
+    border-right: 2px solid currentColor;
+    border-bottom: 2px solid currentColor;
+    transform: translateY(-2px) rotate(45deg);
+    transition: transform var(--duration-fast) ease;
+}
+
+.ladder-more[open] > .ladder-more-toggle::after {
+    transform: translateY(2px) rotate(-135deg);
+}
+
+.ladder-more-toggle:hover {
+    background: var(--color-raised);
+}
+
+.ladder-more[open] > .ladder-more-toggle {
+    margin-bottom: var(--space-1);
+}
+
+.ladder .chart-data {
+    margin-top: var(--space-5);
+}
+
+@media (max-width: 767px) {
+    .rankings-controls { padding: var(--space-4); }
+    .rankings-head { padding: var(--space-4) var(--space-4) 0; }
+    .rankings-body { padding: var(--space-4); }
+    .rankings-title { font-size: var(--step-3); }
+}
+
+@media (max-width: 599px) {
+    /* Phones: each label sits over its switch, all flush left. */
+    .rankings-controls {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    .rankings-control {
+        row-gap: var(--space-1);
+    }
+
+    /* The detail line moves under the note so the figure keeps its room. */
+    .ladder-rung {
+        grid-template-columns: 2.75rem minmax(0, 1fr) auto;
+        grid-template-areas:
+            "rank name value"
+            "rank note note"
+            "rank detail detail"
+            "rank bar bar";
+        column-gap: var(--space-2);
+    }
+
+    .ladder-rung-linked {
+        grid-template-columns: 2.75rem auto minmax(0, 1fr) auto;
+        grid-template-areas:
+            "rank name name value"
+            "rank note external external"
+            "rank detail detail detail"
+            "rank bar bar bar";
+    }
+
+    .ladder-detail { text-align: left; }
+
+    .ladder-rank { font-size: var(--step-3); }
+    .ladder-figure { font-size: var(--step-1); }
+    .ladder-leader .ladder-rank { font-size: var(--step-5); }
+    .ladder-leader .ladder-name { font-size: var(--step-1); }
+    .ladder-leader .ladder-figure { font-size: var(--step-4); }
+}
+
+/* ---------- Motion: the one entrance per page ---------- */
+
+/*
+ * Mark the page's signature element with data-entrance. It unfurls from the
+ * left once, on a full page load. census.js adds .census-settled to the root
+ * after the first 400 ms, so anything HTMX swaps in later appears still.
+ * Variants: data-entrance="rise" grows up from the baseline (banners) and
+ * data-entrance="fade" fades in (tile grids).
+ */
+@keyframes census-unfurl {
+    from { clip-path: inset(0 100% 0 0); }
+    to { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes census-rise {
+    from { clip-path: inset(100% 0 0 0); }
+    to { clip-path: inset(0 0 0 0); }
+}
+
+@keyframes census-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+[data-entrance] {
+    animation: census-unfurl var(--duration-entrance) var(--ease-out) both;
+}
+
+[data-entrance="rise"] {
+    animation-name: census-rise;
+}
+
+[data-entrance="fade"] {
+    animation-name: census-fade;
+}
+
+.census-settled [data-entrance] {
+    animation: none;
+}
+
 /* ---------- Character profile (routes disabled; kept rendering) ---------- */
 
 .profile-header {
@@ -2009,13 +3523,93 @@ input[type="search"] {
 
 .search-input { width: 100%; }
 
+/* ---------- Hover tips ---------- */
+
+/* The one tooltip census.js shows for every data-tip mark, matching the
+   Chart.js tooltips: a muted title with the colour key, then the figures. */
+.census-tip {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 50;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    max-width: min(20rem, calc(100vw - 16px));
+    padding: 10px;
+    background: var(--color-raised);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-control);
+    box-shadow: var(--shadow-overlay);
+    font-size: 12px;
+    line-height: 1.35;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity var(--duration-fast) ease;
+}
+
+.census-tip[hidden] {
+    display: none;
+}
+
+.census-tip-shown {
+    opacity: 1;
+}
+
+.census-tip-title {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-ink-muted);
+    font-weight: var(--weight-medium);
+}
+
+.census-tip-value {
+    color: var(--color-ink);
+    font-weight: var(--weight-heading);
+    font-variant-numeric: tabular-nums;
+}
+
+:where(.census-tip-swatch) {
+    background: var(--slot-color, var(--color-chart-other));
+}
+
+.census-tip-swatch {
+    flex: 0 0 auto;
+    width: 8px;
+    height: 8px;
+    margin: 0;
+    border-radius: 50%;
+}
+
+/* Marks that take focus for their tip: a ring that suits each shape. */
+.balance-segment:focus-visible,
+.veil-segment:focus-visible,
+.gc-band-segment:focus-visible {
+    outline: none;
+    stroke: var(--color-ink);
+    stroke-width: 2px;
+    stroke-dasharray: none;
+    vector-effect: non-scaling-stroke;
+}
+
 /* ---------- Reduced motion ---------- */
 
 @media (prefers-reduced-motion: reduce) {
+    [data-entrance],
+    [data-entrance] .armoury-role {
+        animation: none;
+    }
+
     *, *::before, *::after {
         animation-duration: 0.01ms !important;
         animation-iteration-count: 1 !important;
         transition-duration: 0.01ms !important;
         scroll-behavior: auto !important;
     }
+}
+
+/* The column a ranking is ordered by reads in Ink. */
+.data-table th[aria-sort] {
+    color: var(--color-ink);
 }

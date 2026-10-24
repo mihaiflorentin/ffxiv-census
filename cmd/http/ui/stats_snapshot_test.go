@@ -213,3 +213,42 @@ var errSnapshotOnly = &snapshotOnlyError{}
 type snapshotOnlyError struct{}
 
 func (*snapshotOnlyError) Error() string { return "raw aggregate called" }
+
+// TestETagChangesWithTheBuild stops a browser from keeping a page from the
+// previous release: after a deploy the snapshot can be unchanged, so the
+// ETag must also carry the build, or a conditional request answers 304 and
+// the old markup (old labels, old switches) stays on screen.
+func TestETagChangesWithTheBuild(t *testing.T) {
+	generated := time.Now().UTC()
+	snapshot := &contract.UIStatsSnapshot{
+		SchemaVersion: contract.UIStatsSchemaVersion,
+		GeneratedAt:   generated,
+		ActivitySince: generated.Add(-30 * 24 * time.Hour),
+		MaxLevel:      100,
+	}
+	stats := census.NewUIStatsService(mockrepo.NewUIStatsFake(snapshot), time.Minute, 12*time.Hour)
+	oldBuild := NewUIController(nil, mockqueue.NewFake(), stats, testBaseURL)
+	oldBuild.buildID = "old"
+	newBuild := NewUIController(nil, mockqueue.NewFake(), stats, testBaseURL)
+	newBuild.buildID = "new"
+
+	first := httptest.NewRecorder()
+	oldBuild.Dashboard(first, httptest.NewRequest(http.MethodGet, "/ui/dashboard", nil))
+	etag := first.Header().Get("ETag")
+
+	request := httptest.NewRequest(http.MethodGet, "/ui/dashboard", nil)
+	request.Header.Set("If-None-Match", etag)
+	second := httptest.NewRecorder()
+	newBuild.Dashboard(second, request)
+	if second.Code != http.StatusOK {
+		t.Fatalf("a new build answered %d to the old build's ETag; want 200 with fresh markup", second.Code)
+	}
+}
+
+// TestBuildIDIsStableWithinAProcess keeps ETags reusable between requests
+// served by the same binary.
+func TestBuildIDIsStableWithinAProcess(t *testing.T) {
+	if a, b := uiBuildID(), uiBuildID(); a == "" || a != b {
+		t.Fatalf("build id = %q then %q; want one non-empty value", a, b)
+	}
+}

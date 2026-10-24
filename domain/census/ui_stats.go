@@ -16,7 +16,7 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 	if snapshot == nil {
 		return ErrUIStatsUnavailable
 	}
-	if snapshot.SchemaVersion != contract.UIStatsSchemaVersion {
+	if snapshot.SchemaVersion < contract.UIStatsMinSchemaVersion || snapshot.SchemaVersion > contract.UIStatsSchemaVersion {
 		return fmt.Errorf("unsupported UI statistics schema version %d", snapshot.SchemaVersion)
 	}
 	if snapshot.GeneratedAt.IsZero() || snapshot.ActivitySince.IsZero() {
@@ -28,9 +28,15 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 	if snapshot.Summary.Active > snapshot.Summary.Total || snapshot.Summary.MaxLevel > snapshot.Summary.Total {
 		return errors.New("UI statistics summary subset exceeds total")
 	}
+	if !validLocationCounts(snapshot.Summary.Total, snapshot.Summary.MaxLevel, snapshot.Summary.Private, snapshot.Summary.Unchecked) ||
+		!validSubset(snapshot.Summary.InFreeCompany, snapshot.Summary.Total) {
+		return errors.New("invalid UI statistics summary privacy counts")
+	}
 	seenGroups := make(map[string]struct{}, len(snapshot.Groups))
 	for _, group := range snapshot.Groups {
-		if group.Dimension == "" || group.Total < 0 || group.Active < 0 || group.Active > group.Total {
+		if group.Dimension == "" || group.Total < 0 || group.Active < 0 || group.Active > group.Total ||
+			!validLocationCounts(group.Total, group.MaxLevel, group.Private, group.Unchecked) ||
+			!validSubset(group.InFreeCompany, group.Total) {
 			return errors.New("invalid UI statistics group")
 		}
 		key := scopeKey(group.Scope) + "\x00" + group.Dimension + "\x00" + group.Key
@@ -64,7 +70,19 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 		}
 		seenDays[key] = struct{}{}
 	}
-	return nil
+	return validateJobsSection(snapshot.Jobs)
+}
+
+// validSubset reports whether part is a count of some of total's characters.
+func validSubset(part, total int64) bool {
+	return part >= 0 && part <= total
+}
+
+// validLocationCounts reports whether the at cap and privacy counts fit
+// inside total: none negative, at cap at most total, and private and
+// unchecked (disjoint) together at most total.
+func validLocationCounts(total, atCap, private, unchecked int64) bool {
+	return atCap >= 0 && private >= 0 && unchecked >= 0 && atCap <= total && private+unchecked <= total
 }
 
 func SnapshotGroups(snapshot *contract.UIStatsSnapshot, dimension string, scope contract.StatsScope) []contract.GroupCount {
@@ -183,16 +201,15 @@ func NewCharactersWindow(snapshot *contract.UIStatsSnapshot, scope contract.Stat
 // worlds of the world hierarchy.
 func worldSet(scope contract.StatsScope) map[string]struct{} {
 	set := make(map[string]struct{})
-	switch {
-	case scope.World != "":
-		set[CanonicalWorld(scope.World)] = struct{}{}
-	case scope.Datacenter != "":
-		for _, world := range WorldsForDatacenter(scope.Datacenter) {
-			set[world] = struct{}{}
-		}
-	case scope.Region != "":
-		for _, world := range WorldsForRegion(scope.Region) {
-			set[world] = struct{}{}
+	switch level, key := ScopeLevel(scope); level {
+	case LocationGlobal:
+	case LocationWorld:
+		set[CanonicalWorld(key)] = struct{}{}
+	default:
+		for _, world := range Worlds() {
+			if ScopeHasWorld(scope, world) {
+				set[world] = struct{}{}
+			}
 		}
 	}
 	return set

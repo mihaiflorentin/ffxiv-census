@@ -124,6 +124,10 @@ func mustExpansions(ctx context.Context, svc *census.Service) []contract.Expansi
 	return items
 }
 
+func (r *testStatsRepository) LoadFreeCompanies(context.Context) (*contract.StatsFreeCompanies, error) {
+	return nil, census.ErrUIStatsUnavailable
+}
+
 func (r *testStatsRepository) Refresh(context.Context, contract.UIStatsRefreshOptions) (*contract.UIStatsRefreshResult, error) {
 	snapshot, err := r.LoadCurrent(context.Background())
 	return &contract.UIStatsRefreshResult{Snapshot: snapshot}, err

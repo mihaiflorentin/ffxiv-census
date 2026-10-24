@@ -28,6 +28,7 @@ type DashboardViewData struct {
 	Races                []ShareRow
 	ExpansionCompletions []ExpansionCard
 	RealmTally           RealmTally
+	PrivacyNote          PrivacyNote
 }
 
 // ShareRow is one category's count and share of the census, used as the
@@ -154,6 +155,7 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 		Races:                raceRows,
 		ExpansionCompletions: expansionCards,
 		RealmTally:           newRealmTally(total, regionGroups),
+		PrivacyNote:          c.privacyNote(snapshot),
 	}
 
 	c.render(w, "templates/dashboard.html", statsPageData("Dashboard", "dashboard", "/", "Final Fantasy XIV population census: total characters, active players, race demographics, and 30-day growth trends across every region and datacenter.", state, viewData))

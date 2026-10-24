@@ -1,0 +1,15 @@
+{{/*
+switch: a segmented link pair (or small set) choosing one view of a region.
+The argument is a Switch view model (switch.go):
+    {{template "switch" .Data.RankSwitch}}
+
+Every option is a plain link, so without JavaScript it loads the full page.
+With HTMX it fetches the same URL, swaps the region #Target (outerHTML),
+pushes the URL, and census.js moves focus to the region's data-switch-heading
+and reads its data-switch-announce through the shell's polite live region.
+*/}}
+{{define "switch"}}
+<div class="switch" role="group" aria-label="{{.Label}}">
+    {{range .Options}}<a class="switch-option" href="{{.Href}}" hx-get="{{.Href}}" hx-target="#{{$.Target}}" hx-swap="outerHTML" hx-push-url="true"{{if .Current}} aria-current="true"{{end}}>{{.Label}}</a>{{end}}
+</div>
+{{end}}

@@ -52,6 +52,10 @@ _Avoid_: privacy skip, skipped character
 A character whose achievement history is hidden from public view. This is recorded on the character and is a valid reason for it to have no milestone records.
 _Avoid_: hidden achievement list
 
+**Achievements unchecked**:
+A character that is not achievements private but has no latest achievement recorded yet: the census has not read its achievement history. It is the census's backlog, not the player's choice, and is always counted apart from achievements private. Shown to readers as "Not yet checked".
+_Avoid_: unscanned, pending privacy
+
 **Private recheck window**:
 How long a character found achievements private is left alone before its achievement census asks The Lodestone again — 30 days by default. A job inside the window is skipped and succeeds; a character whose flag was never verified is checked once.
 _Avoid_: private skip, private cooldown
@@ -225,6 +229,30 @@ _Avoid_: new-character series, created character, new player (players own charac
 **Max-level character**:
 A character whose census record shows at least one class or job at the current level cap — combat, crafting, or gathering alike — counted once per character no matter how many of its jobs sit at the cap.
 _Avoid_: maxed character, max-level jobs (the census counts characters, not jobs)
+
+**Job bitmask**:
+One of the two 64-bit values stored on each character recording which jobs it has at any level and which it has at their level cap, one bit per job (base classes folded into their jobs; Blue Mage measured against its own lower cap). Empty until computed, by a census write or the one-off backfill.
+_Avoid_: job flags, job set
+
+**Any level**:
+A job a character has at level 1 or more, the Jobs page's default measure beside "at the level cap". The stored mask and code keep the older name "levelled".
+_Avoid_: levelled (on any page), unlocked
+
+**Job coverage**:
+How many characters the job figures include: those whose job bitmasks were computed when the nightly rebuild ran, out of all characters it counted. Below 100% while the backfill is still running.
+_Avoid_: job completeness
+
+**Party balance**:
+The split of combat jobs at the level cap into tanks, healers and DPS for a datacenter or selection, counted per job (a character with two tanks at the cap counts twice) and leaving out Blue Mage. Compared against a light party's 1 tank, 1 healer and 2 DPS.
+_Avoid_: role ratio, role distribution
+
+**Members seen**:
+The live characters the census has found in a Free Company: the size the Free Company boards rank by. Not the official roster, which only the Lodestone shows.
+_Avoid_: members (bare), roster size, FC size
+
+**Free Company board**:
+The top 100 Free Companies of a world, datacenter, region or the whole game, ranked by members seen or by active members, among companies with at least 2 members seen. Rebuilt nightly from each world's own top 100 for each measure, kept in a snapshot row of its own.
+_Avoid_: FC leaderboard, guild ranking
 
 **MSQ completion funnel**:
 The expansion-by-expansion view of how many characters' milestone records show each expansion's main-scenario story completed, read as retention and drop-off. Characters with private or unscanned achievements are invisible to it, however far they have progressed.

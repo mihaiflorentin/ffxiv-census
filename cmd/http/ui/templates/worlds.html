@@ -29,10 +29,15 @@
     </div>
 </section>
 
-<section class="panel" aria-labelledby="rankings-heading">
+{{template "world-rankings" .}}
+{{end}}
+
+{{/* The region the rank switch swaps; rendered alone for HTMX switch requests. */}}
+{{define "world-rankings"}}
+<section class="panel" id="world-rankings" aria-labelledby="rankings-heading" data-switch-announce="World rankings, ranked by {{if eq .Data.Rank "active"}}active players{{else}}characters{{end}}">
     <div class="panel-header">
-        <h2 id="rankings-heading" class="panel-title">World rankings</h2>
-        <p class="panel-meta">Ranked by characters</p>
+        <h2 id="rankings-heading" class="panel-title" tabindex="-1" data-switch-heading>World rankings</h2>
+        {{template "switch" .Data.RankSwitch}}
     </div>
     <div class="panel-body panel-body-flush">
         {{if .Data.Worlds}}
@@ -42,8 +47,8 @@
                 <thead>
                     <tr>
                         <th scope="col">World</th>
-                        <th scope="col" class="text-right">Characters</th>
-                        <th scope="col" class="text-right">Active, 30 days</th>
+                        <th scope="col" class="text-right"{{if ne .Data.Rank "active"}} aria-sort="descending"{{end}}>Characters</th>
+                        <th scope="col" class="text-right"{{if eq .Data.Rank "active"}} aria-sort="descending"{{end}}>Active, 30 days</th>
                         <th scope="col" class="text-right">New, 30 days</th>
                         <th scope="col" class="text-right">Active share</th>
                         <th scope="col">Datacenter</th>

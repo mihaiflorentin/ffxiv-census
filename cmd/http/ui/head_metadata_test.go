@@ -44,10 +44,18 @@ func TestIndexablePagesHeadMetadata(t *testing.T) {
 		{"Dashboard At Root", "/", "/"},
 		{"Dashboard", "/ui/dashboard", "/"},
 		{"Races", "/ui/races", "/ui/races"},
+		{"Grand Companies", "/ui/grand-companies", "/ui/grand-companies"},
+		{"Grand Companies Filtered", "/ui/grand-companies?region=EU&dc=Chaos", "/ui/grand-companies"},
+		{"Jobs", "/ui/jobs", "/ui/jobs"},
+		{"Jobs Filtered", "/ui/jobs?world=Balmung&measure=at-cap", "/ui/jobs"},
 		{"Worlds", "/ui/worlds", "/ui/worlds"},
 		{"World Detail", "/ui/worlds/Adamantoise", "/ui/worlds/Adamantoise"},
 		{"Expansions", "/ui/expansions", "/ui/expansions"},
 		{"Methodology", "/ui/methodology", "/ui/methodology"},
+		{"Rankings", "/ui/rankings", "/ui/rankings"},
+		{"Rankings Filtered", "/ui/rankings?metric=privacy&by=datacenter&region=JP", "/ui/rankings"},
+		{"Free Company Rankings", "/ui/rankings/free-companies", "/ui/rankings/free-companies"},
+		{"Free Company Rankings Filtered", "/ui/rankings/free-companies?measure=active&world=Balmung", "/ui/rankings/free-companies"},
 	}
 
 	for _, tc := range tests {

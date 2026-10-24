@@ -1,0 +1,1636 @@
+{
+  "schema_version": 3,
+  "generated_at": "0001-01-01T00:00:00Z",
+  "activity_since": "0001-01-01T00:00:00Z",
+  "max_level": 100,
+  "source_characters": 8,
+  "refresh_duration": 0,
+  "groups": [
+    {
+      "scope": {
+        "region": "EU"
+      },
+      "dimension": "gender",
+      "key": "Male",
+      "total": 2,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "EU"
+      },
+      "dimension": "gender",
+      "key": "Unknown",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "region": "EU"
+      },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 3,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "EU"
+      },
+      "dimension": "race_gender",
+      "key": "Elezen|Male",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "region": "EU"
+      },
+      "dimension": "race_gender",
+      "key": "Hyur|Male",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "EU"
+      },
+      "dimension": "race_gender",
+      "key": "Roegadyn|Unknown",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "region": "EU"
+      },
+      "dimension": "race",
+      "key": "Elezen",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "region": "EU"
+      },
+      "dimension": "race",
+      "key": "Hyur",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "EU"
+      },
+      "dimension": "race",
+      "key": "Roegadyn",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "region": "EU"
+      },
+      "dimension": "tribe",
+      "key": "Duskwight",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "region": "EU"
+      },
+      "dimension": "tribe",
+      "key": "Hellsguard",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "region": "EU"
+      },
+      "dimension": "tribe",
+      "key": "Midlander",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "JP"
+      },
+      "dimension": "gender",
+      "key": "Female",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "JP"
+      },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "JP"
+      },
+      "dimension": "race_gender",
+      "key": "|Female",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "JP"
+      },
+      "dimension": "race",
+      "key": "",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "JP"
+      },
+      "dimension": "tribe",
+      "key": "",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "NA"
+      },
+      "dimension": "gender",
+      "key": "Female",
+      "total": 3,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "NA"
+      },
+      "dimension": "gender",
+      "key": "Male",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "NA"
+      },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 4,
+      "active": 2
+    },
+    {
+      "scope": {
+        "region": "NA"
+      },
+      "dimension": "race_gender",
+      "key": "Hyur|Female",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "region": "NA"
+      },
+      "dimension": "race_gender",
+      "key": "Hyur|Male",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "NA"
+      },
+      "dimension": "race_gender",
+      "key": "Lalafell|Female",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "NA"
+      },
+      "dimension": "race_gender",
+      "key": "Miqo'te|Female",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "region": "NA"
+      },
+      "dimension": "race",
+      "key": "Hyur",
+      "total": 2,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "NA"
+      },
+      "dimension": "race",
+      "key": "Lalafell",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "NA"
+      },
+      "dimension": "race",
+      "key": "Miqo'te",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "region": "NA"
+      },
+      "dimension": "tribe",
+      "key": "Highlander",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "region": "NA"
+      },
+      "dimension": "tribe",
+      "key": "Midlander",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "NA"
+      },
+      "dimension": "tribe",
+      "key": "Plainsfolk",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "NA"
+      },
+      "dimension": "tribe",
+      "key": "Seeker of the Sun",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "datacenter": "Chaos"
+      },
+      "dimension": "gender",
+      "key": "Male",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Chaos"
+      },
+      "dimension": "gender",
+      "key": "Unknown",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "datacenter": "Chaos"
+      },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 2,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Chaos"
+      },
+      "dimension": "race_gender",
+      "key": "Hyur|Male",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Chaos"
+      },
+      "dimension": "race_gender",
+      "key": "Roegadyn|Unknown",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "datacenter": "Chaos"
+      },
+      "dimension": "race",
+      "key": "Hyur",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Chaos"
+      },
+      "dimension": "race",
+      "key": "Roegadyn",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "datacenter": "Chaos"
+      },
+      "dimension": "tribe",
+      "key": "Hellsguard",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "datacenter": "Chaos"
+      },
+      "dimension": "tribe",
+      "key": "Midlander",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Crystal"
+      },
+      "dimension": "gender",
+      "key": "Female",
+      "total": 3,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Crystal"
+      },
+      "dimension": "gender",
+      "key": "Male",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Crystal"
+      },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 4,
+      "active": 2
+    },
+    {
+      "scope": {
+        "datacenter": "Crystal"
+      },
+      "dimension": "race_gender",
+      "key": "Hyur|Female",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "datacenter": "Crystal"
+      },
+      "dimension": "race_gender",
+      "key": "Hyur|Male",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Crystal"
+      },
+      "dimension": "race_gender",
+      "key": "Lalafell|Female",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Crystal"
+      },
+      "dimension": "race_gender",
+      "key": "Miqo'te|Female",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "datacenter": "Crystal"
+      },
+      "dimension": "race",
+      "key": "Hyur",
+      "total": 2,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Crystal"
+      },
+      "dimension": "race",
+      "key": "Lalafell",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Crystal"
+      },
+      "dimension": "race",
+      "key": "Miqo'te",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "datacenter": "Crystal"
+      },
+      "dimension": "tribe",
+      "key": "Highlander",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "datacenter": "Crystal"
+      },
+      "dimension": "tribe",
+      "key": "Midlander",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Crystal"
+      },
+      "dimension": "tribe",
+      "key": "Plainsfolk",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Crystal"
+      },
+      "dimension": "tribe",
+      "key": "Seeker of the Sun",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "datacenter": "Elemental"
+      },
+      "dimension": "gender",
+      "key": "Female",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Elemental"
+      },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Elemental"
+      },
+      "dimension": "race_gender",
+      "key": "|Female",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Elemental"
+      },
+      "dimension": "race",
+      "key": "",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Elemental"
+      },
+      "dimension": "tribe",
+      "key": "",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Light"
+      },
+      "dimension": "gender",
+      "key": "Male",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "datacenter": "Light"
+      },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "datacenter": "Light"
+      },
+      "dimension": "race_gender",
+      "key": "Elezen|Male",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "datacenter": "Light"
+      },
+      "dimension": "race",
+      "key": "Elezen",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "datacenter": "Light"
+      },
+      "dimension": "tribe",
+      "key": "Duskwight",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Balmung"
+      },
+      "dimension": "gender",
+      "key": "Female",
+      "total": 2,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Balmung"
+      },
+      "dimension": "gender",
+      "key": "Male",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Balmung"
+      },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 3,
+      "active": 2
+    },
+    {
+      "scope": {
+        "world": "Balmung"
+      },
+      "dimension": "race_gender",
+      "key": "Hyur|Female",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Balmung"
+      },
+      "dimension": "race_gender",
+      "key": "Hyur|Male",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Balmung"
+      },
+      "dimension": "race_gender",
+      "key": "Lalafell|Female",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Balmung"
+      },
+      "dimension": "race",
+      "key": "Hyur",
+      "total": 2,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Balmung"
+      },
+      "dimension": "race",
+      "key": "Lalafell",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Balmung"
+      },
+      "dimension": "tribe",
+      "key": "Highlander",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Balmung"
+      },
+      "dimension": "tribe",
+      "key": "Midlander",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Balmung"
+      },
+      "dimension": "tribe",
+      "key": "Plainsfolk",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Coeurl"
+      },
+      "dimension": "gender",
+      "key": "Female",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Coeurl"
+      },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Coeurl"
+      },
+      "dimension": "race_gender",
+      "key": "Miqo'te|Female",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Coeurl"
+      },
+      "dimension": "race",
+      "key": "Miqo'te",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Coeurl"
+      },
+      "dimension": "tribe",
+      "key": "Seeker of the Sun",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Lich"
+      },
+      "dimension": "gender",
+      "key": "Male",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Lich"
+      },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Lich"
+      },
+      "dimension": "race_gender",
+      "key": "Elezen|Male",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Lich"
+      },
+      "dimension": "race",
+      "key": "Elezen",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Lich"
+      },
+      "dimension": "tribe",
+      "key": "Duskwight",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Ragnarok"
+      },
+      "dimension": "gender",
+      "key": "Male",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Ragnarok"
+      },
+      "dimension": "gender",
+      "key": "Unknown",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Ragnarok"
+      },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 2,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Ragnarok"
+      },
+      "dimension": "race_gender",
+      "key": "Hyur|Male",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Ragnarok"
+      },
+      "dimension": "race_gender",
+      "key": "Roegadyn|Unknown",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Ragnarok"
+      },
+      "dimension": "race",
+      "key": "Hyur",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Ragnarok"
+      },
+      "dimension": "race",
+      "key": "Roegadyn",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Ragnarok"
+      },
+      "dimension": "tribe",
+      "key": "Hellsguard",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Ragnarok"
+      },
+      "dimension": "tribe",
+      "key": "Midlander",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Tonberry"
+      },
+      "dimension": "gender",
+      "key": "Female",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Tonberry"
+      },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Tonberry"
+      },
+      "dimension": "race_gender",
+      "key": "|Female",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Tonberry"
+      },
+      "dimension": "race",
+      "key": "",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Tonberry"
+      },
+      "dimension": "tribe",
+      "key": "",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {},
+      "dimension": "datacenter",
+      "key": "Chaos",
+      "total": 2,
+      "active": 1,
+      "max_level": 1
+    },
+    {
+      "scope": {},
+      "dimension": "datacenter",
+      "key": "Crystal",
+      "total": 4,
+      "active": 2,
+      "max_level": 2,
+      "unchecked": 1
+    },
+    {
+      "scope": {},
+      "dimension": "datacenter",
+      "key": "Elemental",
+      "total": 1,
+      "active": 1,
+      "max_level": 1
+    },
+    {
+      "scope": {},
+      "dimension": "datacenter",
+      "key": "Light",
+      "total": 1,
+      "active": 0,
+      "unchecked": 1
+    },
+    {
+      "scope": {},
+      "dimension": "gender",
+      "key": "Female",
+      "total": 4,
+      "active": 2
+    },
+    {
+      "scope": {},
+      "dimension": "gender",
+      "key": "Male",
+      "total": 3,
+      "active": 2
+    },
+    {
+      "scope": {},
+      "dimension": "gender",
+      "key": "Unknown",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "grand_company_race",
+      "key": "None|",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {},
+      "dimension": "grand_company_race",
+      "key": "None|Elezen",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "grand_company_race",
+      "key": "None|Hyur",
+      "total": 3,
+      "active": 2
+    },
+    {
+      "scope": {},
+      "dimension": "grand_company_race",
+      "key": "None|Lalafell",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {},
+      "dimension": "grand_company_race",
+      "key": "None|Miqo'te",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "grand_company_race",
+      "key": "None|Roegadyn",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 8,
+      "active": 4
+    },
+    {
+      "scope": {},
+      "dimension": "race_gender",
+      "key": "Elezen|Male",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "race_gender",
+      "key": "Hyur|Female",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "race_gender",
+      "key": "Hyur|Male",
+      "total": 2,
+      "active": 2
+    },
+    {
+      "scope": {},
+      "dimension": "race_gender",
+      "key": "Lalafell|Female",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {},
+      "dimension": "race_gender",
+      "key": "Miqo'te|Female",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "race_gender",
+      "key": "Roegadyn|Unknown",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "race_gender",
+      "key": "|Female",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {},
+      "dimension": "race",
+      "key": "",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {},
+      "dimension": "race",
+      "key": "Elezen",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "race",
+      "key": "Hyur",
+      "total": 3,
+      "active": 2
+    },
+    {
+      "scope": {},
+      "dimension": "race",
+      "key": "Lalafell",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {},
+      "dimension": "race",
+      "key": "Miqo'te",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "race",
+      "key": "Roegadyn",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "region",
+      "key": "EU",
+      "total": 3,
+      "active": 1,
+      "max_level": 1,
+      "unchecked": 1
+    },
+    {
+      "scope": {},
+      "dimension": "region",
+      "key": "JP",
+      "total": 1,
+      "active": 1,
+      "max_level": 1
+    },
+    {
+      "scope": {},
+      "dimension": "region",
+      "key": "NA",
+      "total": 4,
+      "active": 2,
+      "max_level": 2,
+      "unchecked": 1
+    },
+    {
+      "scope": {},
+      "dimension": "tribe",
+      "key": "",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {},
+      "dimension": "tribe",
+      "key": "Duskwight",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "tribe",
+      "key": "Hellsguard",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "tribe",
+      "key": "Highlander",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "tribe",
+      "key": "Midlander",
+      "total": 2,
+      "active": 2
+    },
+    {
+      "scope": {},
+      "dimension": "tribe",
+      "key": "Plainsfolk",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {},
+      "dimension": "tribe",
+      "key": "Seeker of the Sun",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "world",
+      "key": "Balmung",
+      "total": 3,
+      "active": 2,
+      "max_level": 1
+    },
+    {
+      "scope": {},
+      "dimension": "world",
+      "key": "Coeurl",
+      "total": 1,
+      "active": 0,
+      "max_level": 1,
+      "unchecked": 1
+    },
+    {
+      "scope": {},
+      "dimension": "world",
+      "key": "Lich",
+      "total": 1,
+      "active": 0,
+      "unchecked": 1
+    },
+    {
+      "scope": {},
+      "dimension": "world",
+      "key": "Ragnarok",
+      "total": 2,
+      "active": 1,
+      "max_level": 1
+    },
+    {
+      "scope": {},
+      "dimension": "world",
+      "key": "Tonberry",
+      "total": 1,
+      "active": 1,
+      "max_level": 1
+    }
+  ],
+  "expansions": null,
+  "new_characters": null,
+  "summary": {
+    "total": 8,
+    "active": 4,
+    "max_level": 4,
+    "unchecked": 2
+  },
+  "jobs": {
+    "built_at": "0001-01-01T00:00:00Z",
+    "job_ids": [
+      19,
+      21,
+      32,
+      37,
+      24,
+      28,
+      33,
+      40,
+      20,
+      22,
+      30,
+      34,
+      39,
+      41,
+      23,
+      31,
+      38,
+      25,
+      27,
+      35,
+      42,
+      36,
+      8,
+      9,
+      10,
+      11,
+      12,
+      13,
+      14,
+      15,
+      16,
+      17,
+      18
+    ],
+    "worlds": [
+      {
+        "world": "Balmung",
+        "characters": 3,
+        "covered": 3,
+        "levelled": [
+          2,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "at_cap": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "world": "Coeurl",
+        "characters": 1,
+        "covered": 1,
+        "levelled": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "at_cap": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "world": "Lich",
+        "characters": 1,
+        "covered": 1,
+        "levelled": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "at_cap": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "world": "Ragnarok",
+        "characters": 2,
+        "covered": 2,
+        "levelled": [
+          2,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "at_cap": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      {
+        "world": "Tonberry",
+        "characters": 1,
+        "covered": 1,
+        "levelled": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "at_cap": [
+          1,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      }
+    ]
+  },
+  "privacy_built_at": "0001-01-01T00:00:00Z",
+  "free_companies_built_at": "0001-01-01T00:00:00Z"
+}

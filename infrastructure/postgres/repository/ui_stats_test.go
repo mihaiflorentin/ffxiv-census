@@ -76,7 +76,7 @@ func TestUIStatsRepositoryRefreshAndLoadCurrent(t *testing.T) {
 	achievements := repository.NewAchievementRepository(driver)
 	stats := repository.NewUIStatsRepository(driver)
 	ctx := context.Background()
-	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	recent := now.Add(-time.Hour)
 	old := now.Add(-60 * 24 * time.Hour)
 
@@ -216,7 +216,7 @@ func TestUIStatsRefreshEmitsPreviousWindowDailies(t *testing.T) {
 	}
 }
 
-func TestUIStatsSnapshotSchemaV2RoundTrip(t *testing.T) {
+func TestUIStatsSnapshotSchemaV3RoundTripAcceptsV2(t *testing.T) {
 	driver := newTestDriver(t)
 	chars := repository.NewCharacterRepository(driver)
 	achievements := repository.NewAchievementRepository(driver)
@@ -252,8 +252,20 @@ func TestUIStatsSnapshotSchemaV2RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.SchemaVersion != 2 {
-		t.Fatalf("stored snapshot schema version = %d, want 2", loaded.SchemaVersion)
+	if loaded.SchemaVersion != 3 {
+		t.Fatalf("stored snapshot schema version = %d, want 3", loaded.SchemaVersion)
+	}
+	// A stored v2 snapshot (written before the upgrade) still loads, so the
+	// existing pages keep working until the next refresh.
+	if _, err := driver.Execute(ctx, `UPDATE ui_stats_snapshots SET schema_version = 2 WHERE snapshot_key = 'current'`); err != nil {
+		t.Fatal(err)
+	}
+	v2, err := stats.LoadCurrent(ctx)
+	if err != nil {
+		t.Fatalf("loading a stored v2 snapshot: %v", err)
+	}
+	if v2.SchemaVersion != 2 {
+		t.Fatalf("loaded schema version = %d, want 2", v2.SchemaVersion)
 	}
 	if _, err := driver.Execute(ctx, `UPDATE ui_stats_snapshots SET schema_version = 1 WHERE snapshot_key = 'current'`); err != nil {
 		t.Fatal(err)

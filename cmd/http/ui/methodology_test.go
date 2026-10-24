@@ -28,7 +28,7 @@ func TestMethodologyHandler(t *testing.T) {
 	for _, h := range findAll(doc, byAtom(atom.H2)) {
 		sections = append(sections, textOf(h))
 	}
-	wantSections := []string{"Data collection", "Active players", "New characters", "Main scenario progression"}
+	wantSections := []string{"Data collection", "Active players", "New characters", "Main scenario progression", "Grand Companies", "Free Companies", "Jobs", "Achievement privacy"}
 	if strings.Join(sections, "|") != strings.Join(wantSections, "|") {
 		t.Errorf("section headings = %q, want %q", sections, wantSections)
 	}
@@ -38,6 +38,10 @@ func TestMethodologyHandler(t *testing.T) {
 		"My Little Chocobo",
 		"Achievement ID 590",
 		"globally latest public achievement",
+		"members seen by the census",
+		"top 100",
+		"at least 2 members",
+		"renamed",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("expected body to contain %q", want)

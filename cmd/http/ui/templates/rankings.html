@@ -1,0 +1,58 @@
+{{define "content"}}
+<div class="page-header rankings-header">
+    {{template "rankings-tabs" .Data.Tabs}}
+    <h1 class="page-title">Rankings</h1>
+    <p class="page-desc">Worlds and datacenters ranked on one measure at a time. Choose what to rank by, then narrow the board to a region.</p>
+</div>
+
+{{template "rankings-board" .}}
+{{end}}
+
+{{/* The "Worlds and datacenters | Free Companies" links; hidden boards are left out. */}}
+{{define "rankings-tabs"}}
+<nav class="board-tabs" aria-label="Rankings boards">
+    {{range .}}{{if not .Hidden}}<a class="board-tab" href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a>{{end}}{{end}}
+</nav>
+{{end}}
+
+{{/* The region every switch swaps; rendered alone for HTMX switch requests. */}}
+{{define "rankings-board"}}
+<section class="panel rankings-board" id="rankings-board" aria-labelledby="rankings-board-heading" data-switch-announce="{{.Data.Announce}}">
+    <div class="rankings-controls">
+        <div class="rankings-control">
+            <span class="rankings-control-label" aria-hidden="true">Rank by</span>
+            <div class="switch-scroller">{{template "switch" .Data.MetricSwitch}}</div>
+        </div>
+        {{with .Data.VariantSwitch}}
+        <div class="rankings-control">
+            <span class="rankings-control-label" aria-hidden="true">{{.Label}}</span>
+            <div class="switch-scroller">{{template "switch" .}}</div>
+        </div>
+        {{end}}
+        <div class="rankings-control">
+            <span class="rankings-control-label" aria-hidden="true">Rank</span>
+            <div class="switch-scroller">{{template "switch" .Data.BySwitch}}</div>
+        </div>
+        <div class="rankings-control">
+            <span class="rankings-control-label" aria-hidden="true">Region</span>
+            <div class="switch-scroller">{{template "switch" .Data.RegionSwitch}}</div>
+        </div>
+    </div>
+    <div class="rankings-head">
+        <h2 id="rankings-board-heading" class="rankings-title" tabindex="-1" data-switch-heading>{{.Data.Title}}</h2>
+        <p class="rankings-scope">{{.Data.Scope}}</p>
+        <p class="rankings-explain">{{.Data.Explanation}}</p>
+    </div>
+    <div class="rankings-body">
+        {{if not .Data.Ready}}
+        {{template "next-refresh" (nextRefresh .Data.Pending)}}
+        {{else if not .Data.Ladder.Top}}
+        {{template "empty-state" (emptyStateLink (printf "No %s to rank here yet." .Data.Noun) "Statistics appear once the census has counted characters in this region." .Data.AllRegionsHref "Rank every region")}}
+        {{else}}
+        {{template "ladder" .Data.Ladder}}
+        {{if .Data.Excluded}}<p class="rankings-footnote">{{.Data.Excluded}} {{if eq .Data.Excluded 1}}{{.Data.NounOne}} with fewer than {{formatNumber .Data.MinimumSize}} characters is{{else}}{{.Data.Noun}} with fewer than {{formatNumber .Data.MinimumSize}} characters are{{end}} left out, so a handful of characters can’t top the board.</p>{{end}}
+        {{template "freshness" (nightly .Data.BuiltAt)}}
+        {{end}}
+    </div>
+</section>
+{{end}}

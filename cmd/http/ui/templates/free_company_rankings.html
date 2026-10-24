@@ -1,0 +1,51 @@
+{{define "content"}}
+<div class="page-header rankings-header">
+    {{template "rankings-tabs" .Data.Tabs}}
+    <h1 class="page-title">Free Company Rankings</h1>
+    <p class="page-desc">The 100 Free Companies with the most members, or the most active members, anywhere in the game. Narrow the board to a region, datacenter or world.</p>
+</div>
+
+{{template "filter-bar" .Data.Filters}}
+
+{{template "fc-board" .}}
+{{end}}
+
+{{/* The "Worlds and datacenters | Free Companies" links. */}}
+{{define "rankings-tabs"}}
+<nav class="board-tabs" aria-label="Rankings boards">
+    {{range .}}{{if not .Hidden}}<a class="board-tab" href="{{.Href}}"{{if .Current}} aria-current="page"{{end}}>{{.Label}}</a>{{end}}{{end}}
+</nav>
+{{end}}
+
+{{/* The region the measure switch swaps; rendered alone for HTMX switch requests. */}}
+{{define "fc-board"}}
+<section class="panel rankings-board" id="fc-board" aria-labelledby="fc-board-heading" data-switch-announce="{{.Data.Announce}}">
+    <div class="rankings-controls">
+        <div class="rankings-control">
+            <span class="rankings-control-label" aria-hidden="true">Rank by</span>
+            <div class="switch-scroller">{{template "switch" .Data.Switch}}</div>
+        </div>
+    </div>
+    <div class="rankings-head">
+        <h2 id="fc-board-heading" class="rankings-title" tabindex="-1" data-switch-heading>{{.Data.Title}}</h2>
+        <p class="rankings-scope">{{.Data.Scope}}</p>
+        {{with .Data.Membership}}<p class="rankings-membership">{{.}}</p>{{end}}
+        {{if .Data.Active}}
+        <p class="rankings-explain">Members who earned a public achievement in the last 30 days. Members who hide their achievements can’t count as active, so read these counts as a lower bound.</p>
+        {{else}}
+        <p class="rankings-explain">Members seen by the census: the characters it has found in each company, not the official roster.</p>
+        {{end}}
+    </div>
+    <div class="rankings-body">
+        {{if not .Data.Ready}}
+        {{template "next-refresh" (nextRefresh "Free Company figures")}}
+        {{else if not .Data.Ladder.Top}}
+        {{if .Data.Filtered}}{{template "empty-state" (emptyStateLink "No Free Companies to rank here yet." "A company appears once the census has seen 2 of its members. Try a wider selection." "/ui/rankings/free-companies" "Rank every world")}}{{else}}{{template "empty-state" (emptyState "No Free Companies to rank yet." "They appear after the next nightly rebuild.")}}{{end}}
+        {{else}}
+        {{template "ladder" .Data.Ladder}}
+        <p class="rankings-footnote">Companies with fewer than 2 members seen are left out. Names come from a member the census has seen, so a rename shows once the census has visited its members again.</p>
+        {{template "freshness" (nightly .Data.BuiltAt)}}
+        {{end}}
+    </div>
+</section>
+{{end}}

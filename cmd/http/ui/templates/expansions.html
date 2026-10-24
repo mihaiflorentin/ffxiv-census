@@ -2,6 +2,7 @@
 <div class="page-header">
     <h1 class="page-title">Expansion progression</h1>
     <p class="page-desc">How far characters have taken the main scenario, from A Realm Reborn to Dawntrail. Each step counts the characters who finished that expansion's story and how many of the previous expansion's finishers carried on.</p>
+    {{template "privacy-note" (privacyNoteFor .Data.PrivacyNote "these completions are a lower bound")}}
 </div>
 
 <section class="panel" aria-labelledby="progression-heading">
@@ -13,12 +14,12 @@
         {{if .Data.TotalCharacters}}
         <ol class="progression">
             {{range .Data.Expansions}}
-            <li class="progression-step">
+            <li class="progression-step" data-tip="{{.Name}}" data-tip-value="{{formatNumber .Completions}} characters, {{.PercentOfTotal}}">
                 <div class="progression-head">
                     <h3 class="progression-name">{{.Name}}</h3>
                     <p class="progression-meta">{{.Version}}, level {{.LevelCap}}, finale <cite>{{.FinalQuest}}</cite></p>
                 </div>
-                <meter class="progress-meter progression-meter" min="0" max="100" value="{{printf "%.1f" .MeterValue}}" aria-label="{{.Name}} completion">{{.PercentOfTotal}}</meter>
+                <meter class="progress-meter progression-meter" min="0" max="100" value="{{printf "%.1f" .MeterValue}}" aria-label="{{.Name}} completion" tabindex="0">{{.PercentOfTotal}}</meter>
                 <dl class="progression-figures">
                     <div class="progression-figure">
                         <dt>Completed</dt>

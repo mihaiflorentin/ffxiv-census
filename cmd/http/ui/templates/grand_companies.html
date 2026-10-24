@@ -1,0 +1,151 @@
+{{define "content"}}
+<div class="page-header">
+    <h1 class="page-title">Grand Companies</h1>
+    <p class="page-desc">How characters split across the Maelstrom, the Order of the Twin Adder and the Immortal Flames, {{.Data.Scope}}. Narrow it down by region, datacenter or world.</p>
+</div>
+
+{{template "filter-bar" .Data.Filters}}
+
+{{if not .Data.Ready}}
+{{template "next-refresh" (nextRefresh "Grand Company figures")}}
+{{else if not .Data.Companies}}
+{{if .Data.Filtered}}{{template "empty-state" (emptyStateLink "No Grand Company data for this selection." "Try a wider selection, or clear the filters to see the whole game." "/ui/grand-companies" "Clear filters")}}{{else}}{{template "empty-state" (emptyState "No Grand Company data yet." "Statistics appear after the next census refresh.")}}{{end}}
+{{else}}
+<section class="panel standards-panel" aria-labelledby="standards-heading">
+    <div class="panel-header">
+        <h2 id="standards-heading" class="panel-title">The standards</h2>
+        <p class="panel-meta">Share of {{formatNumber .Data.Total}} characters</p>
+    </div>
+    <div class="panel-body">
+        <ol class="standards" data-entrance="rise" aria-describedby="standards-summary">
+            {{range .Data.Companies}}
+            <li class="standard standard-{{.Slug}}" tabindex="0" data-tip="{{.Label}}" data-tip-value="{{formatNumber .Total}} characters, {{.Share}}" data-tip-swatch="swatch gc-swatch gc-{{.Slug}}">
+                <div class="standard-flag">
+                    <svg class="standard-banner" viewBox="0 0 {{$.Data.StandardWidth}} {{$.Data.StandardHeight}}" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+                        <defs>
+                            <clipPath id="standard-cloth-{{.Slug}}">
+                                <polygon points="0,0 120,0 120,320 60,286 0,320"/>
+                            </clipPath>
+                        </defs>
+                        <polygon class="standard-cloth" points="0,0 120,0 120,320 60,286 0,320"/>
+                        <rect class="standard-fill" x="0" y="{{.FillY}}" width="120" height="{{.FillHeight}}" clip-path="url(#standard-cloth-{{.Slug}})"/>
+                        <polygon class="standard-edge" points="0,0 120,0 120,320 60,286 0,320"/>
+                    </svg>
+                    <p class="standard-share"><data value="{{printf "%.1f" .ShareValue}}">{{.Share}}</data></p>
+                </div>
+                <p class="standard-name">{{.Label}}</p>
+                <p class="standard-count">{{formatNumber .Total}} characters</p>
+            </li>
+            {{end}}
+        </ol>
+        <p id="standards-summary" class="chart-summary">{{if .Data.Leader.Name}}The {{.Data.Leader.Name}} leads with {{.Data.Leader.Share}} of characters, {{.Data.Scope}}.{{end}} {{.Data.NoCompany.Share}} have not joined a Grand Company. Each standard is filled to its company’s share.</p>
+        <details class="chart-data">
+            <summary>Show the numbers</summary>
+            <div class="table-scroll" role="region" aria-label="Characters by Grand Company" tabindex="0">
+                <table class="data-table">
+                    <caption class="visually-hidden">Characters by Grand Company, {{.Data.Scope}}</caption>
+                    <thead><tr><th scope="col">Grand Company</th><th scope="col" class="text-right">Characters</th><th scope="col" class="text-right">Share</th><th scope="col" class="text-right">Active, 30 days</th><th scope="col" class="text-right">Active share</th></tr></thead>
+                    <tbody>
+                        {{range .Data.Companies}}
+                        <tr><th scope="row"><span class="swatch gc-swatch gc-{{.Slug}}" aria-hidden="true"></span>{{.Label}}</th><td class="text-right">{{formatNumber .Total}}</td><td class="text-right">{{.Share}}</td><td class="text-right">{{formatNumber .Active}}</td><td class="text-right">{{.ActiveShare}}</td></tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    </div>
+</section>
+
+<div class="panel-grid">
+    <section class="panel" aria-labelledby="gc-active-heading">
+        <div class="panel-header">
+            <h2 id="gc-active-heading" class="panel-title">Who still plays</h2>
+            <p class="panel-meta">Members active in the last 30 days</p>
+        </div>
+        <div class="panel-body">
+            <ul class="gc-active-list">
+                {{range .Data.Companies}}
+                <li class="gc-active gc-{{.Slug}}" tabindex="0" data-tip="{{.Label}}" data-tip-value="{{formatNumber .Active}} of {{formatNumber .Total}} members active, {{.ActiveShare}}" data-tip-swatch="swatch gc-swatch gc-{{.Slug}}">
+                    <div class="gc-active-head">
+                        <span class="gc-active-name"><span class="swatch gc-swatch gc-{{.Slug}}" aria-hidden="true"></span>{{.Label}}</span>
+                        <span class="gc-active-value">{{.ActiveShare}}</span>
+                    </div>
+                    <meter class="progress-meter gc-meter" min="0" max="100" value="{{printf "%.1f" .ActiveShareValue}}" aria-hidden="true"></meter>
+                    <p class="gc-active-note">{{formatNumber .Active}} of {{formatNumber .Total}} members</p>
+                </li>
+                {{end}}
+            </ul>
+            <p class="chart-summary">A member counts as active when their latest public achievement is from the last 30 days. Characters who hide their achievements never count as active, so these are lower bounds.</p>
+        </div>
+    </section>
+
+    <section class="panel" aria-labelledby="race-lean-heading">
+        <div class="panel-header">
+            <h2 id="race-lean-heading" class="panel-title">How each race leans</h2>
+            <p class="panel-meta">Across the whole game</p>
+        </div>
+        <div class="panel-body">
+            {{if .Data.RaceLean}}
+            <div class="chart-container chart-container-tall">
+                <canvas id="gcRaceChart" role="img" aria-label="Stacked bar chart of each race's split across the Grand Companies" aria-describedby="race-lean-summary"></canvas>
+            </div>
+            <p id="race-lean-summary" class="chart-summary">Each bar is one race, split by Grand Company to 100%.{{if .Data.Filtered}} The race split covers the whole game, not just this selection.{{end}}</p>
+            <details class="chart-data">
+                <summary>Show the numbers</summary>
+                <div class="table-scroll" role="region" aria-label="Grand Company share by race" tabindex="0">
+                    <table class="data-table">
+                        <caption class="visually-hidden">Grand Company share by race, across the whole game</caption>
+                        <thead><tr><th scope="col">Race</th>{{range (index .Data.RaceLean 0).Companies}}<th scope="col" class="text-right">{{.Label}}</th>{{end}}</tr></thead>
+                        <tbody>
+                            {{range .Data.RaceLean}}
+                            <tr><th scope="row">{{.Race}}</th>{{range .Companies}}<td class="text-right">{{.Share}}</td>{{end}}</tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+            {{else}}
+            {{template "empty-state" (emptyState "No race data for the Grand Companies yet." "Statistics appear after the next census refresh.")}}
+            {{end}}
+        </div>
+    </section>
+</div>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var theme = window.CensusCharts;
+    var canvas = document.getElementById("gcRaceChart");
+    if (!window.Chart || !theme || !canvas) { return; }
+    var rows = {{jsonSafe .Data.RaceLean}};
+    var companies = rows.length ? rows[0].Companies : [];
+    new Chart(canvas, {
+        type: "bar",
+        data: {
+            labels: rows.map(function (r) { return r.Race; }),
+            datasets: companies.map(function (c, i) {
+                return {
+                    label: c.Label,
+                    data: rows.map(function (r) { return r.Companies[i].ShareValue; }),
+                    backgroundColor: c.None ? theme.surface() : theme.grandCompany(c.Slug),
+                    borderColor: c.None ? theme.grandCompany("none") : theme.surface(),
+                    borderWidth: c.None ? 1 : { right: 2 },
+                    borderSkipped: false
+                };
+            })
+        },
+        options: {
+            indexAxis: "y",
+            interaction: { mode: "index", axis: "y", intersect: false },
+            plugins: {
+                tooltip: { callbacks: { label: function (ctx) { return ctx.dataset.label + ": " + ctx.parsed.x.toFixed(1) + "%"; } } }
+            },
+            scales: {
+                x: { stacked: true, min: 0, max: 100, ticks: { callback: function (v) { return v + "%"; }, maxTicksLimit: 5 } },
+                y: { stacked: true, grid: { display: false }, border: { display: false } }
+            }
+        }
+    });
+});
+</script>
+{{end}}
+{{end}}

@@ -40,6 +40,9 @@ type UIStatsService struct {
 	// has happened since it started, so a slow reload can never overwrite a
 	// newer snapshot, flag it stale or reset its loadedAt.
 	generation uint64
+
+	// freeCompanies caches the Free Company row; see FreeCompanyBoard.
+	freeCompanies freeCompanyCache
 }
 
 func (s *UIStatsService) SetObserver(observer contract.UIStatsObserver) {
