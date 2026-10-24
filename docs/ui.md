@@ -20,6 +20,7 @@
 | `/ui/races` | `GET` | Playable race demographics with cascading region/DC/world filters, a new-characters (30d) card that follows the active filters, global percentage shares, active ratios, and demographic charts. Filtering selects precomputed snapshot groups and performs no aggregate database query. |
 | `/ui/grand-companies` | `GET` | Grand Companies with the region/DC/world filter bar and chips: "the standards" (one hanging banner per company filled to its share, plus an outline banner for No Grand Company), "Who still plays" (each company's active share as a meter in its colour), the race lean (a 100%-stacked bar per race, whole game) and "Show the numbers" tables. On a schema v2 snapshot it shows the "arrives with the next refresh" state. |
 | `/ui/worlds` | `GET` | Global server rankings table (including a per-world New (30d) column) with interactive region/datacenter filters, a filter-scoped new-characters (30d) card and a "Characters / Active players" ranking switch (`?sort=active`; an HTMX request targeting `world-rankings` gets just that region) |
+| `/ui/rankings` | `GET` | Rankings of worlds or datacenters on one metric at a time (`?metric=&by=&region=`): growth per 1,000 residents (`growth`, the default) or as a count (`growth-count`), activity (`activity`, active ÷ total), veterans (`veterans`, at the level cap ÷ total), population (`population`), privacy (`privacy`, private ÷ total, with the nightly freshness line) and one Grand Company lean per company (`gc-maelstrom`, `gc-twin-adder`, `gc-immortal-flames`, members ÷ everyone including no company). `by` is `world` (default) or `datacenter`; `region` is a region code. Values match case-insensitively and unknown ones fall back to the defaults. Rate boards leave out entries below 25% of the median population of the filtered scope (`census.MinimumRankedSize`) and say how many; ties break by name. The board is "the ladder" (see Page layouts): top ten, "Show all" in a native disclosure, world rows linking to the world page, each with its datacenter. Metric, variant (growth basis or company), scope and region switches use the shared `switch` (an HTMX request targeting `rankings-board` gets just the board). The header carries the "Worlds and datacenters \| Free Companies" link pair (Free Companies hidden until #64). Boards come from `census.Rankings`, memoised per snapshot by `census.RankingsMemo`. A metric whose figures the snapshot predates (veterans, privacy, Grand Company lean on a v2 snapshot) shows the "arrives with the next refresh" state inside the board. |
 | `/ui/worlds/{world}` | `GET` | World detail page (an unknown world answers the styled `404`): node breadcrumbs (region › datacenter › world, linking to the filtered Worlds page), stat tiles (characters, active players (30d), new characters from chocobo milestone 590 with a worded trend vs the previous 30 days), a compact Grand Company band (linking to `/ui/grand-companies?world=…`), race distribution bar chart, main-scenario completion meters and the 30-day new-character line chart, each chart with a text alternative |
 | `/ui/expansions` | `GET` | Main scenario progression from A Realm Reborn to Dawntrail as stepped, connected nodes: each step shows completions, share of all characters and retention from the previous expansion |
 | `/ui/methodology` | `GET` | How the census works: data collection, the active-player signal, the new-character (chocobo) milestone, the capstone achievement of each expansion, Grand Company data and achievement privacy (public, private, not yet checked, the lower-bound effect). Renders without a snapshot. |
@@ -32,7 +33,7 @@
 
 ### Head Metadata & Canonical URLs
 
-Every indexable page (dashboard, races, Grand Companies, worlds, per-world, expansions, methodology, private achievements) renders SEO head
+Every indexable page (dashboard, races, Grand Companies, worlds, per-world, rankings, expansions, methodology, private achievements) renders SEO head
 metadata from the shared `PageData` struct:
 
 - `<link rel="canonical">` with the absolute URL built from `app.base_url` (`container.Load.Config().App.BaseURL`,
@@ -43,7 +44,7 @@ metadata from the shared `PageData` struct:
 - Favicon: the embedded site icon is served at `/favicon.ico` (`image/png`) and linked from every page's
   head via `<link rel="icon" type="image/png" href="/favicon.ico">`, so search results display the icon.
 
-Filter query parameters (for example `/ui/worlds?region=NA&dc=Aether`) never appear in the canonical URL:
+Filter query parameters (for example `/ui/worlds?region=NA&dc=Aether` or `/ui/rankings?metric=privacy&by=datacenter`) never appear in the canonical URL:
 filtered views always canonicalize to their clean path, so crawlers index exactly one URL per page. The
 root URL `/` and `/ui/dashboard` serve the same dashboard handler, and each renders its own canonical path
 (`/` and `/ui/dashboard` respectively).
@@ -115,6 +116,7 @@ cmd/http/ui/
 │   ├── components/
 │   │   ├── states.html     # Shared "empty-state", "freshness", "next-refresh" and "state-mark" components
 │   │   ├── switch.html     # Shared "switch": segmented link pair swapping a region via HTMX
+│   │   ├── ladder.html     # Shared "ladder": ranked board (rank gutter, hairline bars, Show all, number table)
 │   │   ├── filters.html    # Shared "filter-bar" (labelled selects, region pills, removable chips)
 │   │   └── figures.html    # Shared "trend" line for new-character tiles
 │   ├── dashboard.html      # Realm tally, stat tiles, race and MSQ panels, 30-day chart, region table
@@ -122,6 +124,7 @@ cmd/http/ui/
 │   ├── grand_companies.html # Grand Companies: filter bar, the standards, who still plays, race lean, number tables
 │   ├── privacy.html        # Private achievements: the veil, what this means, region table, most/least private worlds
 │   ├── worlds.html         # Worlds: filter bar, stat tiles, world rankings data table
+│   ├── rankings.html       # Rankings: board links, command strip of switches, the ladder board
 │   ├── world_detail.html   # World: node breadcrumbs, stat tiles, race and MSQ panels, 30-day chart
 │   ├── expansions.html     # Main scenario progression steps (completions, share, retention)
 │   ├── methodology.html    # Long-form methodology at a 70ch measure
@@ -145,6 +148,8 @@ cmd/http/ui/
 ├── grand_companies.go      # Controller for /ui/grand-companies (the standards, active share, race lean) + world band
 ├── privacy.go              # Controller for /ui/privacy (the veil, region table, world lists) + the privacy note
 ├── worlds.go               # Controller for /ui/worlds
+├── rankings.go             # Controller for /ui/rankings (metric catalogue, switches, board links)
+├── ladder.go               # Ladder / LadderRung view model of the shared ladder component
 ├── world_detail.go         # Controller for /ui/worlds/{world}
 ├── timeline.go             # 30-day new-character series: the 30 complete UTC days before the snapshot day
 ├── expansions.go           # Controller for /ui/expansions (progression steps and retention)
@@ -338,6 +343,15 @@ inventing their own. Each is covered by tests in `design_v2_test.go` and `switch
   on a full page load only: `census.js` adds `.census-settled` to the root after 400ms, which switches
   entrances off for anything HTMX swaps in later, and reduced motion switches them off entirely. One per
   page (`TestOneEntrancePerPage`); the dashboard's is the realm band.
+- **`ladder`** (`components/ladder.html`, `Ladder` / `LadderRung` in `ladder.go`): the shared ranked
+  board, used by the world and datacenter Rankings and meant for the Free Company boards (#64).
+  `{{template "ladder" .Data.Ladder}}`. Build it with `newLadder(rungs, "worlds")`, which keeps the first
+  ten rungs in `Top` and the rest in `Rest` behind a native `<details class="ladder-more">` labelled
+  "Show all N worlds" (no request, works without JavaScript). Each rung carries its rank, a name (linked
+  when `Href` is set), a quiet `Note` under it, the ranked `Value` with its `Unit`, an optional `Detail`
+  line and `Bar`, its value against the leader as an SVG width. `Caption` and the column headings feed
+  the "Show the numbers" table that repeats the whole board. `Entrance` marks the list as the page's
+  one entrance; `Tone` (a Grand Company slug) draws the bars in that company's colour.
 - **`privacy-note`** (`components/privacy.html`): one sentence with the census-wide private share,
   linking to `/ui/privacy`, followed by the page's consequence clause. Renders nothing until the
   snapshot has privacy figures. The dashboard's active-players tile ("…, so they can’t count as
@@ -377,6 +391,18 @@ inventing their own. Each is covered by tests in `design_v2_test.go` and `switch
   segment has a `<title>`; the key below names every segment with its share in Saira and its count, in
   three columns at every width. The band has the page's one entrance (it unfurls). The world lists reuse
   the hatch for a thin bar scaled to the most private world, with Saira rank numerals in the gutter.
+- **The ladder** (Rankings, the signature element): an `<ol>` of rungs on a grid. The rank numerals
+  sit in a right-aligned left gutter in Saira condensed (`--step-4`, muted); the leader is set apart by
+  type size alone (rank `--step-6` in Ink, name `--step-2`, figure `--step-5`), never a badge. The
+  figure is Saira semi-condensed on the right with its unit, the note (datacenter, or region on the
+  datacenter board) and detail line ("19 new of 242 characters") sit under name and figure, and a 2px
+  hairline bar measured against the leader closes each rung and doubles as the rule between rungs
+  (Aether, or the company colour on Grand Company boards). The list unfurls once on a full page load.
+  Below 600px the gutter narrows and the detail line moves under the note. Above the board, a command
+  strip holds the switches with quiet visible labels ("Rank by", "Rank", "Region"); each switch sits in
+  a `.switch-scroller` so a wide one scrolls sideways on phones instead of overflowing. The board heading
+  ("Fastest-growing worlds") is Saira, followed by the scope in Aether and the metric's one-line
+  explanation. The page header's board links (`.board-tabs`) mark the current board with an Aether rule.
 - **Progression steps** (Expansions): one `<li>` per expansion in an `<ol class="progression">`. Each
   step has a node on a vertical connector, the expansion name (`h3`) with patch, level cap and finale,
   a `<meter>` for its share of all characters (so the bars step down), and a `<dl>` of Completed, Share
