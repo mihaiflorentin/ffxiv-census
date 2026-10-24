@@ -242,6 +242,14 @@ _Avoid_: job completeness
 The split of combat jobs at the level cap into tanks, healers and DPS for a datacenter or selection, counted per job (a character with two tanks at the cap counts twice) and leaving out Blue Mage. Compared against a light party's 1 tank, 1 healer and 2 DPS.
 _Avoid_: role ratio, role distribution
 
+**Members seen**:
+The live characters the census has found in a Free Company: the size the Free Company boards rank by. Not the official roster, which only the Lodestone shows.
+_Avoid_: members (bare), roster size, FC size
+
+**Free Company board**:
+The top 100 Free Companies of a world, datacenter, region or the whole game, ranked by members seen or by active members, among companies with at least 2 members seen. Rebuilt nightly from each world's own top 100 for each measure, kept in a snapshot row of its own.
+_Avoid_: FC leaderboard, guild ranking
+
 **MSQ completion funnel**:
 The expansion-by-expansion view of how many characters' milestone records show each expansion's main-scenario story completed, read as retention and drop-off. Characters with private or unscanned achievements are invisible to it, however far they have progressed.
 

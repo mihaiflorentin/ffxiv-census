@@ -29,6 +29,9 @@ const (
 type LocationCounts struct {
 	Key                                      string
 	Total, Active, AtCap, Private, Unchecked int64
+	// InFreeCompany is the characters in any Free Company, rebuilt nightly
+	// (UIStatsSnapshot.FreeCompaniesBuiltAt).
+	InFreeCompany int64
 }
 
 // Public is the number of characters whose achievements were read.
@@ -37,7 +40,7 @@ func (c LocationCounts) Public() int64 {
 }
 
 func locationCounts(g contract.ScopedGroupCount) LocationCounts {
-	return LocationCounts{Key: g.Key, Total: g.Total, Active: g.Active, AtCap: g.MaxLevel, Private: g.Private, Unchecked: g.Unchecked}
+	return LocationCounts{Key: g.Key, Total: g.Total, Active: g.Active, AtCap: g.MaxLevel, Private: g.Private, Unchecked: g.Unchecked, InFreeCompany: g.InFreeCompany}
 }
 
 // SnapshotLocations returns every location group at level, sorted by key.
@@ -70,7 +73,7 @@ func SnapshotLocation(snapshot *contract.UIStatsSnapshot, scope contract.StatsSc
 		level, key = LocationDatacenter, scope.Datacenter
 	case scope.Region == "":
 		s := snapshot.Summary
-		return LocationCounts{Total: s.Total, Active: s.Active, AtCap: s.MaxLevel, Private: s.Private, Unchecked: s.Unchecked}
+		return LocationCounts{Total: s.Total, Active: s.Active, AtCap: s.MaxLevel, Private: s.Private, Unchecked: s.Unchecked, InFreeCompany: s.InFreeCompany}
 	}
 	for _, g := range snapshot.Groups {
 		if g.Scope == (contract.StatsScope{}) && g.Dimension == string(level) && strings.EqualFold(g.Key, key) {

@@ -54,6 +54,8 @@ func TestIndexablePagesHeadMetadata(t *testing.T) {
 		{"Methodology", "/ui/methodology", "/ui/methodology"},
 		{"Rankings", "/ui/rankings", "/ui/rankings"},
 		{"Rankings Filtered", "/ui/rankings?metric=privacy&by=datacenter&region=JP", "/ui/rankings"},
+		{"Free Company Rankings", "/ui/rankings/free-companies", "/ui/rankings/free-companies"},
+		{"Free Company Rankings Filtered", "/ui/rankings/free-companies?measure=active&world=Balmung", "/ui/rankings/free-companies"},
 	}
 
 	for _, tc := range tests {

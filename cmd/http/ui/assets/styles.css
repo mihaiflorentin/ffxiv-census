@@ -3062,6 +3062,13 @@ input[type="search"] {
     color: var(--color-aether);
 }
 
+/* The Free Company board's one place-level figure: how many belong to any company. */
+.rankings-membership {
+    margin-top: var(--space-2);
+    color: var(--color-ink);
+    font-variant-numeric: tabular-nums;
+}
+
 .rankings-explain {
     margin-top: var(--space-2);
     max-width: var(--measure);
@@ -3139,6 +3146,55 @@ input[type="search"] {
     grid-area: note;
     font-size: var(--step--1);
     color: var(--color-ink-muted);
+}
+
+.ladder-note a {
+    color: inherit;
+    text-decoration: underline;
+    text-decoration-color: var(--color-line);
+    text-underline-offset: 0.2em;
+}
+
+.ladder-note a:hover {
+    color: var(--color-aether);
+    text-decoration-color: currentColor;
+}
+
+/*
+ * A rung with an outbound link (a Free Company's Lodestone page) keeps the
+ * link beside the note, so the official profile sits next to the world.
+ */
+.ladder-rung-linked {
+    grid-template-columns: 4.25rem auto minmax(0, 1fr) auto;
+    grid-template-areas:
+        "rank name name value"
+        "rank note external detail"
+        "rank bar bar bar";
+}
+
+.ladder-external {
+    grid-area: external;
+    justify-self: start;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2em;
+    font-size: var(--step--1);
+    font-weight: var(--weight-heading);
+    color: var(--color-aether);
+    text-decoration: none;
+}
+
+.ladder-external:hover {
+    text-decoration: underline;
+    text-underline-offset: 0.2em;
+}
+
+.ladder-external-icon {
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.5;
+    stroke-linecap: round;
+    stroke-linejoin: round;
 }
 
 .ladder-value {
@@ -3279,6 +3335,15 @@ input[type="search"] {
             "rank detail detail"
             "rank bar bar";
         column-gap: var(--space-2);
+    }
+
+    .ladder-rung-linked {
+        grid-template-columns: 2.75rem auto minmax(0, 1fr) auto;
+        grid-template-areas:
+            "rank name name value"
+            "rank note external external"
+            "rank detail detail detail"
+            "rank bar bar bar";
     }
 
     .ladder-detail { text-align: left; }

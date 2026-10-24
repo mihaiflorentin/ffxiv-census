@@ -10,7 +10,7 @@ const ladderTopSize = 10
 // apart by type size, and a hairline bar per rung measured against the
 // leader. The top ten show; the rest wait behind a native "Show all"
 // disclosure, so expanding needs no request. Used by the world and
-// datacenter Rankings, and meant for the Free Company boards too.
+// datacenter Rankings and the Free Company boards.
 type Ladder struct {
 	// Caption names the board for the "Show the numbers" table.
 	Caption string
@@ -34,8 +34,9 @@ type LadderRung struct {
 	Rank int
 	// Name is the entry; Href links it (empty for no link).
 	Name, Href string
-	// Note sits under the name (a world's datacenter).
-	Note string
+	// Note sits under the name (a world's datacenter, a Free Company's
+	// world); NoteHref links it.
+	Note, NoteHref string
 	// Value is the ranked figure, formatted, and Unit what it counts
 	// ("per 1,000", "characters"); Detail is a quieter supporting line
 	// ("9 new of 300 characters").
@@ -43,6 +44,9 @@ type LadderRung struct {
 	// Bar is the rung's value against the leader's, as an SVG width ("62.500%").
 	Bar    string
 	Leader bool
+	// ExternalHref is an outbound link for the entry (a Free Company's
+	// Lodestone page), labelled ExternalLabel ("Lodestone").
+	ExternalHref, ExternalLabel string
 }
 
 // newLadder splits rungs into the top ten and the rest.

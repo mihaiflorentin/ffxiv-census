@@ -161,12 +161,11 @@ type RankingsTab struct {
 	Hidden      bool
 }
 
-// rankingsTabs lists the Rankings boards. The Free Company boards (#64)
-// stay hidden until their page exists.
+// rankingsTabs lists the Rankings boards.
 func rankingsTabs(current string) []RankingsTab {
 	return []RankingsTab{
 		{Label: "Worlds and datacenters", Href: "/ui/rankings", Current: current == "worlds"},
-		{Label: "Free Companies", Href: "/ui/rankings/free-companies", Current: current == "free-companies", Hidden: true},
+		{Label: "Free Companies", Href: "/ui/rankings/free-companies", Current: current == "free-companies"},
 	}
 }
 

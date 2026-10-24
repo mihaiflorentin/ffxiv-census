@@ -48,12 +48,13 @@ numbers" repeats the whole board as a data table.
 {{end}}
 
 {{define "ladder-rung"}}
-<li class="ladder-rung{{if .Leader}} ladder-leader{{end}}">
+<li class="ladder-rung{{if .Leader}} ladder-leader{{end}}{{if .ExternalHref}} ladder-rung-linked{{end}}">
     <span class="ladder-rank"><span class="visually-hidden">Rank </span>{{.Rank}}</span>
     <span class="ladder-name">{{if .Href}}<a href="{{.Href}}">{{.Name}}</a>{{else}}{{.Name}}{{end}}</span>
-    {{if .Note}}<span class="ladder-note">{{.Note}}</span>{{end}}
+    {{if .Note}}<span class="ladder-note">{{if .NoteHref}}<a href="{{.NoteHref}}">{{.Note}}</a>{{else}}{{.Note}}{{end}}</span>{{end}}
     <span class="ladder-value"><span class="ladder-figure">{{.Value}}</span>{{if .Unit}} <span class="ladder-unit">{{.Unit}}</span>{{end}}</span>
     {{if .Detail}}<span class="ladder-detail">{{.Detail}}</span>{{end}}
+    {{if .ExternalHref}}<a class="ladder-external" href="{{.ExternalHref}}" rel="external noopener">{{.ExternalLabel}}<span class="visually-hidden"> page of {{.Name}}</span><svg class="ladder-external-icon" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true" focusable="false"><path d="M4.5 2.5h5v5M9.5 2.5 3 9"/></svg></a>{{end}}
     <svg class="ladder-bar" width="100%" height="2" aria-hidden="true" focusable="false"><rect class="ladder-track" width="100%" height="2"/><rect class="ladder-fill" width="{{.Bar}}" height="2"/></svg>
 </li>
 {{end}}
@@ -62,7 +63,7 @@ numbers" repeats the whole board as a data table.
 <tr>
     <td class="text-right">{{.Rung.Rank}}</td>
     <th scope="row">{{if .Rung.Href}}<a href="{{.Rung.Href}}">{{.Rung.Name}}</a>{{else}}{{.Rung.Name}}{{end}}</th>
-    <td>{{.Rung.Note}}</td>
+    <td>{{if .Rung.NoteHref}}<a href="{{.Rung.NoteHref}}">{{.Rung.Note}}</a>{{else}}{{.Rung.Note}}{{end}}</td>
     <td class="text-right">{{.Rung.Value}}{{if .Rung.Unit}} {{.Rung.Unit}}{{end}}</td>
     {{if .Detail}}<td>{{.Rung.Detail}}</td>{{end}}
 </tr>

@@ -79,6 +79,23 @@
     </div>
 </section>
 
+<section class="panel" id="top-free-companies" aria-labelledby="top-fc-heading">
+    <div class="panel-header">
+        <h2 id="top-fc-heading" class="panel-title">Largest Free Companies</h2>
+        <p class="panel-meta"><a href="{{.Data.FreeCompanies.Href}}">Every Free Company on {{.Data.World}}</a></p>
+    </div>
+    <div class="panel-body">
+        {{if not .Data.FreeCompanies.Ready}}
+        {{template "next-refresh" (nextRefresh "Free Company figures")}}
+        {{else if .Data.FreeCompanies.Ladder.Top}}
+        {{template "ladder" .Data.FreeCompanies.Ladder}}
+        <p class="chart-summary">{{with .Data.FreeCompanies.Membership}}{{.}} {{end}}Members are the characters the census has seen in each company, not the official roster.</p>
+        {{else}}
+        {{template "empty-state" (emptyStateLink "No Free Companies to rank on this world yet." "A company appears once the census has seen 2 of its members." "/ui/rankings/free-companies" "See every Free Company")}}
+        {{end}}
+    </div>
+</section>
+
 <div class="dashboard-grid">
     <section class="panel" aria-labelledby="races-heading">
         <div class="panel-header">
