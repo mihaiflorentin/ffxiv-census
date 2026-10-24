@@ -2,7 +2,6 @@ package census
 
 import (
 	"sort"
-	"strings"
 
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
@@ -67,10 +66,10 @@ func FreeCompanyBoardFor(boards *contract.StatsFreeCompanies, query FreeCompanyQ
 		return board
 	}
 	for _, w := range boards.Worlds {
-		dc := WorldDatacenter(w.World)
-		if !worldInScope(w.World, dc, query.Scope) {
+		if !ScopeHasWorld(query.Scope, w.World) {
 			continue
 		}
+		dc := WorldDatacenter(w.World)
 		for _, c := range w.Companies {
 			row := FreeCompanyRow{ID: c.ID, Name: c.Name, World: w.World, Datacenter: dc, Members: c.Members, Active: c.Active, Value: c.Members}
 			if query.Measure == FreeCompanyActive {
@@ -106,18 +105,4 @@ func freeCompanyRowLess(a, b FreeCompanyRow) bool {
 		return len(a.ID) < len(b.ID)
 	}
 	return a.ID < b.ID
-}
-
-// worldInScope reports whether a world (in datacenter dc) is inside scope;
-// names match case-insensitively.
-func worldInScope(world, dc string, scope contract.StatsScope) bool {
-	switch {
-	case scope.World != "":
-		return strings.EqualFold(world, scope.World)
-	case scope.Datacenter != "":
-		return strings.EqualFold(dc, scope.Datacenter)
-	case scope.Region != "":
-		return strings.EqualFold(RegionForDatacenter(dc), scope.Region)
-	}
-	return true
 }

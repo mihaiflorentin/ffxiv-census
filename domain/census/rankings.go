@@ -54,14 +54,14 @@ func countOf(read func(LocationCounts) int64) rankingPart {
 
 // newCharacters is a candidate's new characters in the 30-day window.
 func newCharacters(snapshot *contract.UIStatsSnapshot, level LocationLevel, c LocationCounts) (int64, int64) {
-	return NewCharactersWindow(snapshot, locationScope(level, c.Key)).Current, c.Total
+	return NewCharactersWindow(snapshot, ScopeAt(level, c.Key)).Current, c.Total
 }
 
 // companyMembers reads one Grand Company's members out of the candidate's
 // Grand Company split.
 func companyMembers(company string) rankingPart {
 	return func(snapshot *contract.UIStatsSnapshot, level LocationLevel, c LocationCounts) (int64, int64) {
-		split := GrandCompanySplitFor(snapshot, locationScope(level, c.Key))
+		split := GrandCompanySplitFor(snapshot, ScopeAt(level, c.Key))
 		for _, share := range split.Companies {
 			if share.Name == company {
 				return share.Total, split.Total
@@ -73,17 +73,6 @@ func companyMembers(company string) rankingPart {
 
 func grandCompaniesReady(snapshot *contract.UIStatsSnapshot) bool {
 	return SnapshotHasSection(snapshot, SectionGrandCompanies)
-}
-
-// locationScope is the stats scope of one location group.
-func locationScope(level LocationLevel, key string) contract.StatsScope {
-	switch level {
-	case LocationWorld:
-		return contract.StatsScope{World: key}
-	case LocationDatacenter:
-		return contract.StatsScope{Datacenter: key}
-	}
-	return contract.StatsScope{Region: key}
 }
 
 var rankingMetrics = map[RankingMetric]rankingMetric{

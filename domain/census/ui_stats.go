@@ -201,16 +201,15 @@ func NewCharactersWindow(snapshot *contract.UIStatsSnapshot, scope contract.Stat
 // worlds of the world hierarchy.
 func worldSet(scope contract.StatsScope) map[string]struct{} {
 	set := make(map[string]struct{})
-	switch {
-	case scope.World != "":
-		set[CanonicalWorld(scope.World)] = struct{}{}
-	case scope.Datacenter != "":
-		for _, world := range WorldsForDatacenter(scope.Datacenter) {
-			set[world] = struct{}{}
-		}
-	case scope.Region != "":
-		for _, world := range WorldsForRegion(scope.Region) {
-			set[world] = struct{}{}
+	switch level, key := ScopeLevel(scope); level {
+	case LocationGlobal:
+	case LocationWorld:
+		set[CanonicalWorld(key)] = struct{}{}
+	default:
+		for _, world := range Worlds() {
+			if ScopeHasWorld(scope, world) {
+				set[world] = struct{}{}
+			}
 		}
 	}
 	return set
