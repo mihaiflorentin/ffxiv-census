@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
@@ -118,6 +119,10 @@ func (r *UIStatsRepository) Refresh(ctx context.Context, opts contract.UIStatsRe
 		ActivitySince:           opts.ActivitySince.UTC(),
 		NewCharactersWindowDays: opts.NewCharactersWindowDays,
 		MaxLevel:                opts.MaxLevel,
+		LevelBands:              opts.LevelBands,
+	}
+	if len(snapshot.LevelBands) == 0 {
+		snapshot.LevelBands = census.LevelBands(census.DefaultExpansions, opts.MaxLevel)
 	}
 	usedMode := contract.UIStatsRefreshFull
 	if opts.Mode == contract.UIStatsRefreshIncremental {
@@ -129,6 +134,7 @@ func (r *UIStatsRepository) Refresh(ctx context.Context, opts contract.UIStatsRe
 			usedMode = contract.UIStatsRefreshIncremental
 		} else {
 			snapshot.Groups, snapshot.Summary, snapshot.SourceCharacters = nil, contract.StatsSummary{}, 0
+			snapshot.LevelsBuiltAt = time.Time{}
 		}
 	}
 	if usedMode == contract.UIStatsRefreshFull {
@@ -212,17 +218,22 @@ func (r *UIStatsRepository) readCharacterStats(ctx context.Context, tx *sql.Tx, 
 		return fmt.Errorf("size UI statistics aggregate memory: %w", err)
 	}
 	jobs := newJobAccumulator()
-	roll, err := queryFineGrainWithExtraColumns(ctx, tx, jobs, `
+	levelColumns, levelArgs, err := levelCountColumns(snapshot.LevelBands, 3)
+	if err != nil {
+		return err
+	}
+	roll, err := queryFineGrainWithExtraColumns(ctx, tx, jobs, len(snapshot.LevelBands), `
 		SELECT `+fineGrainKeyColumns+`,
 		       COUNT(*) AS total,
 		       COUNT(*) FILTER (WHERE latest_achievement_at >= $1) AS active,
 		       COUNT(*) FILTER (WHERE max_job_level >= $2) AS max_level,
 		       `+privacyCountColumns+`,
 		       `+inFreeCompanyColumn+`,
+		       `+levelColumns+`,
 		       `+jobFineColumns+`
 		FROM characters
 		WHERE deleted_at IS NULL
-		GROUP BY `+fineGrainGroupBy, snapshot.ActivitySince, snapshot.MaxLevel)
+		GROUP BY `+fineGrainGroupBy, append([]any{snapshot.ActivitySince, snapshot.MaxLevel}, levelArgs...)...)
 	if err != nil {
 		return fmt.Errorf("query UI character statistics: %w", err)
 	}
@@ -230,6 +241,7 @@ func (r *UIStatsRepository) readCharacterStats(ctx context.Context, tx *sql.Tx, 
 	snapshot.Summary = roll.summary.statsSummary()
 	snapshot.SourceCharacters = roll.summary.Total
 	snapshot.PrivacyBuiltAt = snapshot.GeneratedAt
+	snapshot.LevelsBuiltAt = snapshot.GeneratedAt
 	for _, key := range roll.sortedKeys() {
 		snapshot.Groups = append(snapshot.Groups, scopedGroupCount(key, roll.groups[key]))
 	}
@@ -237,14 +249,15 @@ func (r *UIStatsRepository) readCharacterStats(ctx context.Context, tx *sql.Tx, 
 }
 
 // queryFineGrain runs a fine-grain statistics query (the fineGrainKeyColumns
-// followed by the fineCounts columns) and rolls its rows up.
-func queryFineGrain(ctx context.Context, tx *sql.Tx, query string, args ...any) (*statsRollup, error) {
-	return queryFineGrainWithExtraColumns(ctx, tx, nil, query, args...)
+// followed by the fineCounts columns, ending with the no-levels count and
+// bands level band counts) and rolls its rows up.
+func queryFineGrain(ctx context.Context, tx *sql.Tx, bands int, query string, args ...any) (*statsRollup, error) {
+	return queryFineGrainWithExtraColumns(ctx, tx, nil, bands, query, args...)
 }
 
 // queryFineGrainWithExtraColumns is queryFineGrain for a query whose rows carry extra
 // columns after the fineCounts columns; extra scans and keeps them.
-func queryFineGrainWithExtraColumns(ctx context.Context, tx *sql.Tx, extra extraColumnScanner, query string, args ...any) (*statsRollup, error) {
+func queryFineGrainWithExtraColumns(ctx context.Context, tx *sql.Tx, extra extraColumnScanner, bands int, query string, args ...any) (*statsRollup, error) {
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
@@ -255,7 +268,12 @@ func queryFineGrainWithExtraColumns(ctx context.Context, tx *sql.Tx, extra extra
 		var key fineKey
 		var counts fineCounts
 		dest := []any{&key.Region, &key.Datacenter, &key.World, &key.Race, &key.Tribe, &key.Gender, &key.GrandCompany,
-			&counts.Total, &counts.Active, &counts.MaxLevel, &counts.Private, &counts.Unchecked, &counts.InFreeCompany}
+			&counts.Total, &counts.Active, &counts.MaxLevel, &counts.Private, &counts.Unchecked, &counts.InFreeCompany,
+			&counts.NoLevels}
+		counts.Levels = make([]int64, bands)
+		for i := range counts.Levels {
+			dest = append(dest, &counts.Levels[i])
+		}
 		if extra != nil {
 			dest = append(dest, extra.dest()...)
 		}
@@ -285,8 +303,14 @@ func queryFineGrainWithExtraColumns(ctx context.Context, tx *sql.Tx, extra extra
 // previous snapshot and move by the same delta, read from each new or deleted
 // character's current row; PrivacyBuiltAt keeps the full rebuild's time.
 //
+// The level band counts are nightly only: they are copied from the previous
+// snapshot unchanged, with LevelsBuiltAt, and no delta moves them (a deleted
+// character's current level need not be the one that counted it, so a delta
+// would drift). Their sum is therefore not held to the total.
+//
 // Drift accepted until the next full rebuild: a character whose location,
-// race, Grand Company or achievement privacy changes after it was counted, a soft delete that is later reverted,
+// race, Grand Company or achievement privacy changes after it was counted,
+// a soft delete that is later reverted,
 // and a character whose first_seen_at precedes the watermark but that commits
 // after this read snapshot.
 func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, tx *sql.Tx, snapshot *contract.UIStatsSnapshot, watermark time.Time) (bool, error) {
@@ -340,16 +364,24 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 		return false, nil
 	}
 	snapshot.FreeCompaniesBuiltAt = prev.FreeCompaniesBuiltAt
+	// The level band counts carry forward from a snapshot that has them,
+	// counted with the same bands; otherwise a full rebuild counts them.
+	if prev.LevelsBuiltAt.IsZero() || !slices.Equal(prev.LevelBands, snapshot.LevelBands) {
+		return false, nil
+	}
+	snapshot.LevelsBuiltAt = prev.LevelsBuiltAt
+	bands := len(snapshot.LevelBands)
 
 	// carried holds the figures that move by the delta: every group's total
-	// and the location groups' privacy counts. The in a Free Company counts
-	// ride along unchanged (the delta adds none).
+	// and the location groups' privacy counts. The in a Free Company and
+	// level band counts ride along unchanged (the delta adds none).
 	carried := make(map[groupKey]fineCounts, len(prev.Groups))
 	for _, g := range prev.Groups {
-		carried[groupKey{Scope: g.Scope, Dimension: g.Dimension, Key: g.Key}] = fineCounts{Total: g.Total, Private: g.Private, Unchecked: g.Unchecked, InFreeCompany: g.InFreeCompany}
+		carried[groupKey{Scope: g.Scope, Dimension: g.Dimension, Key: g.Key}] = fineCounts{Total: g.Total, Private: g.Private, Unchecked: g.Unchecked, InFreeCompany: g.InFreeCompany,
+			NoLevels: g.NoLevels, Levels: g.Levels}
 	}
 
-	delta, err := queryFineGrain(ctx, tx, `
+	delta, err := queryFineGrain(ctx, tx, bands, `
 		WITH delta AS (
 			SELECT region, datacenter, world, race, tribe, gender, grand_company,
 			       achievements_private, latest_achievement_at, 1 AS sign
@@ -365,7 +397,7 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 		       SUM(sign) AS total, 0 AS active, 0 AS max_level,
 		       COALESCE(SUM(sign) FILTER (WHERE achievements_private = 1), 0) AS private,
 		       COALESCE(SUM(sign) FILTER (WHERE achievements_private = 0 AND latest_achievement_at IS NULL), 0) AS unchecked,
-		       0 AS in_free_company
+		       0 AS in_free_company, `+zeroLevelColumns(bands)+`
 		FROM delta
 		GROUP BY `+fineGrainGroupBy, prevWatermark.Time, watermark)
 	if err != nil {
@@ -374,14 +406,15 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 	for key, counts := range delta.groups {
 		carried[key] = carried[key].plus(counts)
 	}
-	summary := fineCounts{Total: prev.Summary.Total, Private: prev.Summary.Private, Unchecked: prev.Summary.Unchecked, InFreeCompany: prev.Summary.InFreeCompany}.plus(delta.summary)
+	summary := fineCounts{Total: prev.Summary.Total, Private: prev.Summary.Private, Unchecked: prev.Summary.Unchecked, InFreeCompany: prev.Summary.InFreeCompany,
+		NoLevels: prev.Summary.NoLevels, Levels: prev.Summary.Levels}.plus(delta.summary)
 
-	live, err := queryFineGrain(ctx, tx, `
+	live, err := queryFineGrain(ctx, tx, bands, `
 		SELECT `+fineGrainKeyColumns+`,
 		       COUNT(*) AS total,
 		       COUNT(*) FILTER (WHERE latest_achievement_at >= $1) AS active,
 		       COUNT(*) FILTER (WHERE max_job_level >= $2) AS max_level,
-		       0 AS private, 0 AS unchecked, 0 AS in_free_company
+		       0 AS private, 0 AS unchecked, 0 AS in_free_company, `+zeroLevelColumns(bands)+`
 		FROM characters
 		WHERE deleted_at IS NULL
 		  AND (latest_achievement_at >= $1 OR max_job_level >= $2)

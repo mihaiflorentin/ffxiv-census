@@ -79,6 +79,31 @@
     </div>
 </section>
 
+<section class="panel" aria-labelledby="world-levels-heading">
+    <div class="panel-header">
+        <h2 id="world-levels-heading" class="panel-title">Highest job level</h2>
+        <p class="panel-meta"><a href="{{.Data.Levels.Href}}">Levels on {{.Data.World}}</a></p>
+    </div>
+    <div class="panel-body">
+        {{if not .Data.Levels.Ready}}
+        {{template "next-refresh" (nextRefresh "Level figures")}}
+        {{else if .Data.Levels.Row.Segments}}
+        {{with .Data.Levels.Row}}
+        <p class="level-strip-lede"><strong class="level-strip-figure">{{.Lede.Share}}</strong> of characters on {{.Name}} with job levels {{.Lede.Text}}. {{.Lede.Aside}}</p>
+        <svg class="level-strip" viewBox="0 0 100 10" preserveAspectRatio="none" role="group" aria-label="Characters on {{.Name}} by highest job level">
+            {{template "level-segments" .}}
+        </svg>
+        <ul class="level-strip-key">
+            {{range .Bands}}<li><span class="swatch level-swatch level-step-{{.Step}}" aria-hidden="true"></span><span class="level-strip-name">{{.Name}}</span> <span class="level-strip-share">{{.Share}}</span></li>{{end}}
+        </ul>
+        <p class="chart-summary">Characters on {{.Name}} with job levels, by the expansion their highest job reached.{{if .NoLevels}} {{formatNumber .NoLevels}} more have no job levels yet.{{end}}</p>
+        {{end}}
+        {{else}}
+        {{template "empty-state" (emptyStateLink "No job levels for this world yet." "They appear after the next nightly rebuild." "/ui/levels" "See every level band")}}
+        {{end}}
+    </div>
+</section>
+
 <section class="panel" id="top-free-companies" aria-labelledby="top-fc-heading">
     <div class="panel-header">
         <h2 id="top-fc-heading" class="panel-title">Largest Free Companies</h2>

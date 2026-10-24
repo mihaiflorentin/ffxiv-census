@@ -30,6 +30,7 @@ type WorldDetailViewData struct {
 	Weekly         WeeklyTimeline
 	GrandCompanies GrandCompanyBand
 	TopJobs        TopJobsBlock
+	Levels         LevelStripBlock
 	FreeCompanies  TopFreeCompaniesBlock
 }
 
@@ -78,13 +79,7 @@ func (c *UIController) WorldDetail(w http.ResponseWriter, r *http.Request) {
 	for _, row := range census.SnapshotExpansions(snapshot, scope) {
 		completions[row.Expansion] = row.Count
 	}
-	var expansionList []census.ExpansionConfig
-	if c.svc != nil {
-		expansionList = c.svc.Expansions()
-	}
-	if len(expansionList) == 0 {
-		expansionList = census.DefaultExpansions
-	}
+	expansionList := c.expansions()
 	var msq []ExpansionCard
 	for _, exp := range expansionList {
 		count := completions[exp.Name]
@@ -112,6 +107,7 @@ func (c *UIController) WorldDetail(w http.ResponseWriter, r *http.Request) {
 			census.SnapshotHasSection(snapshot, census.SectionGrandCompanies), worldName),
 		TopJobs: topJobsBlock(c.memo.Armoury(snapshot, scope),
 			census.SnapshotHasSection(snapshot, census.SectionJobs), worldName),
+		Levels:        levelStripBlock(snapshot, c.memo.Levels(snapshot, scope), worldName),
 		FreeCompanies: topFreeCompaniesBlock(worldName, census.SnapshotLocation(snapshot, scope), fcBoard, fcErr),
 	}))
 }

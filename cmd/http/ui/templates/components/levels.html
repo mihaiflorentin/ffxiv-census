@@ -1,0 +1,7 @@
+{{/*
+level-segments: the band segments of one stacked level row (a
+LevelRowView), inside its 0-100 viewBox svg. Each segment is focusable and
+carries the row's name as its tip title and the band's figures as its
+value. Used by the Levels page rows and the world page's level strip.
+*/}}
+{{define "level-segments"}}{{$row := .Name}}{{range .Segments}}<rect class="level-segment level-step-{{.Step}}" x="{{.X}}" y="0" width="{{.Width}}" height="10" tabindex="0" role="img" aria-label="{{.Name}}, level {{.Range}}: {{formatNumber .Count}} characters, {{.Share}}" data-tip="{{$row}}" data-tip-value="{{.Name}}, level {{.Range}}: {{formatNumber .Count}} characters, {{.Share}}" data-tip-swatch="swatch level-swatch level-step-{{.Step}}"/>{{end}}{{end}}

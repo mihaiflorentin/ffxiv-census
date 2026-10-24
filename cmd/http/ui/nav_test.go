@@ -9,8 +9,8 @@ import (
 
 func TestPrimaryNavListsThePagesInOrderAndMarksTheCurrentOne(t *testing.T) {
 	mux := privacyMux(t, privacyPageSnapshot(3))
-	wantLabels := []string{"Dashboard", "Worlds", "Rankings", "Races", "Grand Companies", "Jobs", "Expansions", "Methodology"}
-	wantHrefs := []string{"/", "/ui/worlds", "/ui/rankings", "/ui/races", "/ui/grand-companies", "/ui/jobs", "/ui/expansions", "/ui/methodology"}
+	wantLabels := []string{"Dashboard", "Worlds", "Rankings", "Races", "Grand Companies", "Jobs", "Levels", "Expansions", "Methodology"}
+	wantHrefs := []string{"/", "/ui/worlds", "/ui/rankings", "/ui/races", "/ui/grand-companies", "/ui/jobs", "/ui/levels", "/ui/expansions", "/ui/methodology"}
 
 	for path, current := range map[string]string{
 		"/":               "Dashboard",

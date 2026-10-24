@@ -27,6 +27,7 @@ func comparableSnapshot(s *contract.UIStatsSnapshot) *contract.UIStatsSnapshot {
 	}
 	c.PrivacyBuiltAt = time.Time{}
 	c.FreeCompaniesBuiltAt = time.Time{}
+	c.LevelsBuiltAt = time.Time{}
 	c.Groups = append([]contract.ScopedGroupCount(nil), s.Groups...)
 	sort.Slice(c.Groups, func(i, j int) bool {
 		a, b := c.Groups[i], c.Groups[j]
@@ -125,10 +126,11 @@ func TestUIStatsIncrementalMatchesFullRebuild(t *testing.T) {
 	}
 	// Character 3 gains an achievement after it was counted as unchecked and
 	// is then deleted: the accepted privacy drift, covered with the privacy
-	// tests. The job section is a nightly figure the incremental refresh
-	// carries forward on purpose (TestUIStatsIncrementalCarriesJobSectionForward).
+	// tests. The job section and the level bands are nightly figures the incremental refresh
+	// carries forward on purpose (TestUIStatsIncrementalCarriesJobSectionForward,
+	// TestUIStatsIncrementalCarriesLevelBandsForwardUnchanged).
 	// Every other figure must match exactly.
-	incCmp, fullCmp := withoutPrivacy(comparableSnapshot(inc.Snapshot)), withoutPrivacy(comparableSnapshot(full.Snapshot))
+	incCmp, fullCmp := withoutLevels(withoutPrivacy(comparableSnapshot(inc.Snapshot))), withoutLevels(withoutPrivacy(comparableSnapshot(full.Snapshot)))
 	incCmp.Jobs, fullCmp.Jobs = nil, nil
 	if !reflect.DeepEqual(incCmp, fullCmp) {
 		t.Fatalf("incremental differs from full rebuild\nincremental: %+v\nfull:        %+v", incCmp, fullCmp)
@@ -141,6 +143,16 @@ func withoutPrivacy(s *contract.UIStatsSnapshot) *contract.UIStatsSnapshot {
 	s.Summary.Private, s.Summary.Unchecked = 0, 0
 	for i := range s.Groups {
 		s.Groups[i].Private, s.Groups[i].Unchecked = 0, 0
+	}
+	return s
+}
+
+// withoutLevels drops the level band counts, which the incremental refresh
+// carries forward unchanged until the nightly rebuild.
+func withoutLevels(s *contract.UIStatsSnapshot) *contract.UIStatsSnapshot {
+	s.Summary.Levels, s.Summary.NoLevels = nil, 0
+	for i := range s.Groups {
+		s.Groups[i].Levels, s.Groups[i].NoLevels = nil, 0
 	}
 	return s
 }

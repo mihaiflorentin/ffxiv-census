@@ -250,6 +250,10 @@ _Avoid_: job completeness
 The split of combat jobs at the level cap into tanks, healers and DPS for a datacenter or selection, counted per job (a character with two tanks at the cap counts twice) and leaving out the limited jobs (Blue Mage, Beastmaster). Compared against a light party's 1 tank, 1 healer and 2 DPS.
 _Avoid_: role ratio, role distribution
 
+**Level band**:
+The expansion a character's highest job level falls in: each expansion's band runs from the previous expansion's level cap (level 1 for A Realm Reborn) to just below its own, and the last band, "Level cap", is the game's current maximum level. Derived from the configured expansions. Characters with no stored job levels are counted apart as "No job levels yet" and left out of the shares.
+_Avoid_: level bracket, tier, max level (bare)
+
 **Members seen**:
 The live characters the census has found in a Free Company: the size the Free Company boards rank by. Not the official roster, which only the Lodestone shows.
 _Avoid_: members (bare), roster size, FC size

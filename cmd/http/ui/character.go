@@ -133,10 +133,7 @@ func (c *UIController) CharacterDetail(w http.ResponseWriter, r *http.Request) {
 		isActive = c.svc.IsActive(*detail.Character.LatestAchievementAt)
 	}
 
-	var maxLevel uint32 = 100
-	if c.svc != nil && c.svc.MaxLevel() > 0 {
-		maxLevel = c.svc.MaxLevel()
-	}
+	maxLevel := c.maxLevel()
 
 	// Group jobs into 7 buckets
 	jobGroups := buildJobGroups(detail.Jobs, maxLevel)

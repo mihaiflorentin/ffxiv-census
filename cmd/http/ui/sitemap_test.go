@@ -101,6 +101,7 @@ func TestSitemapHandler(t *testing.T) {
 		base + "/ui/races",
 		base + "/ui/grand-companies",
 		base + "/ui/jobs",
+		base + "/ui/levels",
 		base + "/ui/worlds",
 		base + "/ui/expansions",
 		base + "/ui/methodology",
@@ -145,6 +146,7 @@ func TestSitemapHandler_DegradedStillServesStaticURLs(t *testing.T) {
 		base + "/ui/races",
 		base + "/ui/grand-companies",
 		base + "/ui/jobs",
+		base + "/ui/levels",
 		base + "/ui/worlds",
 		base + "/ui/expansions",
 		base + "/ui/methodology",
@@ -197,12 +199,14 @@ func TestSitemapLastModFollowsEachPagesData(t *testing.T) {
 	generated := time.Date(2026, 10, 24, 12, 30, 0, 0, time.UTC)
 	nightly := time.Date(2026, 10, 24, 1, 0, 0, 0, time.UTC)
 	jobs := time.Date(2026, 10, 23, 1, 0, 0, 0, time.UTC)
+	levels := time.Date(2026, 10, 24, 2, 0, 0, 0, time.UTC)
 	snapshot := &contract.UIStatsSnapshot{
 		SchemaVersion:        contract.UIStatsSchemaVersion,
 		GeneratedAt:          generated,
 		ActivitySince:        generated.AddDate(0, 0, -30),
 		PrivacyBuiltAt:       nightly,
 		FreeCompaniesBuiltAt: nightly,
+		LevelsBuiltAt:        levels,
 		Jobs:                 &contract.StatsJobsSection{BuiltAt: jobs},
 	}
 
@@ -212,6 +216,7 @@ func TestSitemapLastModFollowsEachPagesData(t *testing.T) {
 		"/ui/worlds":                  generated,
 		"/ui/rankings":                generated,
 		"/ui/jobs":                    jobs,
+		"/ui/levels":                  levels,
 		"/ui/privacy":                 nightly,
 		"/ui/rankings/free-companies": nightly,
 		"/ui/methodology":             {},

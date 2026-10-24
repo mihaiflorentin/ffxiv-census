@@ -14,6 +14,7 @@
             <li><a href="#grand-companies">Grand Companies</a></li>
             <li><a href="#free-companies">Free Companies</a></li>
             <li><a href="#jobs">Jobs</a></li>
+            <li><a href="#levels">Levels</a></li>
             <li><a href="#achievement-privacy">Achievement privacy</a></li>
         </ol>
     </nav>
@@ -100,6 +101,19 @@
         <p>The Lodestone shows a base class and its job as one entry, so a base class counts towards its job: a Gladiator counts as a Paladin, a Conjurer as a White Mage, and so on. An Arcanist counts towards Summoner, the job that shares its level on the Lodestone, and not Scholar. Nothing is counted twice.</p>
         <p>Blue Mage and Beastmaster are limited jobs with their own lower caps, so they count as at the level cap at level 80 and level 50. They have their own group in the Armoury and are left out of the party balance, because they cannot join ordinary duties. The party balance counts jobs, not characters: a character with two tanks at the cap counts twice.</p>
         <p class="prose-aside">Job figures are rebuilt nightly, and the Jobs page says when they last were. While older characters are still being prepared for job counting, the page says how many characters the figures cover. See <a href="/ui/jobs">Jobs</a> for the current figures.</p>
+    </section>
+
+    <section class="prose-section" aria-labelledby="levels">
+        <h2 id="levels">Levels</h2>
+        <p>The Levels page places every character in the expansion its <strong>highest job level</strong> reached. Each expansion’s band runs from the previous expansion’s level cap up to just below its own, so a character whose best job is level 50 has moved past A Realm Reborn and sits in Heavensward. The last band is the game’s current level cap.</p>
+        <dl class="prose-definition">
+            {{range .Data.LevelBands}}<dt>{{.Name}}</dt>
+            <dd>Highest job level {{.Range}}</dd>
+            {{end}}<dt>No job levels yet</dt>
+            <dd>The census hasn’t stored any job levels for the character. These characters are counted apart and left out of the shares.</dd>
+        </dl>
+        <p>Every job counts, crafting and gathering included, and a base class counts towards its job. Blue Mage and Beastmaster count at their own level, like any other job. A new expansion adds its band from the census configuration.</p>
+        <p class="prose-aside">Level figures are rebuilt nightly, and the Levels page says when they last were; nothing moves them between rebuilds. New characters show up after their first census: they start in No job levels yet, and move to their band at the next nightly rebuild once the census has read their jobs. A character who levels up or is deleted changes the figures at the next rebuild too. See <a href="/ui/levels">Levels</a> for the current figures.</p>
     </section>
 
     <section class="prose-section" aria-labelledby="achievement-privacy">

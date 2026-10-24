@@ -1,0 +1,134 @@
+{{define "content"}}
+<div class="page-header">
+    <h1 class="page-title">Levels</h1>
+    <p class="page-desc">How far characters have levelled, {{.Data.Scope}}: each character sits in the expansion its highest job reached. Narrow it down by region, datacenter or world.</p>
+</div>
+
+{{template "filter-bar" .Data.Filters}}
+
+{{if not .Data.Ready}}
+{{template "next-refresh" (nextRefresh "Level figures")}}
+{{else if not .Data.Overall.Total}}
+{{if .Data.Filtered}}{{template "empty-state" (emptyStateLink "No level figures for this selection." "Try a wider selection, or clear the filters to see the whole game." "/ui/levels" "Clear filters")}}{{else}}{{template "empty-state" (emptyState "No level figures yet." "They appear after the next nightly rebuild.")}}{{end}}
+{{else}}
+<div class="levels-status">{{template "freshness" (nightly .Data.BuiltAt)}}</div>
+
+{{with .Data.Overall}}
+<section class="panel levels-panel" aria-labelledby="levels-heading">
+    <div class="panel-header">
+        <h2 id="levels-heading" class="panel-title">Highest job level</h2>
+        <p class="panel-meta">{{formatNumber .Levelled}} characters with job levels, {{$.Data.Scope}}</p>
+    </div>
+    <div class="panel-body">
+        {{if .Levelled}}
+        <p class="levels-lede">
+            <span class="levels-lede-figure">{{.Lede.Share}}</span>
+            <span class="levels-lede-text">of characters with job levels {{.Lede.Text}}. <span class="levels-lede-aside">{{.Lede.Aside}}</span></span>
+        </p>
+        <ol class="level-bands" data-entrance aria-label="Characters by highest job level">
+            {{range .Bands}}
+            <li class="level-band-row level-step-{{.Step}}" tabindex="0" data-tip="{{.Name}}, level {{.Range}}" data-tip-value="{{formatNumber .Count}} characters, {{.Share}}" data-tip-swatch="swatch level-swatch level-step-{{.Step}}">
+                <span class="level-band-name">{{.Name}}</span>
+                <span class="level-band-range"><span class="visually-hidden">level </span>{{.Range}}</span>
+                <svg class="level-band-bar" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="level-band-track" x="0" y="0" width="100" height="10"/><rect class="level-band-fill" x="0" y="0" width="{{.Bar}}" height="10"/></svg>
+                <span class="level-band-figures"><data class="level-band-count" value="{{.Count}}">{{formatNumber .Count}}</data> <span class="level-band-share">{{.Share}}</span></span>
+            </li>
+            {{end}}
+        </ol>
+        {{else}}
+        {{template "empty-state" (emptyState "No job levels stored here yet." "Characters join the bands once the census has read their jobs.")}}
+        {{end}}
+        <p class="chart-summary">Each bar counts the characters whose highest job level falls in that expansion’s levels, from the previous level cap up to just below its own. The shares are of characters with job levels.{{if .NoLevels}} Another {{formatNumber .NoLevels}} characters with no job levels yet are left out of them.{{end}}</p>
+        <details class="chart-data">
+            <summary>Show the numbers</summary>
+            <div class="table-scroll" role="region" aria-label="Characters by highest job level" tabindex="0">
+                <table class="data-table">
+                    <caption class="visually-hidden">Characters by highest job level, {{$.Data.Scope}}</caption>
+                    <thead><tr><th scope="col">Expansion</th><th scope="col" class="text-right">Highest job level</th><th scope="col" class="text-right">Characters</th><th scope="col" class="text-right">Share</th></tr></thead>
+                    <tbody>
+                        {{range .Bands}}<tr><th scope="row">{{.Name}}</th><td class="text-right">{{.Range}}</td><td class="text-right">{{formatNumber .Count}}</td><td class="text-right">{{.Share}}</td></tr>{{end}}
+                        <tr><th scope="row">No job levels yet</th><td class="text-right">–</td><td class="text-right">{{formatNumber .NoLevels}}</td><td class="text-right">left out</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    </div>
+</section>
+{{end}}
+
+<section class="panel" id="level-datacenters" aria-labelledby="level-dc-heading">
+    <div class="panel-header">
+        <h2 id="level-dc-heading" class="panel-title">By datacenter</h2>
+        <p class="panel-meta">Characters with job levels, {{.Data.DatacenterArea}}</p>
+    </div>
+    <div class="panel-body">
+        {{if .Data.Datacenters}}
+        {{template "level-key" .Data.Key}}
+        {{template "level-rows" (dict "Rows" .Data.Datacenters "Label" "Datacenter")}}
+        <p class="chart-summary">Each bar splits a datacenter’s characters with job levels by the expansion their highest job reached, from A Realm Reborn on the left to the level cap on the right. Pick a datacenter to compare its worlds.</p>
+        {{template "level-table" (dict "Rows" .Data.Datacenters "Key" .Data.Key "Label" "Datacenter" "Area" .Data.DatacenterArea)}}
+        {{else}}
+        {{template "empty-state" (emptyState "No datacenters to compare here yet." "They appear after the next nightly rebuild.")}}
+        {{end}}
+    </div>
+</section>
+
+<section class="panel" id="level-worlds" aria-labelledby="level-world-heading">
+    <div class="panel-header">
+        <h2 id="level-world-heading" class="panel-title">By world</h2>
+        {{if .Data.WorldArea}}<p class="panel-meta">Characters with job levels, {{.Data.WorldArea}}</p>{{end}}
+    </div>
+    <div class="panel-body">
+        {{if .Data.WorldPrompt}}
+        <div class="level-world-prompt">
+            <p class="level-world-prompt-text">Pick a region, or a datacenter above, to compare its worlds.</p>
+            <ul class="level-world-regions">
+                {{range .Data.WorldPrompt}}<li><a class="level-world-region" href="{{.Href}}">{{.Name}}</a></li>{{end}}
+            </ul>
+        </div>
+        {{else if .Data.Worlds}}
+        {{template "level-key" .Data.Key}}
+        {{template "level-rows" (dict "Rows" .Data.Worlds "Label" "World")}}
+        {{template "level-table" (dict "Rows" .Data.Worlds "Key" .Data.Key "Label" "World" "Area" .Data.WorldArea)}}
+        {{else}}
+        {{template "empty-state" (emptyState "No worlds to compare here yet." "They appear after the next nightly rebuild.")}}
+        {{end}}
+    </div>
+</section>
+{{end}}
+{{end}}
+
+{{define "level-key"}}
+<ul class="balance-key level-key" aria-label="Key">
+    {{range .}}<li><span class="swatch level-swatch level-step-{{.Step}}" aria-hidden="true"></span>{{.Name}}</li>{{end}}
+</ul>
+{{end}}
+
+{{define "level-rows"}}
+<ol class="balance-list level-rows">
+    {{range .Rows}}
+    <li class="balance-row level-row{{if .Current}} balance-current level-row-current{{end}}"{{if .Current}} aria-current="true"{{end}}>
+        <span class="balance-name level-row-name"><a href="{{.Href}}">{{.Name}}</a>{{if .Region}} <abbr class="balance-region" title="{{regionName .Region}}">{{.Region}}</abbr>{{end}}</span>
+        <svg class="balance-bar level-bar" viewBox="0 0 100 10" preserveAspectRatio="none" role="group" aria-label="{{.Name}} by highest job level">
+            {{template "level-segments" .}}
+        </svg>
+        <span class="level-row-cap">{{.CapBand.Share}}<span class="visually-hidden"> at the level cap</span></span>
+    </li>
+    {{end}}
+</ol>
+{{end}}
+
+{{define "level-table"}}
+<details class="chart-data">
+    <summary>Show the numbers</summary>
+    <div class="table-scroll" role="region" aria-label="Characters by highest job level, by {{.Label}}" tabindex="0">
+        <table class="data-table">
+            <caption class="visually-hidden">Characters by highest job level, {{.Area}}</caption>
+            <thead><tr><th scope="col">{{.Label}}</th>{{range .Key}}<th scope="col" class="text-right">{{.Name}} <span class="table-note">{{.Range}}</span></th>{{end}}<th scope="col" class="text-right">No job levels yet</th></tr></thead>
+            <tbody>
+                {{range .Rows}}<tr><th scope="row">{{.Name}}</th>{{range .Bands}}<td class="text-right">{{formatNumber .Count}} <span class="table-note">{{.Share}}</span></td>{{end}}<td class="text-right">{{formatNumber .NoLevels}}</td></tr>{{end}}
+            </tbody>
+        </table>
+    </div>
+</details>
+{{end}}

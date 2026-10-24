@@ -60,6 +60,27 @@ func TestValidateUIStatsSnapshot(t *testing.T) {
 		{name: "negative new-characters window", mutate: func(s *contract.UIStatsSnapshot) { s.NewCharactersWindowDays = -1 }},
 		{name: "group new characters negative", mutate: func(s *contract.UIStatsSnapshot) { s.Groups[0].NewCharacters = -1 }},
 		{name: "group previous new characters negative", mutate: func(s *contract.UIStatsSnapshot) { s.Groups[0].NewCharactersPrevious = -1 }},
+		{name: "level bands", ok: true, mutate: func(s *contract.UIStatsSnapshot) {
+			s.LevelBands = []contract.StatsLevelBand{{Name: "A", Min: 1, Max: 49}, {Name: LevelCapBand, Min: 50}}
+			s.Summary.Levels, s.Summary.NoLevels = []int64{1, 1}, 1
+			s.Groups[0].Levels = []int64{2, 0}
+		}},
+		{name: "level band sums apart from the totals", ok: true, mutate: func(s *contract.UIStatsSnapshot) {
+			// The incremental refresh moves the totals but carries the
+			// nightly level bands unchanged, so their sums may differ.
+			s.LevelBands = []contract.StatsLevelBand{{Name: "A", Min: 1, Max: 49}, {Name: LevelCapBand, Min: 50}}
+			s.Summary.Levels, s.Summary.NoLevels = []int64{4, 1}, 2
+			s.Groups[0].Levels = []int64{5, 0}
+		}},
+		{name: "summary level band negative", mutate: func(s *contract.UIStatsSnapshot) {
+			s.LevelBands = []contract.StatsLevelBand{{Name: "A", Min: 1, Max: 49}, {Name: LevelCapBand, Min: 50}}
+			s.Summary.Levels = []int64{-1, 1}
+		}},
+		{name: "group no levels negative", mutate: func(s *contract.UIStatsSnapshot) { s.Groups[0].NoLevels = -1 }},
+		{name: "level counts unlike the bands", mutate: func(s *contract.UIStatsSnapshot) {
+			s.LevelBands = []contract.StatsLevelBand{{Name: "A", Min: 1, Max: 49}, {Name: LevelCapBand, Min: 50}}
+			s.Groups[0].Levels = []int64{1, 0, 0}
+		}},
 	}
 
 	for _, tt := range tests {
