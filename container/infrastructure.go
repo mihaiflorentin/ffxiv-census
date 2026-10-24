@@ -250,7 +250,11 @@ func (s *ServiceContainer) CharacterRepository() contract.CharacterRepository {
 		logging.Warn("container.character_repository", "database driver unavailable")
 		return nil
 	}
-	s.infrastructure.characterRepository = repository.NewCharacterRepository(driver)
+	var maxLevel uint32
+	if c := s.configUnlocked().Census; c != nil {
+		maxLevel = c.MaxLevel
+	}
+	s.infrastructure.characterRepository = repository.NewCharacterRepository(driver, repository.WithMaxLevel(maxLevel))
 	return s.infrastructure.characterRepository
 }
 
@@ -656,4 +660,11 @@ func (s *ServiceContainer) proxyConsumerCooldownUnlocked() time.Duration {
 		return cfg.Consumer.Cooldown
 	}
 	return time.Minute
+}
+
+// JobMaskBackfillRepository returns the operator-run job bitmask backfill,
+// or nil when the database is unavailable.
+func (s *ServiceContainer) JobMaskBackfillRepository() contract.JobMaskBackfillRepository {
+	backfill, _ := s.CharacterRepository().(contract.JobMaskBackfillRepository)
+	return backfill
 }

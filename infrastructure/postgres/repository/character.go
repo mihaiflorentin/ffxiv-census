@@ -11,16 +11,36 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
 // CharacterRepository is a PostgreSQL implementation of contract.CharacterRepository.
 type CharacterRepository struct {
 	driver contract.DatabaseDriver
+	// maxLevel is the configured level cap the job bitmasks measure against.
+	maxLevel uint32
 }
 
-func NewCharacterRepository(driver contract.DatabaseDriver) contract.CharacterRepository {
-	return &CharacterRepository{driver: driver}
+// CharacterRepositoryOption configures a CharacterRepository.
+type CharacterRepositoryOption func(*CharacterRepository)
+
+// WithMaxLevel sets the configured level cap the job bitmasks measure "at the
+// level cap" against. Zero keeps the default, census.DefaultMaxLevel.
+func WithMaxLevel(maxLevel uint32) CharacterRepositoryOption {
+	return func(r *CharacterRepository) {
+		if maxLevel > 0 {
+			r.maxLevel = maxLevel
+		}
+	}
+}
+
+func NewCharacterRepository(driver contract.DatabaseDriver, opts ...CharacterRepositoryOption) contract.CharacterRepository {
+	r := &CharacterRepository{driver: driver, maxLevel: census.DefaultMaxLevel}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 const characterColumns = `id, name, world, datacenter, region, race, tribe, gender, grand_company,
@@ -58,7 +78,7 @@ func (r *CharacterRepository) StoreResult(ctx context.Context, result contract.C
 		return fmt.Errorf("character upsert set async commit: %w", err)
 	}
 
-	if err := storeBatch(ctx, tx, result); err != nil {
+	if err := storeBatch(ctx, tx, result, r.maxLevel); err != nil {
 		return markInvalidData(err)
 	}
 	return markInvalidData(tx.Commit())
@@ -72,7 +92,7 @@ func (r *CharacterRepository) StoreResult(ctx context.Context, result contract.C
 // order, or they deadlock. The character statement inserts its rows in
 // ascending ID order; when achievements follow, the rows of every character
 // the batch touches are locked first, in ascending ID order.
-func storeBatch(ctx context.Context, tx *sql.Tx, result contract.CensusResult) error {
+func storeBatch(ctx context.Context, tx *sql.Tx, result contract.CensusResult, maxLevel uint32) error {
 	achievements := slices.Clone(result.Achievements)
 	slices.SortStableFunc(achievements, func(a, b contract.AchievementWrite) int {
 		return cmp.Compare(a.CharacterID, b.CharacterID)
@@ -85,7 +105,7 @@ func storeBatch(ctx context.Context, tx *sql.Tx, result contract.CensusResult) e
 		}
 	}
 	if len(writes) > 0 {
-		if err := upsertCharactersTx(ctx, tx, writes); err != nil {
+		if err := upsertCharactersTx(ctx, tx, writes, maxLevel); err != nil {
 			return err
 		}
 		if err := replaceJobsTx(ctx, tx, writes); err != nil {
@@ -194,11 +214,12 @@ type characterColumnArrays struct {
 	companies, bios, activeJobs                        []string
 	fcIDs, fcNames                                     []*string
 	latestIDs                                          []*int64
+	levelledMasks, atCapMasks                          []int64
 	latestAts, lastCensuses, deleteds                  []*time.Time
 	firstSeens                                         []time.Time
 }
 
-func toCharacterColumns(writes []contract.CharacterWrite) characterColumnArrays {
+func toCharacterColumns(writes []contract.CharacterWrite, maxLevel uint32) characterColumnArrays {
 	var c characterColumnArrays
 	for _, w := range writes {
 		rec := w.Record
@@ -228,32 +249,38 @@ func toCharacterColumns(writes []contract.CharacterWrite) characterColumnArrays 
 		c.lastCensuses = append(c.lastCensuses, rec.LastCensusAt)
 		c.deleteds = append(c.deleteds, rec.DeletedAt)
 		c.maxLevels = append(c.maxLevels, int32(maxJobLevel(w.Jobs)))
+		levelled, atCap := census.JobMasks(w.Jobs, maxLevel)
+		c.levelledMasks = append(c.levelledMasks, int64(levelled))
+		c.atCapMasks = append(c.atCapMasks, int64(atCap))
 	}
 	return c
 }
 
 // upsertCharactersTx writes the character rows of writes (unique IDs) as one
 // multi-row upsert, inserted in the order given.
-func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.CharacterWrite) error {
-	c := toCharacterColumns(writes)
+func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.CharacterWrite, maxLevel uint32) error {
+	c := toCharacterColumns(writes, maxLevel)
 	const query = `INSERT INTO characters (
 			id, name, world, datacenter, region, race, tribe, gender, grand_company,
 			fc_id, fc_name, bio, active_job, item_level,
 			achievements_private, latest_achievement_id, latest_achievement_at,
-			first_seen_at, last_census_at, deleted_at, max_job_level
+			first_seen_at, last_census_at, deleted_at, max_job_level,
+			jobs_levelled_mask, jobs_at_cap_mask
 		)
 		SELECT id, name, world, datacenter, region, race, tribe, gender, grand_company,
 			fc_id, fc_name, bio, active_job, item_level,
 			achievements_private, latest_achievement_id, latest_achievement_at,
-			first_seen_at, last_census_at, deleted_at, max_job_level
+			first_seen_at, last_census_at, deleted_at, max_job_level,
+			jobs_levelled_mask, jobs_at_cap_mask
 		  FROM unnest($1::bigint[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[],
 			$8::smallint[], $9::text[], $10::text[], $11::text[], $12::text[], $13::text[], $14::integer[],
 			$15::smallint[], $16::integer[], $17::timestamptz[], $18::timestamptz[], $19::timestamptz[],
-			$20::timestamptz[], $21::smallint[])
+			$20::timestamptz[], $21::smallint[], $22::bigint[], $23::bigint[])
 		       AS t(id, name, world, datacenter, region, race, tribe, gender, grand_company,
 			fc_id, fc_name, bio, active_job, item_level,
 			achievements_private, latest_achievement_id, latest_achievement_at,
-			first_seen_at, last_census_at, deleted_at, max_job_level)
+			first_seen_at, last_census_at, deleted_at, max_job_level,
+			jobs_levelled_mask, jobs_at_cap_mask)
 		 ORDER BY id
 		ON CONFLICT (id) DO UPDATE SET
 			name = excluded.name,
@@ -274,12 +301,15 @@ func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.Chara
 			latest_achievement_at = COALESCE(excluded.latest_achievement_at, characters.latest_achievement_at),
 			last_census_at = excluded.last_census_at,
 			deleted_at = NULL,
-			max_job_level = excluded.max_job_level`
+			max_job_level = excluded.max_job_level,
+			jobs_levelled_mask = excluded.jobs_levelled_mask,
+			jobs_at_cap_mask = excluded.jobs_at_cap_mask`
 
 	if _, err := tx.ExecContext(ctx, query,
 		c.ids, c.names, c.worlds, c.datacenters, c.regions, c.races, c.tribes, c.genders, c.companies,
 		c.fcIDs, c.fcNames, c.bios, c.activeJobs, c.itemLevels,
-		c.private, c.latestIDs, c.latestAts, c.firstSeens, c.lastCensuses, c.deleteds, c.maxLevels); err != nil {
+		c.private, c.latestIDs, c.latestAts, c.firstSeens, c.lastCensuses, c.deleteds, c.maxLevels,
+		c.levelledMasks, c.atCapMasks); err != nil {
 		return fmt.Errorf("character upsert: %w", err)
 	}
 	return nil
