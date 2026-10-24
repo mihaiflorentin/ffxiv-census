@@ -177,144 +177,61 @@ func (r *UIStatsRepository) Refresh(ctx context.Context, opts contract.UIStatsRe
 }
 
 func (r *UIStatsRepository) readCharacterStats(ctx context.Context, tx *sql.Tx, snapshot *contract.UIStatsSnapshot) error {
-	rows, err := tx.QueryContext(ctx, `
-		WITH base AS (
-			SELECT COALESCE(region, '') AS region,
-			       COALESCE(datacenter, '') AS datacenter,
-			       COALESCE(world, '') AS world,
-			       COALESCE(race, '') AS race,
-			       COALESCE(tribe, '') AS tribe,
-			       gender,
-			       latest_achievement_at,
-			       max_job_level
-			FROM characters
-			WHERE deleted_at IS NULL
-		)
-		`+groupingSelect+`
+	// One hashed pass over live characters at the fine grain; every scope and
+	// dimension is rolled up in Go.
+	roll, err := queryFineGrain(ctx, tx, `
+		SELECT `+fineGrainKeyColumns+`,
 		       COUNT(*) AS total,
 		       COUNT(*) FILTER (WHERE latest_achievement_at >= $1) AS active,
 		       COUNT(*) FILTER (WHERE max_job_level >= $2) AS max_level
-		FROM base
-		`+groupingSets, snapshot.ActivitySince, snapshot.MaxLevel)
+		FROM characters
+		WHERE deleted_at IS NULL
+		GROUP BY `+fineGrainGroupBy, snapshot.ActivitySince, snapshot.MaxLevel)
 	if err != nil {
 		return fmt.Errorf("query UI character statistics: %w", err)
 	}
-	defer rows.Close()
-
-	for rows.Next() {
-		row, err := scanGroupRow(rows)
-		if err != nil {
-			return err
-		}
-		switch {
-		case row.summary:
-			snapshot.Summary = contract.StatsSummary{Total: row.total, Active: row.active, MaxLevel: row.maxLevel}
-			snapshot.SourceCharacters = row.total
-		case row.keep:
-			snapshot.Groups = append(snapshot.Groups, contract.ScopedGroupCount{
-				Scope: row.key.Scope, Dimension: row.key.Dimension, Key: row.key.Key, Total: row.total, Active: row.active,
-			})
-		}
-	}
-	if err := rows.Err(); err != nil {
-		return fmt.Errorf("iterate UI character statistics: %w", err)
+	snapshot.Summary = roll.summary.statsSummary()
+	snapshot.SourceCharacters = roll.summary.Total
+	for _, key := range roll.sortedKeys() {
+		counts := roll.groups[key]
+		snapshot.Groups = append(snapshot.Groups, contract.ScopedGroupCount{
+			Scope: key.Scope, Dimension: key.Dimension, Key: key.Key, Total: counts.Total, Active: counts.Active,
+		})
 	}
 	return nil
 }
 
-// groupKey identifies one scoped group in the snapshot.
-type groupKey struct {
-	Scope     contract.StatsScope
-	Dimension string
-	Key       string
-}
-
-// groupRow is one decoded GROUPING SETS row of the character statistics.
-type groupRow struct {
-	summary  bool // the grand-total row
-	keep     bool // a group row that belongs in the snapshot
-	key      groupKey
-	total    int64
-	active   int64
-	maxLevel int64
-}
-
-// scanGroupRow decodes a row of the shared GROUPING SETS column layout:
-// the six dimensions, six GROUPING() flags, then total, active, max_level.
-func scanGroupRow(rows *sql.Rows) (groupRow, error) {
-	var region, dc, world, race, tribe sql.NullString
-	var gender sql.NullInt64
-	var gRegion, gDC, gWorld, gRace, gTribe, gGender int
-	var total, active, maxLevel sql.NullInt64
-	if err := rows.Scan(&region, &dc, &world, &race, &tribe, &gender,
-		&gRegion, &gDC, &gWorld, &gRace, &gTribe, &gGender,
-		&total, &active, &maxLevel); err != nil {
-		return groupRow{}, fmt.Errorf("scan UI character statistics: %w", err)
+// queryFineGrain runs a fine-grain statistics query (the fineGrainKeyColumns
+// followed by the fineCounts columns) and rolls its rows up.
+func queryFineGrain(ctx context.Context, tx *sql.Tx, query string, args ...any) (*statsRollup, error) {
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
 	}
-	out := groupRow{total: total.Int64, active: active.Int64, maxLevel: maxLevel.Int64}
-
-	noDimension := gRace == 1 && gTribe == 1 && gGender == 1
-	if noDimension && gRegion == 1 && gDC == 1 && gWorld == 1 {
-		out.summary = true
-		return out, nil
-	}
-	if noDimension {
-		switch {
-		case gRegion == 0:
-			out.key, out.keep = groupKey{Dimension: "region", Key: region.String}, true
-		case gDC == 0:
-			out.key, out.keep = groupKey{Dimension: "datacenter", Key: dc.String}, true
-		case gWorld == 0 && world.String != "":
-			out.key, out.keep = groupKey{Dimension: "world", Key: world.String}, true
+	defer rows.Close()
+	roll := newStatsRollup()
+	for rows.Next() {
+		var key fineKey
+		var counts fineCounts
+		if err := rows.Scan(&key.Region, &key.Datacenter, &key.World, &key.Race, &key.Tribe, &key.Gender,
+			&counts.Total, &counts.Active, &counts.MaxLevel); err != nil {
+			return nil, fmt.Errorf("scan: %w", err)
 		}
-		return out, nil
+		roll.add(key, counts)
 	}
-
-	scope := contract.StatsScope{}
-	if gWorld == 0 {
-		scope.World = world.String
-	} else if gDC == 0 {
-		scope.Datacenter = dc.String
-	} else if gRegion == 0 {
-		scope.Region = region.String
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate: %w", err)
 	}
-	dimension, key := "", ""
-	switch {
-	case gRace == 0 && gGender == 0:
-		dimension = "race_gender"
-		key = race.String + "|" + genderName(gender.Int64)
-	case gRace == 0:
-		dimension, key = "race", race.String
-	case gTribe == 0:
-		dimension, key = "tribe", tribe.String
-	case gGender == 0:
-		dimension, key = "gender", genderName(gender.Int64)
-	}
-	if dimension != "" && (scope != (contract.StatsScope{World: ""}) || gWorld == 1) {
-		out.key, out.keep = groupKey{Scope: scope, Dimension: dimension, Key: key}, true
-	}
-	return out, nil
+	return roll, nil
 }
-
-const groupingSets = `GROUP BY GROUPING SETS (
-			(), (region), (datacenter), (world),
-			(race), (region, race), (datacenter, race), (world, race),
-			(tribe), (region, tribe), (datacenter, tribe), (world, tribe),
-			(gender), (region, gender), (datacenter, gender), (world, gender),
-			(race, gender), (region, race, gender),
-			(datacenter, race, gender), (world, race, gender)
-		)`
-
-const groupingSelect = `SELECT region, datacenter, world, race, tribe, gender,
-		       GROUPING(region), GROUPING(datacenter), GROUPING(world),
-		       GROUPING(race), GROUPING(tribe), GROUPING(gender),`
 
 // readIncrementalCharacterStats builds the character statistics from the
 // previous snapshot: group totals move by the characters first seen and
 // soft-deleted in (previous watermark, watermark], and the active and
-// max-level counts are recomputed exactly from their indexed columns. It
-// reports false when there is no usable previous snapshot or the adjusted
-// result is invalid, so the caller falls back to a full rebuild.
+// max-level counts are recomputed exactly from their indexed columns. Both
+// queries return fine-grain rows rolled up by the same statsRollup as the
+// full refresh. It reports false when there is no usable previous snapshot or
+// the adjusted result is invalid, so the caller falls back to a full rebuild.
 //
 // Drift accepted until the next full rebuild: a character whose location or
 // race changes after it was counted, a soft delete that is later reverted,
@@ -348,98 +265,57 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 	for _, g := range prev.Groups {
 		totals[groupKey{Scope: g.Scope, Dimension: g.Dimension, Key: g.Key}] = g.Total
 	}
-	summaryTotal := prev.Summary.Total
 
-	deltaRows, err := tx.QueryContext(ctx, `
+	delta, err := queryFineGrain(ctx, tx, `
 		WITH delta AS (
-			SELECT COALESCE(region, '') AS region, COALESCE(datacenter, '') AS datacenter,
-			       COALESCE(world, '') AS world, COALESCE(race, '') AS race,
-			       COALESCE(tribe, '') AS tribe, gender, 1 AS sign
+			SELECT region, datacenter, world, race, tribe, gender, 1 AS sign
 			FROM characters
 			WHERE first_seen_at > $1 AND first_seen_at <= $2
 			UNION ALL
-			SELECT COALESCE(region, ''), COALESCE(datacenter, ''), COALESCE(world, ''),
-			       COALESCE(race, ''), COALESCE(tribe, ''), gender, -1
+			SELECT region, datacenter, world, race, tribe, gender, -1
 			FROM characters
 			WHERE deleted_at > $1 AND deleted_at <= $2
 		)
-		`+groupingSelect+`
+		SELECT `+fineGrainKeyColumns+`,
 		       SUM(sign) AS total, 0 AS active, 0 AS max_level
 		FROM delta
-		`+groupingSets, prevWatermark.Time, watermark)
+		GROUP BY `+fineGrainGroupBy, prevWatermark.Time, watermark)
 	if err != nil {
 		return false, fmt.Errorf("query UI statistics delta: %w", err)
 	}
-	for deltaRows.Next() {
-		row, err := scanGroupRow(deltaRows)
-		if err != nil {
-			deltaRows.Close()
-			return false, err
-		}
-		switch {
-		case row.summary:
-			summaryTotal += row.total
-		case row.keep:
-			totals[row.key] += row.total
-		}
+	for key, counts := range delta.groups {
+		totals[key] += counts.Total
 	}
-	if err := deltaRows.Err(); err != nil {
-		deltaRows.Close()
-		return false, fmt.Errorf("iterate UI statistics delta: %w", err)
-	}
-	deltaRows.Close()
+	summaryTotal := prev.Summary.Total + delta.summary.Total
 
-	activeRows, err := tx.QueryContext(ctx, `
-		WITH live AS (
-			SELECT COALESCE(region, '') AS region, COALESCE(datacenter, '') AS datacenter,
-			       COALESCE(world, '') AS world, COALESCE(race, '') AS race,
-			       COALESCE(tribe, '') AS tribe, gender, latest_achievement_at, max_job_level
-			FROM characters
-			WHERE deleted_at IS NULL
-			  AND (latest_achievement_at >= $1 OR max_job_level >= $2)
-		)
-		`+groupingSelect+`
+	live, err := queryFineGrain(ctx, tx, `
+		SELECT `+fineGrainKeyColumns+`,
 		       COUNT(*) AS total,
 		       COUNT(*) FILTER (WHERE latest_achievement_at >= $1) AS active,
 		       COUNT(*) FILTER (WHERE max_job_level >= $2) AS max_level
-		FROM live
-		`+groupingSets, snapshot.ActivitySince, snapshot.MaxLevel)
+		FROM characters
+		WHERE deleted_at IS NULL
+		  AND (latest_achievement_at >= $1 OR max_job_level >= $2)
+		GROUP BY `+fineGrainGroupBy, snapshot.ActivitySince, snapshot.MaxLevel)
 	if err != nil {
 		return false, fmt.Errorf("query UI active statistics: %w", err)
 	}
-	defer activeRows.Close()
-	actives := map[groupKey]int64{}
-	var summaryActive, summaryMaxLevel int64
-	for activeRows.Next() {
-		row, err := scanGroupRow(activeRows)
-		if err != nil {
-			return false, err
-		}
-		switch {
-		case row.summary:
-			summaryActive, summaryMaxLevel = row.active, row.maxLevel
-		case row.keep:
-			actives[row.key] = row.active
-		}
-	}
-	if err := activeRows.Err(); err != nil {
-		return false, fmt.Errorf("iterate UI active statistics: %w", err)
-	}
 
-	for key := range actives {
+	for key := range live.groups {
 		if _, ok := totals[key]; !ok {
 			totals[key] = 0 // an active group the totals do not know: invalid, forces a full rebuild
 		}
 	}
-	for key, total := range totals {
-		if total == 0 && actives[key] == 0 {
+	for _, key := range sortGroupKeys(totals) {
+		total, active := totals[key], live.groups[key].Active
+		if total == 0 && active == 0 {
 			continue
 		}
 		snapshot.Groups = append(snapshot.Groups, contract.ScopedGroupCount{
-			Scope: key.Scope, Dimension: key.Dimension, Key: key.Key, Total: total, Active: actives[key],
+			Scope: key.Scope, Dimension: key.Dimension, Key: key.Key, Total: total, Active: active,
 		})
 	}
-	snapshot.Summary = contract.StatsSummary{Total: summaryTotal, Active: summaryActive, MaxLevel: summaryMaxLevel}
+	snapshot.Summary = contract.StatsSummary{Total: summaryTotal, Active: live.summary.Active, MaxLevel: live.summary.MaxLevel}
 	snapshot.SourceCharacters = summaryTotal
 
 	if err := census.ValidateUIStatsSnapshot(snapshot); err != nil {
@@ -513,17 +389,6 @@ func (r *UIStatsRepository) readMilestoneStats(ctx context.Context, tx *sql.Tx, 
 		return fmt.Errorf("iterate UI milestone statistics: %w", err)
 	}
 	return nil
-}
-
-func genderName(value int64) string {
-	switch value {
-	case 1:
-		return "Male"
-	case 2:
-		return "Female"
-	default:
-		return "Unknown"
-	}
 }
 
 var _ contract.UIStatsRepository = (*UIStatsRepository)(nil)
