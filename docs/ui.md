@@ -18,10 +18,11 @@
 | `/ui/dashboard` | `GET` | Overview, top to bottom: the realm tally (total population over a band split by region), stat tiles (active players, characters at the level cap, new characters in the last 30 days with a worded, signed trend), race distribution bar chart and main-scenario completion meters side by side, the 30-day new-character line chart, and the region table with world drill-down. All aggregate data comes from the cached statistics snapshot. |
 | `/ui/partials/world-breakdown` | `GET` | HTMX partial returning world and datacenter rows for a requested region (`?region=NA`), including each world's New (30d) count |
 | `/ui/races` | `GET` | Playable race demographics with cascading region/DC/world filters, a new-characters (30d) card that follows the active filters, global percentage shares, active ratios, and demographic charts. Filtering selects precomputed snapshot groups and performs no aggregate database query. |
+| `/ui/grand-companies` | `GET` | Grand Companies with the region/DC/world filter bar and chips: "the standards" (one hanging banner per company filled to its share, plus an outline banner for No Grand Company), "Who still plays" (each company's active share as a meter in its colour), the race lean (a 100%-stacked bar per race, whole game) and "Show the numbers" tables. On a schema v2 snapshot it shows the "arrives with the next refresh" state. |
 | `/ui/worlds` | `GET` | Global server rankings table (including a per-world New (30d) column) with interactive region/datacenter filters, a filter-scoped new-characters (30d) card and a "Characters / Active players" ranking switch (`?sort=active`; an HTMX request targeting `world-rankings` gets just that region) |
-| `/ui/worlds/{world}` | `GET` | World detail page (an unknown world answers the styled `404`): node breadcrumbs (region › datacenter › world, linking to the filtered Worlds page), stat tiles (characters, active players (30d), new characters from chocobo milestone 590 with a worded trend vs the previous 30 days), race distribution bar chart, main-scenario completion meters and the 30-day new-character line chart, each chart with a text alternative |
+| `/ui/worlds/{world}` | `GET` | World detail page (an unknown world answers the styled `404`): node breadcrumbs (region › datacenter › world, linking to the filtered Worlds page), stat tiles (characters, active players (30d), new characters from chocobo milestone 590 with a worded trend vs the previous 30 days), a compact Grand Company band (linking to `/ui/grand-companies?world=…`), race distribution bar chart, main-scenario completion meters and the 30-day new-character line chart, each chart with a text alternative |
 | `/ui/expansions` | `GET` | Main scenario progression from A Realm Reborn to Dawntrail as stepped, connected nodes: each step shows completions, share of all characters and retention from the previous expansion |
-| `/ui/methodology` | `GET` | How the census works: data collection, the active-player signal, the new-character (chocobo) milestone and the capstone achievement of each expansion. Renders without a snapshot. |
+| `/ui/methodology` | `GET` | How the census works: data collection, the active-player signal, the new-character (chocobo) milestone, the capstone achievement of each expansion and Grand Company data. Renders without a snapshot. |
 | `/ui/characters/{id}` | `GET` | Detailed character profile with Dawntrail Lv 100 job matrix, story milestone timeline, Free Company badge, and external links |
 | `/ui/characters` | `GET` | Paginated directory browser of discovered player characters |
 | `/ui/characters/search` | `GET` | Global search handler: numeric IDs redirect directly to `/ui/characters/{id}`, text queries filter by character name |
@@ -30,7 +31,7 @@
 
 ### Head Metadata & Canonical URLs
 
-Every indexable page (dashboard, races, worlds, per-world, expansions, methodology) renders SEO head
+Every indexable page (dashboard, races, Grand Companies, worlds, per-world, expansions, methodology) renders SEO head
 metadata from the shared `PageData` struct:
 
 - `<link rel="canonical">` with the absolute URL built from `app.base_url` (`container.Load.Config().App.BaseURL`,
@@ -62,9 +63,11 @@ agree. Unknown values pass through unchanged (and show the filtered empty state)
 
 The Helm chart runs two CronJobs, both with `concurrencyPolicy: Forbid`: `refresh-ui-stats-full` (`--mode=full`) nightly at 01:00 Europe/Bucharest, and `refresh-ui-stats-incremental` (`--mode=incremental`) every 30 minutes (change its `schedule` in `k8s/values.yaml` to change the interval). A full rebuild scans every character (about 6 minutes at 34.5 million rows); the incremental pass does not.
 
-**Fine-grain roll-up.** Every character query of the refresh groups by one fine grain, (region, datacenter, world, race, clan, gender), with plain or filtered counts per group. The full rebuild reads live characters in a single statement (one sequential scan feeding a HashAggregate; a few thousand groups even at production scale), apart from the milestone query. Go then rolls those rows up (`statsRollup` in `infrastructure/postgres/repository/ui_stats_rollup.go`) into the summary, the region, datacenter and world totals, and race, clan, gender and race-and-gender at the global, region, datacenter and world scopes. The incremental delta and the incremental active pass return the same fine-grain rows through the same roll-up, so the two modes cannot disagree about grouping. A character with an empty region, datacenter or world counts in the global demographics and the location totals but in no scope for that empty location. On the 40k-character demo database the full query runs in about 33 ms against about 97 ms for the former GROUPING SETS plan.
+**Fine-grain roll-up.** Every character query of the refresh groups by one fine grain, (region, datacenter, world, race, clan, gender), with plain or filtered counts per group. The full rebuild reads live characters in a single statement (one sequential scan feeding a HashAggregate; a few thousand groups even at production scale), apart from the milestone query. Go then rolls those rows up (`statsRollup` in `infrastructure/postgres/repository/ui_stats_rollup.go`) into the summary, the region, datacenter and world totals, and race, clan, gender and race-and-gender at the global, region, datacenter and world scopes. The incremental delta and the incremental active pass return the same fine-grain rows through the same roll-up, so the two modes cannot disagree about grouping. A character with an empty region, datacenter or world counts in the global demographics and the location totals but in no scope for that empty location. On the 40k-character demo database the full query runs in about 33 ms against about 97 ms for the former GROUPING SETS plan. The fine grain also carries the Grand Company (spec #56), giving the `grand_company` dimension (keys `Maelstrom`, `Order of the Twin Adder`, `Immortal Flames`, and `None` for no company) at every scope and the global-only `grand_company_race` cross (`<company>|<race>`).
 
-**Incremental mode.** The snapshot stores a watermark (`ui_stats_snapshots.watermark_at`, the database clock when the counts were read). An incremental pass takes the previous snapshot's group totals and adds the characters with `first_seen_at` in (watermark, now] and subtracts those with `deleted_at` in the same window (soft deletes only). Active and max-level counts are recomputed exactly each pass from `latest_achievement_at` and `max_job_level` (partial index `idx_characters_max_job_level`), and the milestone figures are recomputed in full. It falls back to a full rebuild when there is no previous snapshot, the schema version or watermark is unusable, or the adjusted result fails validation. Accepted drift until the next nightly rebuild (every fine-grain key column can drift this way): a character whose world, datacenter, region, race, tribe or gender changes after it was counted, a soft delete later reverted, and a character that commits after the read snapshot with a `first_seen_at` before the watermark. The advisory lock keeps the two jobs from overlapping (the later one reports "skipped"). Each server process reloads the database row no more frequently than `cache_ttl`; concurrent cold loads are coalesced. If a reload fails after a successful load, the last good snapshot remains available. A cold process with no snapshot returns `503 Service Unavailable` with `Retry-After: 60` and the styled "Statistics are being prepared" page (see section 5, Error, stale and empty states); there is deliberately no fallback to unbounded aggregate queries.
+**Schema versions.** The refreshes write schema 3 (`contract.UIStatsSchemaVersion`); readers accept 2 and 3 (`contract.UIStatsMinSchemaVersion`), so a v2 snapshot stored before an upgrade keeps the existing pages working, and the incremental refresh rebuilds fully on it, so the first refresh after deploy writes v3. A page that needs a v3 part asks `census.SnapshotHasSection(snapshot, census.SectionGrandCompanies)` (`domain/census/snapshot_sections.go`) and shows the shared `next-refresh` state when it is missing. A new section adds its constant and the schema version that introduced it to `sectionSince`. On the demo database the v3 payload is about 648 KB.
+
+**Incremental mode.** The snapshot stores a watermark (`ui_stats_snapshots.watermark_at`, the database clock when the counts were read). An incremental pass takes the previous snapshot's group totals and adds the characters with `first_seen_at` in (watermark, now] and subtracts those with `deleted_at` in the same window (soft deletes only). Active and max-level counts are recomputed exactly each pass from `latest_achievement_at` and `max_job_level` (partial index `idx_characters_max_job_level`), and the milestone figures are recomputed in full. It falls back to a full rebuild when there is no previous snapshot, the schema version or watermark is unusable, or the adjusted result fails validation. Accepted drift until the next nightly rebuild (every fine-grain key column can drift this way): a character whose world, datacenter, region, race, tribe, gender or Grand Company changes after it was counted, a soft delete later reverted, and a character that commits after the read snapshot with a `first_seen_at` before the watermark. The advisory lock keeps the two jobs from overlapping (the later one reports "skipped"). Each server process reloads the database row no more frequently than `cache_ttl`; concurrent cold loads are coalesced. If a reload fails after a successful load, the last good snapshot remains available. A cold process with no snapshot returns `503 Service Unavailable` with `Retry-After: 60` and the styled "Statistics are being prepared" page (see section 5, Error, stale and empty states); there is deliberately no fallback to unbounded aggregate queries.
 
 ```toml
 [census.ui_stats]
@@ -113,6 +116,7 @@ cmd/http/ui/
 │   │   └── figures.html    # Shared "trend" line for new-character tiles
 │   ├── dashboard.html      # Realm tally, stat tiles, race and MSQ panels, 30-day chart, region table
 │   ├── races.html          # Races and clans: filter bar, stat tiles, race/gender doughnuts, clan and race×gender bars, race table
+│   ├── grand_companies.html # Grand Companies: filter bar, the standards, who still plays, race lean, number tables
 │   ├── worlds.html         # Worlds: filter bar, stat tiles, world rankings data table
 │   ├── world_detail.html   # World: node breadcrumbs, stat tiles, race and MSQ panels, 30-day chart
 │   ├── expansions.html     # Main scenario progression steps (completions, share, retention)
@@ -134,6 +138,7 @@ cmd/http/ui/
 ├── trend.go                # Worded, signed trend (Up +20 (+200.0%)) for stat tiles
 ├── filters.go              # FilterBar view model and filterChips (URL with one filter removed)
 ├── races.go                # Controller for /ui/races (clans grouped by race, race x gender)
+├── grand_companies.go      # Controller for /ui/grand-companies (the standards, active share, race lean) + world band
 ├── worlds.go               # Controller for /ui/worlds
 ├── world_detail.go         # Controller for /ui/worlds/{world}
 ├── timeline.go             # 30-day new-character series: the 30 complete UTC days before the snapshot day
@@ -343,6 +348,17 @@ inventing their own. Each is covered by tests in `design_v2_test.go` and `switch
   sentence and a "Show the numbers" table with characters, share and active) with the main-scenario
   `.progress-list`, then the 30-day line chart (zero-filled by `newCharactersTimeline`, the same series
   as the dashboard) with its summary and table.
+- **World detail Grand Company band**: a panel under the stat tiles with a 14px band split by company
+  (an SVG of `rect`s whose `x`/`width` are the shares, in GC colours; No Grand Company is the empty
+  track) and a key with every name and share, linking to the Grand Companies page filtered to the world.
+- **The standards** (Grand Companies, the signature element): an `<ol class="standards">` of four
+  `.standard` items, each a crossbar and an SVG swallowtail banner. The cloth is tinted 12% with the
+  company colour, its edge is the company colour, and the fill (a `rect` clipped to the cloth) rises from
+  the tail to the company's share of the selection; No Grand Company (`.standard-none`) is a dashed
+  outline whose fill is drawn as an outline too. The share sits in the banner in Saira, the printed name
+  and character count below. Colour reaches each banner, swatch, meter and band segment through
+  `--slot-color` from `.gc-<slug>` / `.standard-<slug>`. The row has the page's one entrance
+  (`data-entrance="rise"`).
 - **Progression steps** (Expansions): one `<li>` per expansion in an `<ol class="progression">`. Each
   step has a node on a vertical connector, the expansion name (`h3`) with patch, level cap and finale,
   a `<meter>` for its share of all characters (so the bars step down), and a `<dl>` of Completed, Share
@@ -528,7 +544,7 @@ All three render through the page shell, so they keep the header, navigation and
 
 ## 6. Cascading Filters
 
-The `/ui/races` and `/ui/worlds` pages share one **filter bar** that narrows the page along the
+The `/ui/races`, `/ui/grand-companies` and `/ui/worlds` pages share one **filter bar** that narrows the page along the
 hierarchy **Region → Datacenter → World**. Query parameters (`region`, `dc`, `world`), the cascading
 option lists and canonical URLs are unchanged by the redesign.
 
@@ -556,6 +572,9 @@ view model built in the controller (`filters.go`):
 Three selects in a single form. Selecting a region narrows the Datacenter options to that region's
 DCs; selecting a DC narrows the World options to that DC's worlds. When no parent filter is selected,
 all options are shown. The most specific filter scopes the figures (world, then DC, then region).
+
+The Grand Companies page uses the same three selects and chips (`placeFilterBar` in `filters.go`
+builds both); its race lean always covers the whole game and says so when a filter is applied.
 
 ### Worlds Page (`/ui/worlds`)
 

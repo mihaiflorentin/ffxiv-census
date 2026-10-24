@@ -98,6 +98,7 @@ func TestSitemapHandler(t *testing.T) {
 	want := []string{
 		base + "/",
 		base + "/ui/races",
+		base + "/ui/grand-companies",
 		base + "/ui/worlds",
 		base + "/ui/expansions",
 		base + "/ui/methodology",
@@ -132,6 +133,7 @@ func TestSitemapHandler_DegradedStillServesStaticURLs(t *testing.T) {
 	want := []string{
 		base + "/",
 		base + "/ui/races",
+		base + "/ui/grand-companies",
 		base + "/ui/worlds",
 		base + "/ui/expansions",
 		base + "/ui/methodology",

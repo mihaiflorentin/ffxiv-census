@@ -213,7 +213,7 @@ func queryFineGrain(ctx context.Context, tx *sql.Tx, query string, args ...any) 
 	for rows.Next() {
 		var key fineKey
 		var counts fineCounts
-		if err := rows.Scan(&key.Region, &key.Datacenter, &key.World, &key.Race, &key.Tribe, &key.Gender,
+		if err := rows.Scan(&key.Region, &key.Datacenter, &key.World, &key.Race, &key.Tribe, &key.Gender, &key.GrandCompany,
 			&counts.Total, &counts.Active, &counts.MaxLevel); err != nil {
 			return nil, fmt.Errorf("scan: %w", err)
 		}
@@ -233,8 +233,8 @@ func queryFineGrain(ctx context.Context, tx *sql.Tx, query string, args ...any) 
 // full refresh. It reports false when there is no usable previous snapshot or
 // the adjusted result is invalid, so the caller falls back to a full rebuild.
 //
-// Drift accepted until the next full rebuild: a character whose location or
-// race changes after it was counted, a soft delete that is later reverted,
+// Drift accepted until the next full rebuild: a character whose location,
+// race or Grand Company changes after it was counted, a soft delete that is later reverted,
 // and a character whose first_seen_at precedes the watermark but that commits
 // after this read snapshot.
 func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, tx *sql.Tx, snapshot *contract.UIStatsSnapshot, watermark time.Time) (bool, error) {
@@ -268,11 +268,11 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 
 	delta, err := queryFineGrain(ctx, tx, `
 		WITH delta AS (
-			SELECT region, datacenter, world, race, tribe, gender, 1 AS sign
+			SELECT region, datacenter, world, race, tribe, gender, grand_company, 1 AS sign
 			FROM characters
 			WHERE first_seen_at > $1 AND first_seen_at <= $2
 			UNION ALL
-			SELECT region, datacenter, world, race, tribe, gender, -1
+			SELECT region, datacenter, world, race, tribe, gender, grand_company, -1
 			FROM characters
 			WHERE deleted_at > $1 AND deleted_at <= $2
 		)

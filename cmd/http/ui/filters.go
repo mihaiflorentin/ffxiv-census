@@ -3,9 +3,11 @@ package ui
 import (
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 
 	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
+	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
 // placeFilter is the region / datacenter / world selection of a request,
@@ -16,6 +18,65 @@ type placeFilter struct {
 	Region     string
 	Datacenter string
 	World      string
+}
+
+// scope is the statistics scope of the selection: its narrowest applied filter.
+func (p placeFilter) scope() contract.StatsScope {
+	switch {
+	case p.World != "":
+		return contract.StatsScope{World: p.World}
+	case p.Datacenter != "":
+		return contract.StatsScope{Datacenter: p.Datacenter}
+	case p.Region != "":
+		return contract.StatsScope{Region: p.Region}
+	}
+	return contract.StatsScope{}
+}
+
+// placeFilterBar is the region / datacenter / world filter bar of a page
+// (Races, Grand Companies): cascading selects (region narrows datacenters,
+// datacenter narrows worlds) and one removable chip per applied filter.
+func placeFilterBar(action, label string, place placeFilter) FilterBar {
+	var dcList []string
+	if place.Region != "" {
+		dcList = DCsForRegion(place.Region)
+	} else {
+		dcList = census.Datacenters()
+		sort.Strings(dcList)
+	}
+
+	var worldList []string
+	if place.Datacenter != "" {
+		worldList = WorldsForDC(place.Datacenter)
+	} else if place.Region != "" {
+		for _, dc := range DCsForRegion(place.Region) {
+			worldList = append(worldList, WorldsForDC(dc)...)
+		}
+		sort.Strings(worldList)
+	} else {
+		worldList = census.Worlds()
+		sort.Strings(worldList)
+	}
+
+	var regionList []string
+	for _, region := range census.Regions() {
+		regionList = append(regionList, region.Code)
+	}
+	return FilterBar{
+		Action: action,
+		Label:  label,
+		Selects: []FilterSelect{
+			{ID: "filter-region", Name: "region", Label: "Region", AllLabel: "All regions", Options: filterOptions(regionList, place.Region, regionDisplayName)},
+			{ID: "filter-dc", Name: "dc", Label: "Datacenter", AllLabel: "All datacenters", Options: filterOptions(dcList, place.Datacenter, nil)},
+			{ID: "filter-world", Name: "world", Label: "World", AllLabel: "All worlds", Options: filterOptions(worldList, place.World, nil)},
+		},
+		Chips: filterChips(action, []appliedFilter{
+			{Name: "region", Label: "Region", Value: place.Region, Shown: regionDisplayName(place.Region)},
+			{Name: "dc", Label: "Datacenter", Value: place.Datacenter},
+			{Name: "world", Label: "World", Value: place.World},
+		}),
+		ClearHref: action,
+	}
 }
 
 func parsePlaceFilter(r *http.Request) placeFilter {

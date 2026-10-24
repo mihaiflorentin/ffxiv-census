@@ -29,6 +29,31 @@
     </div>
 </section>
 
+<section class="panel" aria-labelledby="gc-band-heading">
+    <div class="panel-header">
+        <h2 id="gc-band-heading" class="panel-title">Grand Companies</h2>
+        <p class="panel-meta"><a href="{{.Data.GrandCompanies.Href}}">Grand Companies on {{.Data.World}}</a></p>
+    </div>
+    <div class="panel-body">
+        {{if not .Data.GrandCompanies.Ready}}
+        {{template "next-refresh" (nextRefresh "Grand Company figures")}}
+        {{else if .Data.GrandCompanies.Segments}}
+        <div class="gc-band-wrap">
+            <svg class="gc-band" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+                {{range .Data.GrandCompanies.Segments}}<rect class="gc-band-segment gc-{{.Slug}}" x="{{.X}}" y="0" width="{{.Width}}" height="10"/>{{end}}
+            </svg>
+            <ul class="gc-band-key">
+                {{range .Data.GrandCompanies.Segments}}
+                <li><span class="swatch gc-swatch gc-{{.Slug}}" aria-hidden="true"></span><span class="gc-band-name">{{.Label}}</span> <span class="gc-band-share">{{.Share}}</span></li>
+                {{end}}
+            </ul>
+        </div>
+        {{else}}
+        {{template "empty-state" (emptyStateLink "No Grand Company data for this world yet." "Statistics appear after the next census refresh." "/ui/grand-companies" "See every Grand Company")}}
+        {{end}}
+    </div>
+</section>
+
 <div class="dashboard-grid">
     <section class="panel" aria-labelledby="races-heading">
         <div class="panel-header">
