@@ -7,6 +7,9 @@ type CensusSummary struct {
 	ActiveCharacters   int64   `json:"active_characters"`
 	ActiveRatio        float64 `json:"active_ratio"`
 	MaxLevelCharacters int64   `json:"max_level_characters"`
+	// ActivityWindowDays is the activity window behind ActiveCharacters: a
+	// character is active when its latest public achievement is this recent.
+	ActivityWindowDays int `json:"activity_window_days"`
 }
 
 type CharacterListItem struct {

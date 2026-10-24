@@ -1,7 +1,7 @@
 {{define "content"}}
 <div class="page-header">
     <h1 class="page-title">Worlds</h1>
-    <p class="page-desc">Every world ranked by characters in the census, with how many played in the last 30 days. Pick a region or datacenter to narrow the list.</p>
+    <p class="page-desc">Every world ranked by characters in the census, with how many played in the last {{$.ActivityWindow.Long}}. Pick a region or datacenter to narrow the list.</p>
 </div>
 
 {{template "filter-bar" .Data.Filters}}
@@ -18,7 +18,7 @@
         <p class="stat-subtext">On these worlds</p>
     </div>
     <div class="stat-card">
-        <p class="stat-label">Active players, last 30 days</p>
+        <p class="stat-label">Active players, last {{$.ActivityWindow.Long}}</p>
         <p class="stat-value">{{formatNumber .Data.ActiveCharacters}}</p>
         <p class="stat-subtext">{{formatPercent .Data.ActiveCharacters .Data.TotalCharacters}} of these characters</p>
     </div>
@@ -48,7 +48,7 @@
                     <tr>
                         <th scope="col">World</th>
                         <th scope="col" class="text-right"{{if ne .Data.Rank "active"}} aria-sort="descending"{{end}}>Characters</th>
-                        <th scope="col" class="text-right"{{if eq .Data.Rank "active"}} aria-sort="descending"{{end}}>Active, 30 days</th>
+                        <th scope="col" class="text-right"{{if eq .Data.Rank "active"}} aria-sort="descending"{{end}}>Active, {{$.ActivityWindow.Long}}</th>
                         <th scope="col" class="text-right">New, 30 days</th>
                         <th scope="col" class="text-right">Active share</th>
                         <th scope="col">Datacenter</th>

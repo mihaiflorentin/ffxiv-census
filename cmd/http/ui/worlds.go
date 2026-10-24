@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
@@ -130,7 +131,7 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 
 	newWindow := census.NewCharactersWindow(snapshot, contract.StatsScope{Region: selectedRegion, Datacenter: selectedDC})
 
-	data := statsPageData("Worlds Census", "worlds", "/ui/worlds", "Final Fantasy XIV world rankings: total and active character counts for every world and datacenter, with region filters and 30-day activity ratios.", state, WorldsViewData{
+	data := statsPageData("Worlds Census", "worlds", "/ui/worlds", fmt.Sprintf("Final Fantasy XIV world rankings: total characters and players active in the last %s for every world and datacenter, with region filters.", Window{Days: state.ActivityWindowDays}.Long()), state, WorldsViewData{
 		TotalCharacters:    totalChars,
 		ActiveCharacters:   activeChars,
 		NewCharacters30d:   newWindow.Current,

@@ -18,7 +18,7 @@
             {{if .Data.Character.DeletedAt}}
             <span class="badge badge-inactive">Character Deleted / Transferred</span>
             {{else if .Data.IsActive}}
-            <span class="badge badge-active">● Active (Within 30 Days)</span>
+            <span class="badge badge-active">● Active, last {{.ActivityWindow.Long}}</span>
             {{else}}
             <span class="badge badge-inactive">○ Inactive</span>
             {{end}}

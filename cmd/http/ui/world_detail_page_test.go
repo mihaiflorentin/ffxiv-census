@@ -68,7 +68,7 @@ func TestWorldDetailRendersItsFiguresFromTheSnapshot(t *testing.T) {
 		t.Fatalf("expected one key figures section, got %d", len(tiles))
 	}
 	figures := textOf(tiles[0])
-	for _, want := range []string{"Characters 8", "Active players, last 30 days 8", "100.0% of these characters", "New characters, last 30 days"} {
+	for _, want := range []string{"Characters 8", "Active players, last 90 days 8", "100.0% of these characters", "New characters, last 30 days"} {
 		if !strings.Contains(figures, want) {
 			t.Errorf("key figures %q missing %q", figures, want)
 		}

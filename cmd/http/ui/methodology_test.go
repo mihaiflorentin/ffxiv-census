@@ -42,6 +42,12 @@ func TestMethodologyHandler(t *testing.T) {
 		"top 100",
 		"at least 2 members",
 		"renamed",
+		// No snapshot is loaded, so the window is the service's default.
+		"earned in the last 90 days",
+		// Why the window is wide, and what it can't fix.
+		"Why 90 days",
+		"A full census pass takes months",
+		"still undercounts",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("expected body to contain %q", want)

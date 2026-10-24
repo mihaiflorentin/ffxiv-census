@@ -44,12 +44,14 @@ Times are RFC 3339 UTC (Go `time.Time` marshaling). The exception is `NewCharact
 
 ```toml
 [census]
-activity_window_days = 30
+activity_window_days = 90
 ```
 
 Environment override uses the same rule as `[postgres]` (dots become underscores, section name is the prefix): `CENSUS_ACTIVITY_WINDOW_DAYS=45`.
 
-The window drives `active_characters`/`active_ratio` on `GET /api/v1/census/latest` and the `active` count on `GET /api/v1/stats/breakdown`.
+The default is 90 days because a full census pass takes months: a character's latest achievement is only as recent as the census's last visit, so a short window undercounts active players.
+
+The window drives `active_characters`/`active_ratio` on `GET /api/v1/census/latest` (which also reports it as `activity_window_days`, the window the snapshot was built with), the `active` count on `GET /api/v1/stats/breakdown`, the `is_active` flag on `GET /api/v1/census/characters` and `GET /api/v1/census/characters/{id}`, and the `is_active` column of `GET /api/v1/census/export` and the `export` CLI command. A changed window applies to the snapshot figures from the next refresh.
 
 ### Aggregate snapshot
 
@@ -79,14 +81,15 @@ Liveness probe.
 
 ### GET /api/v1/census/latest
 
-Total, active, and max-level character counts plus the active ratio (`active / total`; `0` when `total` is `0`).
+Total, active, and max-level character counts plus the active ratio (`active / total`; `0` when `total` is `0`). `activity_window_days` is the [activity window](#activity-window) behind `active_characters`, in days, as the snapshot was built.
 
 ```json
 {
   "total_characters": 1234,
   "active_characters": 900,
   "active_ratio": 0.7293,
-  "max_level_characters": 450
+  "max_level_characters": 450,
+  "activity_window_days": 90
 }
 ```
 

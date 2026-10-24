@@ -5,6 +5,29 @@ import (
 	"time"
 )
 
+func TestWindowCopy(t *testing.T) {
+	generated := time.Date(2026, 10, 24, 3, 0, 0, 0, time.UTC)
+	tests := []struct {
+		name              string
+		window            Window
+		wantLong, wantShr string
+	}{
+		{name: "90 days from a snapshot", window: windowBetween(generated.Add(-90*24*time.Hour), generated), wantLong: "90 days", wantShr: "90d"},
+		{name: "a few seconds short still reads 45 days", window: windowBetween(generated.Add(-45*24*time.Hour+2*time.Second), generated), wantLong: "45 days", wantShr: "45d"},
+		{name: "one day is singular", window: Window{Days: 1}, wantLong: "1 day", wantShr: "1d"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := tt.window.Long(); got != tt.wantLong {
+				t.Errorf("Long() = %q, want %q", got, tt.wantLong)
+			}
+			if got := tt.window.Short(); got != tt.wantShr {
+				t.Errorf("Short() = %q, want %q", got, tt.wantShr)
+			}
+		})
+	}
+}
+
 func TestFormatNumber(t *testing.T) {
 	tests := []struct {
 		input    int64

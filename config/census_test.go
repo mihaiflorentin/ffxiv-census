@@ -7,8 +7,8 @@ func TestCensusConfig_Defaults(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConfig: %v", err)
 	}
-	if cfg.Census == nil || cfg.Census.ActivityWindowDays != 30 {
-		t.Fatalf("activity_window_days = %v, want 30", cfg.Census)
+	if cfg.Census == nil || cfg.Census.ActivityWindowDays != 90 {
+		t.Fatalf("activity_window_days = %v, want 90", cfg.Census)
 	}
 }
 

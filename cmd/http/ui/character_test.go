@@ -56,8 +56,8 @@ func TestCharacterDetailHandler(t *testing.T) {
 	if !strings.Contains(body, "Paladin") {
 		t.Errorf("expected body to contain Paladin job, got:\n%s", body)
 	}
-	if !strings.Contains(body, "Active") {
-		t.Errorf("expected body to contain Active badge, got:\n%s", body)
+	if !strings.Contains(body, "Active, last 90 days") {
+		t.Errorf("expected the Active badge to state the service's 90-day window, got:\n%s", body)
 	}
 
 	// Test 404 for unknown character

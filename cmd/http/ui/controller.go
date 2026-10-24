@@ -78,6 +78,9 @@ type PageData struct {
 	SearchQuery   string
 	StatsUpdated  string
 	StatsStale    bool
+	// ActivityWindow is how recent a latest public achievement must be to
+	// count as active, read from the snapshot the page shows.
+	ActivityWindow Window
 	// NoIndex marks error pages: they carry a robots noindex hint and no
 	// canonical URL.
 	NoIndex bool
@@ -135,6 +138,8 @@ func statsPageData(title, activeNav, canonicalPath, description string, state ce
 		StatsUpdated:  formatStatsUpdated(state),
 		StatsStale:    state.Stale,
 		Data:          data,
+
+		ActivityWindow: Window{Days: state.ActivityWindowDays},
 	}
 }
 
@@ -185,13 +190,20 @@ func (c *UIController) renderNotFound(w http.ResponseWriter, r *http.Request, vi
 // depend on the snapshot. It reads only the snapshot already held in memory,
 // so these pages never wait on (or trigger) a database load; with nothing
 // cached they render without freshness.
+//
+// It also sets the activity window: the loaded snapshot's, or the census
+// service's while no snapshot is loaded.
 func (c *UIController) fillFreshness(data *PageData) {
+	if c.svc != nil {
+		data.ActivityWindow = Window{Days: census.WindowDays(c.svc.ActivityWindow())}
+	}
 	if c.stats == nil {
 		return
 	}
 	if state, ok := c.stats.Cached(); ok {
 		data.StatsUpdated = formatStatsUpdated(state)
 		data.StatsStale = state.Stale
+		data.ActivityWindow = Window{Days: state.ActivityWindowDays}
 	}
 }
 

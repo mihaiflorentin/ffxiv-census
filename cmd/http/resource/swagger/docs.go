@@ -617,6 +617,10 @@ const docTemplate = `{
         "max_level_characters": {
           "type": "integer",
           "format": "int64"
+        },
+        "activity_window_days": {
+          "type": "integer",
+          "description": "Activity window behind active_characters, in days: a character is active when its latest public achievement is this recent."
         }
       }
     },
