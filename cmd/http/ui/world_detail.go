@@ -18,14 +18,13 @@ type WorldDetailViewData struct {
 	TotalCharacters    int64
 	ActiveCharacters   int64
 	ActiveRatio        string
-	NewCharacters30d   int64
+	NewCharacters      int64
 	NewCharactersTrend Trend
 	// Races are ranked by characters; RaceLabels/RaceData feed the chart.
 	Races          []RaceRow
 	RaceLabels     []string
 	RaceData       []int64
 	MSQCompletions []ExpansionCard
-	Timeline       Timeline
 	GrandCompanies GrandCompanyBand
 	TopJobs        TopJobsBlock
 	FreeCompanies  TopFreeCompaniesBlock
@@ -92,20 +91,19 @@ func (c *UIController) WorldDetail(w http.ResponseWriter, r *http.Request) {
 	fcBoard, fcErr := c.stats.FreeCompanyBoard(r.Context(), snapshot,
 		census.FreeCompanyQuery{Measure: census.FreeCompanyMembers, Scope: scope})
 
-	c.render(w, "templates/world_detail.html", statsPageData(fmt.Sprintf("%s - World Demographics", worldName), "worlds", fmt.Sprintf("/ui/worlds/%s", worldName), fmt.Sprintf("Character population for the FFXIV world %s: players active in the last %s, race demographics, MSQ completions and new characters.", worldName, Window{Days: state.ActivityWindowDays}.Long()), state, WorldDetailViewData{
+	c.render(w, "templates/world_detail.html", statsPageData(fmt.Sprintf("%s - World Demographics", worldName), "worlds", fmt.Sprintf("/ui/worlds/%s", worldName), fmt.Sprintf("Character population for the FFXIV world %s: players active in the last %s, new characters in the last %s, race demographics and MSQ completions.", worldName, Window{Days: state.ActivityWindowDays}.Long(), Window{Days: state.NewCharactersWindowDays}.Long()), state, WorldDetailViewData{
 		World:              worldName,
 		Datacenter:         dc,
 		Region:             region,
 		TotalCharacters:    total,
 		ActiveCharacters:   active,
 		ActiveRatio:        formatPercent(active, total),
-		NewCharacters30d:   window.Current,
-		NewCharactersTrend: newTrend(window.Current, window.Previous),
+		NewCharacters:      window.Current,
+		NewCharactersTrend: newTrend(window),
 		Races:              raceRows,
 		RaceLabels:         raceLabels,
 		RaceData:           raceData,
 		MSQCompletions:     msq,
-		Timeline:           newCharactersTimeline(snapshot, scope),
 		GrandCompanies: grandCompanyBand(c.memo.GrandCompanySplit(snapshot, scope),
 			census.SnapshotHasSection(snapshot, census.SectionGrandCompanies), worldName),
 		TopJobs: topJobsBlock(c.memo.Armoury(snapshot, scope),

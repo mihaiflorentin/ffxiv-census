@@ -59,6 +59,13 @@ func rankingsSnapshot(version int) *contract.UIStatsSnapshot {
 		if version >= 3 {
 			g.MaxLevel, g.Private = w.atCap, w.total/10
 		}
+		if version >= 4 {
+			// Schema 4 keeps each world's new characters as window totals.
+			s.NewCharactersWindowDays = 90
+			g.NewCharacters = w.newish
+		} else {
+			s.NewCharacters = append(s.NewCharacters, contract.ScopedDailyCount{Scope: contract.StatsScope{World: w.name}, Day: day, Count: w.newish})
+		}
 		s.Groups = append(s.Groups, g)
 		for _, parent := range []struct {
 			dim, key string
@@ -82,7 +89,6 @@ func rankingsSnapshot(version int) *contract.UIStatsSnapshot {
 				contract.ScopedGroupCount{Scope: scope, Dimension: "grand_company", Key: "None", Total: w.total - w.maelstrom},
 			)
 		}
-		s.NewCharacters = append(s.NewCharacters, contract.ScopedDailyCount{Scope: contract.StatsScope{World: w.name}, Day: day, Count: w.newish})
 		s.Summary.Total += g.Total
 		s.Summary.Active += g.Active
 		s.Summary.MaxLevel += g.MaxLevel
@@ -144,7 +150,7 @@ func ladderEntries(t *testing.T, root *html.Node) []ladderEntry {
 }
 
 func TestRankingsPageDefaultsToFastestGrowingWorlds(t *testing.T) {
-	rec := serveMuxGet(t, rankingsMux(t, 3), "/ui/rankings")
+	rec := serveMuxGet(t, rankingsMux(t, contract.UIStatsSchemaVersion), "/ui/rankings")
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d: %s", rec.Code, rec.Body.String())
 	}
@@ -189,7 +195,7 @@ func TestRankingsPageDefaultsToFastestGrowingWorlds(t *testing.T) {
 
 	main := flatText(mainOf(t, doc))
 	for _, line := range []string{
-		"New characters in the last 30 days for every 1,000 characters on the world.",
+		"New characters in the last 90 days for every 1,000 characters on the world.",
 		"1 world with fewer than 250 characters is left out",
 	} {
 		if !strings.Contains(main, line) {

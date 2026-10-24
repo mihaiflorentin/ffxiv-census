@@ -131,7 +131,7 @@ func rowHeaderLinks(table *html.Node) map[string]string {
 func TestWorldRankingsUseTheDataTable(t *testing.T) {
 	doc := renderPage(t, "/ui/worlds?region=EU&dc=Chaos")
 	table := tableCaptioned(t, doc, "World rankings, on the Chaos datacenter")
-	assertDataTable(t, doc, table, "Characters", "Active, 90 days", "New, 30 days", "Active share")
+	assertDataTable(t, doc, table, "Characters", "Active, 90 days", "New, 90 days", "Active share")
 	if got := rowHeaderLinks(table)["Cerberus"]; got != "/ui/worlds/Cerberus" {
 		t.Errorf("world name links to %q, want /ui/worlds/Cerberus", got)
 	}
@@ -177,7 +177,7 @@ func TestWorldDrilldownUsesTheDataTable(t *testing.T) {
 	}
 	doc := parseHTML(t, rec.Body.String())
 	table := tableCaptioned(t, doc, "Worlds in North America")
-	assertDataTable(t, doc, table, "Characters", "Active, 90 days", "New, 30 days", "Active share")
+	assertDataTable(t, doc, table, "Characters", "Active, 90 days", "New, 90 days", "Active share")
 	if got := rowHeaderLinks(table)["Balmung"]; got != "/ui/worlds/Balmung" {
 		t.Errorf("drill-down world links to %q, want /ui/worlds/Balmung", got)
 	}

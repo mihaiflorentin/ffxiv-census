@@ -18,8 +18,8 @@
         <p class="stat-subtext">{{.Data.ActivePercent}} of these characters</p>
     </div>
     <div class="stat-card">
-        <p class="stat-label">New characters, last 30 days</p>
-        <p class="stat-value">{{formatNumber .Data.NewCharacters30d}}</p>
+        <p class="stat-label">New characters, last {{$.NewCharactersWindow.Long}}</p>
+        <p class="stat-value">{{formatNumber .Data.NewCharacters}}</p>
         {{template "trend" .Data.NewCharactersTrend}}
     </div>
 </section>

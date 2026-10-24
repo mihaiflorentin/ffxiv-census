@@ -1,6 +1,10 @@
 package ui
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
+)
 
 // TrendDirection is the direction of a Trend; empty when there is nothing to
 // compare.
@@ -20,20 +24,24 @@ type Trend struct {
 	Direction TrendDirection
 	// Text reads like "Up +20 (+200.0%)", "Down −15 (−75.0%)" or "No change".
 	Text string
+	// Window is the length of both windows, for "on the previous 90 days".
+	Window Window
 }
 
 // minus is the typographic minus sign used for negative deltas.
 const minus = "−"
 
-// newTrend compares a current window total with the previous one. A zero
-// previous window omits the percentage.
-func newTrend(current, previous int64) Trend {
+// newTrend compares a new-characters window total with the previous
+// window's. A zero previous window omits the percentage.
+func newTrend(totals census.NewCharacterTotals) Trend {
+	current, previous := totals.Current, totals.Previous
+	window := Window{Days: totals.Days}
 	delta := current - previous
 	switch {
 	case delta == 0 && previous == 0:
 		return Trend{}
 	case delta == 0:
-		return Trend{Direction: TrendFlat, Text: "No change"}
+		return Trend{Direction: TrendFlat, Text: "No change", Window: window}
 	}
 	word, sign, direction := "Up", "+", TrendUp
 	absolute := delta
@@ -45,5 +53,5 @@ func newTrend(current, previous int64) Trend {
 	if previous > 0 {
 		text += fmt.Sprintf(" (%s%s)", sign, formatPercent(absolute, previous))
 	}
-	return Trend{Direction: direction, Text: text}
+	return Trend{Direction: direction, Text: text, Window: window}
 }

@@ -81,6 +81,10 @@ type PageData struct {
 	// ActivityWindow is how recent a latest public achievement must be to
 	// count as active, read from the snapshot the page shows.
 	ActivityWindow Window
+	// NewCharactersWindow is how far back the new-character figures count,
+	// read from the snapshot the page shows; trends compare it with the
+	// same length before it.
+	NewCharactersWindow Window
 	// NoIndex marks error pages: they carry a robots noindex hint and no
 	// canonical URL.
 	NoIndex bool
@@ -139,7 +143,8 @@ func statsPageData(title, activeNav, canonicalPath, description string, state ce
 		StatsStale:    state.Stale,
 		Data:          data,
 
-		ActivityWindow: Window{Days: state.ActivityWindowDays},
+		ActivityWindow:      Window{Days: state.ActivityWindowDays},
+		NewCharactersWindow: Window{Days: state.NewCharactersWindowDays},
 	}
 }
 
@@ -191,11 +196,12 @@ func (c *UIController) renderNotFound(w http.ResponseWriter, r *http.Request, vi
 // so these pages never wait on (or trigger) a database load; with nothing
 // cached they render without freshness.
 //
-// It also sets the activity window: the loaded snapshot's, or the census
-// service's while no snapshot is loaded.
+// It also sets the activity and new-characters windows: the loaded
+// snapshot's, or the census service's while no snapshot is loaded.
 func (c *UIController) fillFreshness(data *PageData) {
 	if c.svc != nil {
 		data.ActivityWindow = Window{Days: census.WindowDays(c.svc.ActivityWindow())}
+		data.NewCharactersWindow = Window{Days: census.WindowDays(c.svc.NewCharactersWindow())}
 	}
 	if c.stats == nil {
 		return
@@ -204,6 +210,7 @@ func (c *UIController) fillFreshness(data *PageData) {
 		data.StatsUpdated = formatStatsUpdated(state)
 		data.StatsStale = state.Stale
 		data.ActivityWindow = Window{Days: state.ActivityWindowDays}
+		data.NewCharactersWindow = Window{Days: state.NewCharactersWindowDays}
 	}
 }
 

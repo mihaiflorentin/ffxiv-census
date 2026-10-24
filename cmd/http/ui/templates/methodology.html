@@ -40,11 +40,13 @@
     <section class="prose-section" aria-labelledby="new-characters">
         <h2 id="new-characters">New characters</h2>
         <p>Earlier versions counted a character as new on the day the census first found it. That date can mislead: older or returning characters are often found during routine sweeps.</p>
-        <p>The new characters figure, and every 30-day timeline, instead dates a character by when they earned an early main scenario milestone:</p>
+        <p>The new characters figure, and its daily timeline, instead dates a character by when they earned an early main scenario milestone:</p>
         <dl class="prose-definition">
             <dt>Achievement ID 590, “My Little Chocobo”</dt>
             <dd>Earned for receiving a company chocobo from the player’s Grand Company (the Maelstrom, the Order of the Twin Adder or the Immortal Flames) around level 20 of the main scenario.</dd>
         </dl>
+        <p>A character counts as <strong>new</strong> when they earned this achievement in the last {{$.NewCharactersWindow.Long}}, up to the last full day in UTC. The trend compares that count with the {{$.NewCharactersWindow.Long}} before.</p>
+        <p><strong>Why {{$.NewCharactersWindow.Long}}?</strong> The census sees a new chocobo only when it next visits the character, and a full pass takes months. So the most recent days are always undercounted. A wide window evens this out, but while a pass takes longer than the window, the figure still undercounts new characters.</p>
         <p>Characters without this achievement, or whose achievements are private, are left out of the new characters timeline. Every counted character has played past character creation and into the story, rather than being an indexing artefact.</p>
     </section>
 

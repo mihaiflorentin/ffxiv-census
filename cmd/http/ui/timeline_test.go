@@ -15,22 +15,26 @@ import (
 )
 
 // timelineSnapshot is generated mid-morning on Oct 24, so Oct 24 is a
-// partial day. The 30 complete days are Sep 24 to Oct 23.
-func timelineSnapshot(scope contract.StatsScope) *contract.UIStatsSnapshot {
+// partial day. With a 90-day window the complete days are Jul 26 to Oct 23;
+// a snapshot without a recorded window (windowDays 0) used 30 days, Sep 24
+// to Oct 23.
+func timelineSnapshot(windowDays int) *contract.UIStatsSnapshot {
 	generated := time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC)
 	snapshot := &contract.UIStatsSnapshot{
-		SchemaVersion: contract.UIStatsSchemaVersion,
-		GeneratedAt:   generated,
-		ActivitySince: generated.Add(-30 * 24 * time.Hour),
-		MaxLevel:      100,
+		SchemaVersion:           contract.UIStatsSchemaVersion,
+		GeneratedAt:             generated,
+		ActivitySince:           generated.Add(-90 * 24 * time.Hour),
+		NewCharactersWindowDays: windowDays,
+		MaxLevel:                100,
 	}
 	for day, count := range map[string]int64{
 		"2026-10-24": 50, // partial current day: left out
 		"2026-10-23": 5,
 		"2026-09-24": 3,
-		"2026-09-23": 7, // before the window
+		"2026-07-26": 4,
+		"2026-07-25": 7, // before the window
 	} {
-		snapshot.NewCharacters = append(snapshot.NewCharacters, contract.ScopedDailyCount{Scope: scope, Day: day, Count: count})
+		snapshot.NewCharacters = append(snapshot.NewCharacters, contract.ScopedDailyCount{Day: day, Count: count})
 	}
 	return snapshot
 }
@@ -50,21 +54,26 @@ func timelineTableRows(t *testing.T, doc *html.Node) []*html.Node {
 	return nil
 }
 
-func TestTimelineEndsOnTheLastCompleteDay(t *testing.T) {
+// TestTimelineSpansOneWindowEndingOnTheLastCompleteDay renders the
+// dashboard's new-character chart: it covers the snapshot's window, one
+// row per complete UTC day, and its summary states the window.
+func TestTimelineSpansOneWindowEndingOnTheLastCompleteDay(t *testing.T) {
 	cases := []struct {
-		name, path  string
-		scope       contract.StatsScope
+		name        string
+		windowDays  int
+		wantDays    int
+		wantFirst   string
 		wantSummary string
 	}{
-		{"dashboard", "/", contract.StatsScope{}, "8 new characters in the last 30 days, peaking at 5 on Oct 23."},
-		{"world detail", "/ui/worlds/Adamantoise", contract.StatsScope{World: "Adamantoise"}, "8 new characters on Adamantoise in the last 30 days, peaking at 5 on Oct 23."},
+		{"90-day window", 90, 90, "Jul 26", "12 new characters in the last 90 days, peaking at 5 on Oct 23."},
+		{"snapshot without a window", 0, 30, "Sep 24", "8 new characters in the last 30 days, peaking at 5 on Oct 23."},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			stats := census.NewUIStatsService(mockrepo.NewUIStatsFake(timelineSnapshot(tc.scope)), time.Minute, 24*365*time.Hour)
+			stats := census.NewUIStatsService(mockrepo.NewUIStatsFake(timelineSnapshot(tc.windowDays)), time.Minute, 24*365*time.Hour)
 			mux := http.NewServeMux()
 			NewUIController(nil, mockqueue.NewFake(), stats, testBaseURL).RegisterRoutes(mux)
-			rec := serveMuxGet(t, mux, tc.path)
+			rec := serveMuxGet(t, mux, "/")
 			if rec.Code != http.StatusOK {
 				t.Fatalf("status = %d", rec.Code)
 			}
@@ -76,12 +85,12 @@ func TestTimelineEndsOnTheLastCompleteDay(t *testing.T) {
 			}
 
 			rows := timelineTableRows(t, doc)
-			if len(rows) != 30 {
-				t.Fatalf("timeline has %d days, want 30", len(rows))
+			if len(rows) != tc.wantDays {
+				t.Fatalf("timeline has %d days, want %d", len(rows), tc.wantDays)
 			}
 			first, last := rows[0], rows[len(rows)-1]
-			if textOf(first) != "Sep 24" || textOf(last) != "Oct 23" {
-				t.Errorf("timeline runs %q to %q, want Sep 24 to Oct 23", textOf(first), textOf(last))
+			if textOf(first) != tc.wantFirst || textOf(last) != "Oct 23" {
+				t.Errorf("timeline runs %q to %q, want %s to Oct 23", textOf(first), textOf(last), tc.wantFirst)
 			}
 			times := findAll(last, byAtom(atom.Time))
 			if len(times) != 1 {

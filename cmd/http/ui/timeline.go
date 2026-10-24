@@ -5,9 +5,10 @@ import (
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
-// Timeline is the 30-day new-character series behind the line chart, its
-// "Show the numbers" table and its one-sentence summary. Days without new
-// characters are filled with zero so every chart shows the same window.
+// Timeline is the new-character series behind the line chart, its "Show
+// the numbers" table and its one-sentence summary: one new-characters
+// window. Days without new characters are filled with zero so every chart
+// shows the same window.
 type Timeline struct {
 	// Labels are axis labels ("Jan 2"), Dates the ISO days for tooltips and
 	// the data table, Counts the values; all three share one index.
@@ -17,9 +18,10 @@ type Timeline struct {
 	TimelineSummary
 }
 
-// newCharactersTimeline builds the 30 complete UTC days before the
-// snapshot's generation day for scope. The generation day itself is still in
-// progress, so including it would end every chart on a false drop.
+// newCharactersTimeline builds the snapshot's new-characters window: its
+// complete UTC days before the generation day, for scope. The generation day
+// itself is still in progress, so including it would end every chart on a
+// false drop.
 func newCharactersTimeline(snapshot *contract.UIStatsSnapshot, scope contract.StatsScope) Timeline {
 	var tl Timeline
 	if snapshot == nil {
@@ -30,7 +32,7 @@ func newCharactersTimeline(snapshot *contract.UIStatsSnapshot, scope contract.St
 		daily[day.Day] = day.Count
 	}
 	lastComplete := snapshot.GeneratedAt.UTC().AddDate(0, 0, -1)
-	for i := 29; i >= 0; i-- {
+	for i := census.SnapshotNewCharactersWindowDays(snapshot) - 1; i >= 0; i-- {
 		date := lastComplete.AddDate(0, 0, -i)
 		day := date.Format("2006-01-02")
 		count := daily[day]

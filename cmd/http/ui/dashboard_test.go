@@ -20,10 +20,14 @@ type testRig struct {
 	ach   *mockrepo.AchievementRepository
 	q     *mockqueue.Fake
 	ctrl  *UIController
+	stats *testStatsRepository
 }
 
 type testStatsRepository struct {
 	svc *census.Service
+	// everyWorld gives worlds without characters their window totals too,
+	// for tests whose overridden series reaches every world.
+	everyWorld bool
 }
 
 func (r *testStatsRepository) LoadCurrent(ctx context.Context) (*contract.UIStatsSnapshot, error) {
@@ -96,12 +100,23 @@ func (r *testStatsRepository) LoadCurrent(ctx context.Context) (*contract.UIStat
 	for _, expansion := range mustExpansions(ctx, r.svc) {
 		snapshot.Expansions = append(snapshot.Expansions, contract.ScopedExpansionCount{Expansion: expansion.Expansion, Count: expansion.Count})
 	}
-	days, err := r.svc.NewCharacters(ctx, snapshot.ActivitySince.AddDate(0, 0, -30), generated.AddDate(0, 0, 1))
+	// Like the real refresh: the daily series covers two new-characters
+	// windows at whole-game scope, and each world group carries its window
+	// totals.
+	snapshot.NewCharactersWindowDays = census.WindowDays(r.svc.NewCharactersWindow())
+	today := generated.Truncate(24 * time.Hour)
+	days, err := r.svc.NewCharacters(ctx, today.AddDate(0, 0, -2*snapshot.NewCharactersWindowDays), today)
 	if err != nil {
 		return nil, err
 	}
 	for _, day := range days {
 		snapshot.NewCharacters = append(snapshot.NewCharacters, contract.ScopedDailyCount{Day: day.Day, Count: day.Count})
+	}
+	worldGroups := map[string]int{}
+	for i, group := range snapshot.Groups {
+		if group.Scope == (contract.StatsScope{}) && group.Dimension == "world" {
+			worldGroups[group.Key] = i
+		}
 	}
 	for _, world := range census.Worlds() {
 		detail, detailErr := r.svc.WorldDetail(ctx, world)
@@ -112,8 +127,13 @@ func (r *testStatsRepository) LoadCurrent(ctx context.Context) (*contract.UIStat
 		for _, expansion := range detail.MSQCompletions {
 			snapshot.Expansions = append(snapshot.Expansions, contract.ScopedExpansionCount{Scope: scope, Expansion: expansion.Expansion, Count: expansion.Count})
 		}
-		for _, day := range detail.NewCharactersTimeline {
-			snapshot.NewCharacters = append(snapshot.NewCharacters, contract.ScopedDailyCount{Scope: scope, Day: day.Day, Count: day.Count})
+		if i, ok := worldGroups[world]; ok {
+			snapshot.Groups[i].NewCharacters, snapshot.Groups[i].NewCharactersPrevious = detail.NewCharacters, detail.NewCharactersPrevious
+		} else if r.everyWorld && (detail.NewCharacters != 0 || detail.NewCharactersPrevious != 0) {
+			// A series overridden for every world reaches worlds with
+			// no seeded characters too.
+			snapshot.Groups = append(snapshot.Groups, contract.ScopedGroupCount{Dimension: "world", Key: world,
+				NewCharacters: detail.NewCharacters, NewCharactersPrevious: detail.NewCharactersPrevious})
 		}
 	}
 	return snapshot, nil
@@ -140,7 +160,8 @@ func newTestRig(t *testing.T) *testRig {
 	runs := mockrepo.NewCensusRunFake()
 	svc := census.NewService(chars, ach, runs)
 	q := mockqueue.NewFake()
-	stats := census.NewUIStatsService(&testStatsRepository{svc: svc}, time.Nanosecond, time.Hour)
+	statsRepo := &testStatsRepository{svc: svc}
+	stats := census.NewUIStatsService(statsRepo, time.Nanosecond, time.Hour)
 	ctrl := NewUIController(svc, q, stats, testBaseURL)
 	return &testRig{
 		svc:   svc,
@@ -148,6 +169,7 @@ func newTestRig(t *testing.T) *testRig {
 		ach:   ach,
 		q:     q,
 		ctrl:  ctrl,
+		stats: statsRepo,
 	}
 }
 
@@ -297,23 +319,23 @@ func TestDashboardHandler_NewCharactersCard(t *testing.T) {
 	}{
 		{
 			name:      "growth vs previous window",
-			days:      map[int]int64{1: 20, 5: 10, 40: 4, 50: 6},
-			wantTrend: "Up +20 (+200.0%) on the previous 30 days",
+			days:      map[int]int64{1: 20, 5: 10, 100: 4, 120: 6},
+			wantTrend: "Up +20 (+200.0%) on the previous 90 days",
 		},
 		{
 			name:      "decline vs previous window",
-			days:      map[int]int64{1: 5, 40: 15, 50: 5},
-			wantTrend: "Down −15 (−75.0%) on the previous 30 days",
+			days:      map[int]int64{1: 5, 100: 15, 120: 5},
+			wantTrend: "Down −15 (−75.0%) on the previous 90 days",
 		},
 		{
 			name:      "zero previous window",
 			days:      map[int]int64{3: 12},
-			wantTrend: "Up +12 on the previous 30 days",
+			wantTrend: "Up +12 on the previous 90 days",
 		},
 		{
 			name:      "no change",
-			days:      map[int]int64{3: 6, 40: 6},
-			wantTrend: "No change on the previous 30 days",
+			days:      map[int]int64{3: 6, 100: 6},
+			wantTrend: "No change on the previous 90 days",
 		},
 		{
 			name:        "both windows zero",
@@ -350,14 +372,14 @@ func TestDashboardHandler_NewCharactersCard(t *testing.T) {
 			}
 
 			body := textOf(parseHTML(t, rec.Body.String()))
-			if !strings.Contains(body, "New characters, last 30 days") {
-				t.Errorf("expected tile label 'New characters, last 30 days' in body:\n%s", body)
+			if !strings.Contains(body, "New characters, last 90 days") {
+				t.Errorf("expected tile label 'New characters, last 90 days' in body:\n%s", body)
 			}
 			if tt.wantNoTrend {
 				if !strings.Contains(body, "No new characters recorded") {
 					t.Errorf("expected fallback 'No new characters recorded' in body:\n%s", body)
 				}
-				if strings.Contains(body, "on the previous 30 days") {
+				if strings.Contains(body, "on the previous 90 days") {
 					t.Errorf("did not expect a trend when both windows are zero:\n%s", body)
 				}
 				return
@@ -382,7 +404,7 @@ func TestDashboardWorldDrilldown_NewColumn(t *testing.T) {
 	rig.ach.NewCharactersResponse = []contract.DailyCount{
 		{Day: now.AddDate(0, 0, -2).Format("2006-01-02"), Count: 7},
 		{Day: now.AddDate(0, 0, -6).Format("2006-01-02"), Count: 5},
-		{Day: now.AddDate(0, 0, -35).Format("2006-01-02"), Count: 3},
+		{Day: now.AddDate(0, 0, -100).Format("2006-01-02"), Count: 3},
 	}
 
 	req := httptest.NewRequest(http.MethodGet, "/ui/partials/world-breakdown?region=NA", nil)
@@ -394,8 +416,8 @@ func TestDashboardWorldDrilldown_NewColumn(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "New, 30 days") {
-		t.Errorf("expected 'New, 30 days' column header in body:\n%s", body)
+	if !strings.Contains(body, "New, 90 days") {
+		t.Errorf("expected 'New, 90 days' column header in body:\n%s", body)
 	}
 	if !strings.Contains(body, "<td class=\"text-right\">12</td>") {
 		t.Errorf("expected per-world current-window cell '12' in body:\n%s", body)

@@ -8,7 +8,7 @@
         </ol>
     </nav>
     <h1 class="page-title">{{.Data.World}}</h1>
-    <p class="page-desc">How many characters live on {{.Data.World}}, how many played in the last {{$.ActivityWindow.Long}}, which races they chose and how far they have taken the main scenario.</p>
+    <p class="page-desc">How many characters live on {{.Data.World}}, how many played in the last {{$.ActivityWindow.Long}}, how many are new in the last {{$.NewCharactersWindow.Long}}, which races they chose and how far they have taken the main scenario.</p>
 </header>
 
 <section class="stat-grid stat-grid-trio" aria-label="Key figures">
@@ -23,8 +23,8 @@
         <p class="stat-subtext">{{.Data.ActiveRatio}} of these characters</p>
     </div>
     <div class="stat-card">
-        <p class="stat-label">New characters, last 30 days</p>
-        <p class="stat-value">{{formatNumber .Data.NewCharacters30d}}</p>
+        <p class="stat-label">New characters, last {{$.NewCharactersWindow.Long}}</p>
+        <p class="stat-value">{{formatNumber .Data.NewCharacters}}</p>
         {{template "trend" .Data.NewCharactersTrend}}
     </div>
 </section>
@@ -157,34 +157,6 @@
     </section>
 </div>
 
-<section class="panel" aria-labelledby="timeline-heading">
-    <div class="panel-header">
-        <h2 id="timeline-heading" class="panel-title">New characters per day</h2>
-        <p class="panel-meta">Last 30 days on {{.Data.World}}</p>
-    </div>
-    <div class="panel-body">
-        <div class="chart-container">
-            <canvas id="newCharactersChart" role="img" aria-label="Line chart of new characters per day on {{.Data.World}} over the last 30 days" aria-describedby="timeline-summary"></canvas>
-        </div>
-        <p id="timeline-summary" class="chart-summary">{{formatNumber .Data.Timeline.Total}} new characters on {{.Data.World}} in the last 30 days{{if .Data.Timeline.PeakCount}}, peaking at {{formatNumber .Data.Timeline.PeakCount}} on {{.Data.Timeline.PeakDate}}{{end}}.</p>
-        <details class="chart-data">
-            <summary>Show the numbers</summary>
-            <div class="table-scroll" role="region" aria-label="New characters per day on {{.Data.World}}" tabindex="0">
-                <table class="data-table">
-                    <caption class="visually-hidden">New characters per day on {{.Data.World}}</caption>
-                    <thead><tr><th scope="col">Date</th><th scope="col" class="text-right">New characters</th></tr></thead>
-                    <tbody>
-                        {{$counts := .Data.Timeline.Counts}}{{$labels := .Data.Timeline.Labels}}
-                        {{range $i, $day := .Data.Timeline.Dates}}
-                        <tr><th scope="row"><time datetime="{{$day}}">{{index $labels $i}}</time></th><td class="text-right">{{formatNumber (index $counts $i)}}</td></tr>
-                        {{end}}
-                    </tbody>
-                </table>
-            </div>
-        </details>
-    </div>
-</section>
-
 <script>
 document.addEventListener("DOMContentLoaded", function () {
     var theme = window.CensusCharts;
@@ -215,44 +187,6 @@ document.addEventListener("DOMContentLoaded", function () {
                 scales: {
                     x: { beginAtZero: true, ticks: { callback: theme.compact, maxTicksLimit: 5 } },
                     y: { grid: { display: false }, border: { display: false } }
-                }
-            }
-        });
-    }
-
-    var lineCanvas = document.getElementById("newCharactersChart");
-    if (lineCanvas) {
-        var dates = {{jsonSafe .Data.Timeline.Dates}};
-        var primary = theme.primary();
-        new Chart(lineCanvas, {
-            type: "line",
-            data: {
-                labels: {{jsonSafe .Data.Timeline.Labels}},
-                datasets: [{
-                    label: "New characters",
-                    data: {{jsonSafe .Data.Timeline.Counts}},
-                    borderColor: primary,
-                    backgroundColor: theme.wash(primary),
-                    pointBackgroundColor: primary,
-                    pointBorderColor: theme.surface(),
-                    fill: true
-                }]
-            },
-            options: {
-                interaction: { mode: "index", intersect: false },
-                plugins: {
-                    legend: { display: false },
-                    censusCrosshair: { enabled: true },
-                    tooltip: {
-                        callbacks: {
-                            title: function (items) { return items.length ? theme.formatDate(dates[items[0].dataIndex]) : ""; },
-                            label: function (ctx) { return theme.format(ctx.parsed.y) + " new characters"; }
-                        }
-                    }
-                },
-                scales: {
-                    x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 16 } },
-                    y: { beginAtZero: true, ticks: { precision: 0, callback: theme.compact, maxTicksLimit: 5 } }
                 }
             }
         });
