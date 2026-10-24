@@ -365,8 +365,7 @@ func TestRankingsHeaderLinksTheBoards(t *testing.T) {
 		t.Fatalf("want one Rankings boards nav, got %d", len(navs))
 	}
 	links := findAll(navs[0], byAtom(atom.A))
-	// The Free Company boards (#64) stay hidden until their page exists.
-	if len(links) != 1 || textOf(links[0]) != "Worlds and datacenters" {
+	if len(links) != 2 || textOf(links[0]) != "Worlds and datacenters" || textOf(links[1]) != "Free Companies" {
 		t.Fatalf("board links = %d", len(links))
 	}
 	if v, _ := attr(links[0], "aria-current"); v != "page" {

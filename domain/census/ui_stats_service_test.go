@@ -18,6 +18,30 @@ type statsRepoStub struct {
 	loadErr         error
 	loadCalls       int
 	block           chan struct{}
+
+	freeCompanies      *contract.StatsFreeCompanies
+	freeCompaniesErr   error
+	freeCompaniesCalls int
+}
+
+func (s *statsRepoStub) LoadFreeCompanies(context.Context) (*contract.StatsFreeCompanies, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.freeCompaniesCalls++
+	if s.freeCompaniesErr != nil {
+		return nil, s.freeCompaniesErr
+	}
+	if s.freeCompanies == nil {
+		return nil, ErrUIStatsUnavailable
+	}
+	clone := *s.freeCompanies
+	return &clone, nil
+}
+
+func (s *statsRepoStub) fcCalls() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.freeCompaniesCalls
 }
 
 func (s *statsRepoStub) LoadCurrent(context.Context) (*contract.UIStatsSnapshot, error) {

@@ -46,17 +46,20 @@ type fineCounts struct {
 	// Private and Unchecked are the achievement privacy counts; see
 	// privacyCountColumns.
 	Private, Unchecked int64
+	// InFreeCompany is the characters in any Free Company.
+	InFreeCompany int64
 }
 
 func (c fineCounts) plus(o fineCounts) fineCounts {
 	return fineCounts{
 		Total: c.Total + o.Total, Active: c.Active + o.Active, MaxLevel: c.MaxLevel + o.MaxLevel,
 		Private: c.Private + o.Private, Unchecked: c.Unchecked + o.Unchecked,
+		InFreeCompany: c.InFreeCompany + o.InFreeCompany,
 	}
 }
 
 func (c fineCounts) statsSummary() contract.StatsSummary {
-	return contract.StatsSummary{Total: c.Total, Active: c.Active, MaxLevel: c.MaxLevel, Private: c.Private, Unchecked: c.Unchecked}
+	return contract.StatsSummary{Total: c.Total, Active: c.Active, MaxLevel: c.MaxLevel, Private: c.Private, Unchecked: c.Unchecked, InFreeCompany: c.InFreeCompany}
 }
 
 // privacyCountColumns are the achievement privacy counts of a fine-grain
@@ -64,6 +67,9 @@ func (c fineCounts) statsSummary() contract.StatsSummary {
 // hidden, and no latest achievement recorded yet).
 const privacyCountColumns = `COUNT(*) FILTER (WHERE achievements_private = 1) AS private,
 		       COUNT(*) FILTER (WHERE achievements_private = 0 AND latest_achievement_at IS NULL) AS unchecked`
+
+// inFreeCompanyColumn counts the characters in any Free Company.
+const inFreeCompanyColumn = `COUNT(*) FILTER (WHERE fc_id IS NOT NULL) AS in_free_company`
 
 // isLocationGroup reports whether key is a location group (the global-scope
 // region, datacenter or world totals), the only groups that carry the at cap
@@ -83,7 +89,7 @@ func isLocationGroup(key groupKey) bool {
 func scopedGroupCount(key groupKey, c fineCounts) contract.ScopedGroupCount {
 	g := contract.ScopedGroupCount{Scope: key.Scope, Dimension: key.Dimension, Key: key.Key, Total: c.Total, Active: c.Active}
 	if isLocationGroup(key) {
-		g.MaxLevel, g.Private, g.Unchecked = c.MaxLevel, c.Private, c.Unchecked
+		g.MaxLevel, g.Private, g.Unchecked, g.InFreeCompany = c.MaxLevel, c.Private, c.Unchecked, c.InFreeCompany
 	}
 	return g
 }

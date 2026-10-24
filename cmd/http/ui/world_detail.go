@@ -28,6 +28,7 @@ type WorldDetailViewData struct {
 	Timeline       Timeline
 	GrandCompanies GrandCompanyBand
 	TopJobs        TopJobsBlock
+	FreeCompanies  TopFreeCompaniesBlock
 }
 
 // WorldDetail handles GET /ui/worlds/{world}.
@@ -88,6 +89,9 @@ func (c *UIController) WorldDetail(w http.ResponseWriter, r *http.Request) {
 		msq = append(msq, ExpansionCard{Name: exp.Name, Count: count, Percent: formatPercent(count, total), Value: percentValue(count, total)})
 	}
 
+	fcBoard, fcErr := c.stats.FreeCompanyBoard(r.Context(), snapshot,
+		census.FreeCompanyQuery{Measure: census.FreeCompanyMembers, Scope: scope})
+
 	c.render(w, "templates/world_detail.html", statsPageData(fmt.Sprintf("%s - World Demographics", worldName), "worlds", fmt.Sprintf("/ui/worlds/%s", worldName), fmt.Sprintf("Character population for the FFXIV world %s: active players, race demographics, MSQ completions, and new characters over the last 30 days.", worldName), state, WorldDetailViewData{
 		World:              worldName,
 		Datacenter:         dc,
@@ -106,5 +110,6 @@ func (c *UIController) WorldDetail(w http.ResponseWriter, r *http.Request) {
 			census.SnapshotHasSection(snapshot, census.SectionGrandCompanies), worldName),
 		TopJobs: topJobsBlock(census.ArmouryFor(snapshot, scope),
 			census.SnapshotHasSection(snapshot, census.SectionJobs), worldName),
+		FreeCompanies: topFreeCompaniesBlock(worldName, census.SnapshotLocation(snapshot, scope), fcBoard, fcErr),
 	}))
 }

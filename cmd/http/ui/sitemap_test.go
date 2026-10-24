@@ -105,6 +105,7 @@ func TestSitemapHandler(t *testing.T) {
 		base + "/ui/methodology",
 		base + "/ui/privacy",
 		base + "/ui/rankings",
+		base + "/ui/rankings/free-companies",
 		base + "/ui/worlds/Balmung",
 		base + "/ui/worlds/Ragnarok",
 	}
@@ -127,6 +128,10 @@ func (r *testErrorStatsRepository) LoadCurrent(context.Context) (*contract.UISta
 	return nil, errors.New("snapshot unavailable")
 }
 
+func (r *testErrorStatsRepository) LoadFreeCompanies(context.Context) (*contract.StatsFreeCompanies, error) {
+	return nil, errors.New("statistics unavailable")
+}
+
 func (r *testErrorStatsRepository) Refresh(context.Context, contract.UIStatsRefreshOptions) (*contract.UIStatsRefreshResult, error) {
 	return nil, errors.New("snapshot unavailable")
 }
@@ -143,6 +148,7 @@ func TestSitemapHandler_DegradedStillServesStaticURLs(t *testing.T) {
 		base + "/ui/methodology",
 		base + "/ui/privacy",
 		base + "/ui/rankings",
+		base + "/ui/rankings/free-companies",
 	}
 
 	// Degraded mode must still answer 200: nil stats service...

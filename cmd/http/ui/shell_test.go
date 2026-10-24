@@ -29,6 +29,7 @@ var shellPages = []struct {
 	{"Private Achievements", "/ui/privacy", "/ui/methodology"},
 	{"Rankings", "/ui/rankings", "/ui/rankings"},
 	{"Rankings Filtered", "/ui/rankings?metric=veterans&by=datacenter&region=EU", "/ui/rankings"},
+	{"Free Company Rankings", "/ui/rankings/free-companies", "/ui/rankings"},
 }
 
 func parseHTML(t *testing.T, body string) *html.Node {
