@@ -77,16 +77,17 @@ func companyLean(metric census.RankingMetric) rankingMetricView {
 
 // rankingFacts are the snapshot facts a metric's explanation may quote.
 type rankingFacts struct {
-	MaxLevel       int
-	ActivityWindow Window
+	MaxLevel            int
+	ActivityWindow      Window
+	NewCharactersWindow Window
 }
 
 var rankingMetricViews = []rankingMetricView{
 	{
 		metric: census.MetricGrowth, group: "growth", variant: "Per 1,000 residents",
 		title: func(noun string) string { return "Fastest-growing " + noun },
-		explain: func(place string, _ rankingFacts) string {
-			return fmt.Sprintf("New characters in the last 30 days for every 1,000 characters on the %s.", place)
+		explain: func(place string, facts rankingFacts) string {
+			return fmt.Sprintf("New characters in the last %s for every 1,000 characters on the %s.", facts.NewCharactersWindow.Long(), place)
 		},
 		rung: func(row census.RankingRow, _ int) (string, string, string) {
 			return fmt.Sprintf("%.1f", row.Value), "per 1,000", fmt.Sprintf("%s new of %s characters", formatNumber(row.Part), formatNumber(row.Total))
@@ -95,8 +96,8 @@ var rankingMetricViews = []rankingMetricView{
 	{
 		metric: census.MetricGrowthCount, group: "growth", variant: "New characters",
 		title: func(string) string { return "Most new characters" },
-		explain: func(string, rankingFacts) string {
-			return "Characters who earned their first company chocobo in the last 30 days, the census’s count of new characters."
+		explain: func(_ string, facts rankingFacts) string {
+			return fmt.Sprintf("Characters who earned their first company chocobo in the last %s, the census’s count of new characters.", facts.NewCharactersWindow.Long())
 		},
 		rung: func(row census.RankingRow, _ int) (string, string, string) {
 			return formatNumber(row.Part), "new", fmt.Sprintf("Of %s characters", formatNumber(row.Total))
@@ -220,7 +221,7 @@ func (c *UIController) Rankings(w http.ResponseWriter, r *http.Request) {
 		Tabs:           rankingsTabs("worlds"),
 		Title:          title,
 		Scope:          scope,
-		Explanation:    view.explain(place, rankingFacts{MaxLevel: int(snapshot.MaxLevel), ActivityWindow: Window{Days: state.ActivityWindowDays}}),
+		Explanation:    view.explain(place, rankingFacts{MaxLevel: int(snapshot.MaxLevel), ActivityWindow: Window{Days: state.ActivityWindowDays}, NewCharactersWindow: Window{Days: state.NewCharactersWindowDays}}),
 		Announce:       title + ", " + announceScope,
 		MetricSwitch:   rankingsMetricSwitch(query),
 		VariantSwitch:  rankingsVariantSwitch(query, view.group),

@@ -216,10 +216,12 @@ func (c *CensusController) Breakdown(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, items)
 }
 
-// NewCharacters serves GET /api/v1/stats/new-characters?since=YYYY-MM-DD:
+// NewCharacters serves GET /api/v1/stats/new-characters[?since=YYYY-MM-DD&until=YYYY-MM-DD]:
 // characters who earned the Chocobo milestone (achievement 590) per UTC day
-// in [since, until). since is required and must parse as a date; until
-// defaults to now.
+// in [since, until). Without since it serves the new-characters window: its
+// complete UTC days before today (or before the snapshot's generation day).
+// Snapshot-backed requests must stay inside the snapshot's two windows, the
+// current one and the previous one.
 func (c *CensusController) NewCharacters(w http.ResponseWriter, r *http.Request) {
 	if c.svc == nil {
 		writeError(w, http.StatusInternalServerError, "census service unavailable")
@@ -227,31 +229,37 @@ func (c *CensusController) NewCharacters(w http.ResponseWriter, r *http.Request)
 	}
 	query := r.URL.Query()
 
-	sinceRaw := query.Get("since")
-	if sinceRaw == "" {
-		writeError(w, http.StatusBadRequest, "missing since parameter")
-		return
+	var since, until time.Time
+	if sinceRaw := query.Get("since"); sinceRaw != "" {
+		parsed, err := time.Parse("2006-01-02", sinceRaw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid since parameter")
+			return
+		}
+		since = parsed
 	}
-	since, err := time.Parse("2006-01-02", sinceRaw)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, "invalid since parameter")
-		return
-	}
-	until := time.Now().UTC()
 	if untilRaw := query.Get("until"); untilRaw != "" {
-		u, err := time.Parse("2006-01-02", untilRaw)
+		parsed, err := time.Parse("2006-01-02", untilRaw)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "invalid until parameter")
 			return
 		}
-		until = u
+		until = parsed
 	}
 	if snapshot, handled := c.currentStats(w, r); handled {
 		if snapshot == nil {
 			return
 		}
-		maxUntil := snapshot.GeneratedAt.UTC().Truncate(24 * time.Hour).Add(24 * time.Hour)
-		if since.Before(snapshot.ActivitySince.UTC().Truncate(24*time.Hour)) || until.After(maxUntil) || !until.After(since) {
+		windowDays := census.SnapshotNewCharactersWindowDays(snapshot)
+		end := snapshot.GeneratedAt.UTC().Truncate(24 * time.Hour)
+		if since.IsZero() {
+			since = end.AddDate(0, 0, -windowDays)
+		}
+		if until.IsZero() {
+			until = end
+		}
+		maxUntil := end.Add(24 * time.Hour)
+		if since.Before(end.AddDate(0, 0, -2*windowDays)) || until.After(maxUntil) || !until.After(since) {
 			writeError(w, http.StatusBadRequest, "requested range is outside the available statistics snapshot")
 			return
 		}
@@ -267,6 +275,16 @@ func (c *CensusController) NewCharacters(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	if since.IsZero() {
+		since = today.AddDate(0, 0, -census.WindowDays(c.svc.NewCharactersWindow()))
+		if until.IsZero() {
+			until = today
+		}
+	}
+	if until.IsZero() {
+		until = time.Now().UTC()
+	}
 	days, err := c.svc.NewCharacters(r.Context(), since, until)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())

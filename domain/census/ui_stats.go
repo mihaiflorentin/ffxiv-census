@@ -22,6 +22,9 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 	if snapshot.GeneratedAt.IsZero() || snapshot.ActivitySince.IsZero() {
 		return errors.New("UI statistics timestamps must be set")
 	}
+	if snapshot.NewCharactersWindowDays < 0 {
+		return errors.New("UI statistics new-characters window cannot be negative")
+	}
 	if snapshot.SourceCharacters < 0 || snapshot.Summary.Total < 0 || snapshot.Summary.Active < 0 || snapshot.Summary.MaxLevel < 0 {
 		return errors.New("UI statistics summary counts cannot be negative")
 	}
@@ -36,7 +39,8 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 	for _, group := range snapshot.Groups {
 		if group.Dimension == "" || group.Total < 0 || group.Active < 0 || group.Active > group.Total ||
 			!validLocationCounts(group.Total, group.MaxLevel, group.Private, group.Unchecked) ||
-			!validSubset(group.InFreeCompany, group.Total) {
+			!validSubset(group.InFreeCompany, group.Total) ||
+			group.NewCharacters < 0 || group.NewCharactersPrevious < 0 {
 			return errors.New("invalid UI statistics group")
 		}
 		key := scopeKey(group.Scope) + "\x00" + group.Dimension + "\x00" + group.Key
@@ -137,37 +141,70 @@ func scopeKey(scope contract.StatsScope) string {
 }
 
 // NewCharacterTotals holds new-character sums for the current and previous
-// 30-day windows, both ending on the last complete UTC day before the
-// snapshot's generation day. StartDay is
-// the first UTC day (YYYY-MM-DD) of the current window.
+// new-characters windows, both Days complete UTC days long and ending with
+// the last complete UTC day before the snapshot's generation day. StartDay
+// is the first UTC day (YYYY-MM-DD) of the current window.
 type NewCharacterTotals struct {
 	Current  int64
 	Previous int64
 	StartDay string
+	Days     int
 }
 
-// NewCharactersWindow sums the snapshot's daily new-character series for the
-// given stats scope across the current window (the 30 complete UTC days
-// before the generation day) and the previous window (the 30 days before
-// it). Global and world scopes read their exact-scope series rows;
-// datacenter and region scopes sum the member worlds of the world hierarchy,
-// with a datacenter selection reducing to that datacenter's world set. A
-// selection matching no known world, datacenter, or region totals zero
-// rather than falling back to global. Missing days count as zero.
+// legacyNewCharactersWindowDays is the fixed window of snapshots built
+// before the window was recorded (schema 3 and earlier).
+const legacyNewCharactersWindowDays = 30
+
+// SnapshotNewCharactersWindowDays is the new-characters window a snapshot
+// was built with, in days: the recorded window, or the fixed 30 days of
+// snapshots from before it was recorded. It is 0 for a nil snapshot.
+func SnapshotNewCharactersWindowDays(snapshot *contract.UIStatsSnapshot) int {
+	if snapshot == nil {
+		return 0
+	}
+	if snapshot.NewCharactersWindowDays > 0 {
+		return snapshot.NewCharactersWindowDays
+	}
+	return legacyNewCharactersWindowDays
+}
+
+// NewCharactersWindow sums the snapshot's new characters for the given stats
+// scope across the current window (the window's complete UTC days before the
+// generation day) and the previous window (the same number of days before
+// it). The global scope reads the whole-game daily series. World, datacenter
+// and region scopes sum the window totals on the member worlds' groups of
+// the world hierarchy, with a datacenter selection reducing to that
+// datacenter's world set; snapshots from before the window was recorded sum
+// those worlds' daily series rows instead. A selection matching no known
+// world, datacenter, or region totals zero rather than falling back to
+// global. Missing days count as zero.
 func NewCharactersWindow(snapshot *contract.UIStatsSnapshot, scope contract.StatsScope) NewCharacterTotals {
 	var totals NewCharacterTotals
 	if snapshot == nil {
 		return totals
 	}
+	totals.Days = SnapshotNewCharactersWindowDays(snapshot)
 	// The generation day is still in progress; both windows end on the last
 	// complete UTC day.
 	end := snapshot.GeneratedAt.UTC().Truncate(24*time.Hour).AddDate(0, 0, -1)
-	currentStart := end.AddDate(0, 0, -29)
-	previousStart := end.AddDate(0, 0, -59)
+	currentStart := end.AddDate(0, 0, -(totals.Days - 1))
+	previousStart := currentStart.AddDate(0, 0, -totals.Days)
 	totals.StartDay = currentStart.Format("2006-01-02")
 
 	global := scope == (contract.StatsScope{})
 	selected := worldSet(scope)
+	if !global && snapshot.NewCharactersWindowDays > 0 {
+		for _, group := range snapshot.Groups {
+			if group.Scope != (contract.StatsScope{}) || group.Dimension != "world" {
+				continue
+			}
+			if _, ok := selected[group.Key]; ok {
+				totals.Current += group.NewCharacters
+				totals.Previous += group.NewCharactersPrevious
+			}
+		}
+		return totals
+	}
 	for _, day := range snapshot.NewCharacters {
 		if global {
 			if day.Scope != (contract.StatsScope{}) {

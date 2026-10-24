@@ -17,7 +17,7 @@ type DashboardViewData struct {
 	MaxLevelCharacters   int64
 	MaxLevelPercent      string
 	MaxLevel             uint32
-	NewCharacters30d     int64
+	NewCharacters        int64
 	NewCharactersTrend   Trend
 	ChartLabels          []string
 	ChartDates           []string
@@ -40,7 +40,7 @@ type ShareRow struct {
 	Share string
 }
 
-// TimelineSummary feeds the one-sentence text alternative of the 30-day chart.
+// TimelineSummary feeds the one-sentence text alternative of the new-characters chart.
 type TimelineSummary struct {
 	Total     int64
 	PeakDate  string // display date of the busiest day, like "Oct 23"
@@ -69,19 +69,21 @@ type RegionSummary struct {
 type WorldDrilldownData struct {
 	Region string
 	Worlds []WorldRow
-	// ActivityWindow heads the active column.
-	ActivityWindow Window
+	// ActivityWindow heads the active column, NewCharactersWindow the new
+	// column.
+	ActivityWindow      Window
+	NewCharactersWindow Window
 }
 
 // WorldRow holds stats for an individual world.
 type WorldRow struct {
-	Region           string
-	Datacenter       string
-	World            string
-	Total            int64
-	Active           int64
-	NewCharacters30d int64
-	ActiveRatio      string
+	Region        string
+	Datacenter    string
+	World         string
+	Total         int64
+	Active        int64
+	NewCharacters int64
+	ActiveRatio   string
 }
 
 // Dashboard handles GET /ui/dashboard.
@@ -143,8 +145,8 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 		TotalCharacters:      total,
 		ActiveCharacters:     active,
 		ActivePercent:        formatPercent(active, total),
-		NewCharacters30d:     newCharactersWindow.Current,
-		NewCharactersTrend:   newTrend(newCharactersWindow.Current, newCharactersWindow.Previous),
+		NewCharacters:        newCharactersWindow.Current,
+		NewCharactersTrend:   newTrend(newCharactersWindow),
 		MaxLevelCharacters:   maxLevelCount,
 		MaxLevelPercent:      formatPercent(maxLevelCount, total),
 		MaxLevel:             maxLevel,
@@ -161,7 +163,7 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 		PrivacyNote:          c.privacyNote(snapshot),
 	}
 
-	c.render(w, "templates/dashboard.html", statsPageData("Dashboard", "dashboard", "/", fmt.Sprintf("Final Fantasy XIV population census: total characters, players active in the last %s, race demographics and new-character trends across every region and datacenter.", Window{Days: state.ActivityWindowDays}.Long()), state, viewData))
+	c.render(w, "templates/dashboard.html", statsPageData("Dashboard", "dashboard", "/", fmt.Sprintf("Final Fantasy XIV population census: total characters, players active in the last %s, race demographics and new characters in the last %s across every region and datacenter.", Window{Days: state.ActivityWindowDays}.Long(), Window{Days: state.NewCharactersWindowDays}.Long()), state, viewData))
 }
 
 // WorldDrilldown handles GET /ui/partials/world-breakdown?region=NA.
@@ -184,13 +186,13 @@ func (c *UIController) WorldDrilldown(w http.ResponseWriter, r *http.Request) {
 		if wReg == region {
 			newCharacters := census.NewCharactersWindow(snapshot, contract.StatsScope{World: wName})
 			worlds = append(worlds, WorldRow{
-				Region:           wReg,
-				Datacenter:       wDC,
-				World:            wName,
-				Total:            wc.Total,
-				Active:           wc.Active,
-				NewCharacters30d: newCharacters.Current,
-				ActiveRatio:      formatPercent(wc.Active, wc.Total),
+				Region:        wReg,
+				Datacenter:    wDC,
+				World:         wName,
+				Total:         wc.Total,
+				Active:        wc.Active,
+				NewCharacters: newCharacters.Current,
+				ActiveRatio:   formatPercent(wc.Active, wc.Total),
 			})
 		}
 	}
@@ -206,6 +208,7 @@ func (c *UIController) WorldDrilldown(w http.ResponseWriter, r *http.Request) {
 		Region: region,
 		Worlds: worlds,
 
-		ActivityWindow: Window{Days: state.ActivityWindowDays},
+		ActivityWindow:      Window{Days: state.ActivityWindowDays},
+		NewCharactersWindow: Window{Days: state.NewCharactersWindowDays},
 	})
 }

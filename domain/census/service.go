@@ -20,6 +20,8 @@ type Service struct {
 	censusRuns     contract.CensusRunRepository
 	mu             sync.RWMutex
 	activityWindow time.Duration
+	// newCharactersWindow is how far back the new-character figures count.
+	newCharactersWindow time.Duration
 	// privateRecheckWindow is how long a private flag counts as verified.
 	privateRecheckWindow time.Duration
 	maxLevel             uint32
@@ -41,6 +43,7 @@ func NewService(
 		achievements:         achievements,
 		censusRuns:           censusRuns,
 		activityWindow:       defaultActivityWindow,
+		newCharactersWindow:  defaultNewCharactersWindow,
 		privateRecheckWindow: defaultPrivateRecheckWindow,
 		maxLevel:             100,
 		expansions:           DefaultExpansions,
@@ -228,6 +231,12 @@ func profileToJobs(char *contract.CharacterProfile) []contract.ClassJobRecord {
 // active. A full census pass takes months, so the window is wide.
 const defaultActivityWindow = 90 * 24 * time.Hour
 
+// defaultNewCharactersWindow is how far back the new-character figures
+// count (a first company chocobo earned), compared with the same length
+// before it. The census sees a new chocobo only when it revisits the
+// character, so the window is wide.
+const defaultNewCharactersWindow = DefaultNewCharactersWindowDays * 24 * time.Hour
+
 // defaultPrivateRecheckWindow is how long a character found private is left
 // alone before its achievement census runs again.
 const defaultPrivateRecheckWindow = 30 * 24 * time.Hour
@@ -341,6 +350,24 @@ func (s *Service) SetActivityWindow(d time.Duration) {
 		s.activityWindow = d
 		s.mu.Unlock()
 	}
+}
+
+// SetNewCharactersWindow overrides the new-characters window. Non-positive
+// durations are ignored, keeping the current window.
+func (s *Service) SetNewCharactersWindow(d time.Duration) {
+	if d > 0 {
+		s.mu.Lock()
+		s.newCharactersWindow = d
+		s.mu.Unlock()
+	}
+}
+
+// NewCharactersWindow returns how far back the new-character figures count.
+// The comparison window is the same length, just before it.
+func (s *Service) NewCharactersWindow() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.newCharactersWindow
 }
 
 // SetPrivateRecheckWindow overrides how long a character found private is left
@@ -478,15 +505,19 @@ func (s *Service) CharacterDetail(ctx context.Context, id uint32) (*CharacterDet
 
 // WorldDetailStats aggregates high-level census facts for a specific world.
 type WorldDetailStats struct {
-	World                 string
-	Datacenter            string
-	Region                string
-	TotalCharacters       int64
-	ActiveCharacters      int64
-	NewCharacters30d      int64
+	World            string
+	Datacenter       string
+	Region           string
+	TotalCharacters  int64
+	ActiveCharacters int64
+	// NewCharacters counts the characters who earned their first company
+	// chocobo in the new-characters window: the complete UTC days before
+	// today. NewCharactersPrevious counts the window of the same length
+	// before it.
+	NewCharacters         int64
+	NewCharactersPrevious int64
 	Races                 []contract.GroupCount
 	MSQCompletions        []contract.ExpansionCount
-	NewCharactersTimeline []contract.DailyCount
 }
 
 // WorldDetail returns full census stats for a specific world.
@@ -494,18 +525,22 @@ func (s *Service) WorldDetail(ctx context.Context, worldName string) (*WorldDeta
 	filter := contract.CharacterFilter{World: worldName}
 	since := s.ActivitySince()
 	filterActive := contract.CharacterFilter{World: worldName, Since: &since}
-	now := time.Now().UTC()
-	since30d := now.Add(-30 * 24 * time.Hour)
+	// Both windows end with the last complete UTC day; today is still in
+	// progress.
+	end := time.Now().UTC().Truncate(24 * time.Hour)
+	windowDays := WindowDays(s.NewCharactersWindow())
+	currentStart := end.AddDate(0, 0, -windowDays)
+	previousStart := currentStart.AddDate(0, 0, -windowDays)
 
-	var total, active, new30d int64
+	var total, active int64
 	var races []contract.GroupCount
 	var msq []contract.ExpansionCount
-	var timeline []contract.DailyCount
+	var daily []contract.DailyCount
 	var chars []contract.CharacterRecord
-	var totalErr, activeErr, new30dErr, racesErr, msqErr, timelineErr, listErr error
+	var totalErr, activeErr, racesErr, msqErr, dailyErr, listErr error
 
 	var wg sync.WaitGroup
-	wg.Add(7)
+	wg.Add(6)
 	go func() {
 		defer wg.Done()
 		total, totalErr = s.characters.Count(ctx, filter)
@@ -513,10 +548,6 @@ func (s *Service) WorldDetail(ctx context.Context, worldName string) (*WorldDeta
 	go func() {
 		defer wg.Done()
 		active, activeErr = s.characters.Count(ctx, filterActive)
-	}()
-	go func() {
-		defer wg.Done()
-		new30d, new30dErr = s.achievements.CountChocoboMilestones(ctx, since30d, filter)
 	}()
 	go func() {
 		defer wg.Done()
@@ -528,7 +559,7 @@ func (s *Service) WorldDetail(ctx context.Context, worldName string) (*WorldDeta
 	}()
 	go func() {
 		defer wg.Done()
-		timeline, timelineErr = s.achievements.NewCharactersPerDay(ctx, since30d, now, filter)
+		daily, dailyErr = s.achievements.NewCharactersPerDay(ctx, previousStart, end, filter)
 	}()
 	go func() {
 		defer wg.Done()
@@ -536,15 +567,12 @@ func (s *Service) WorldDetail(ctx context.Context, worldName string) (*WorldDeta
 	}()
 	wg.Wait()
 
-	// Deterministic error precedence for the first six calls.
+	// Deterministic error precedence for the first five calls.
 	if totalErr != nil {
 		return nil, totalErr
 	}
 	if activeErr != nil {
 		return nil, activeErr
-	}
-	if new30dErr != nil {
-		return nil, new30dErr
 	}
 	if racesErr != nil {
 		return nil, racesErr
@@ -552,8 +580,21 @@ func (s *Service) WorldDetail(ctx context.Context, worldName string) (*WorldDeta
 	if msqErr != nil {
 		return nil, msqErr
 	}
-	if timelineErr != nil {
-		return nil, timelineErr
+	if dailyErr != nil {
+		return nil, dailyErr
+	}
+	var current, previous int64
+	for _, day := range daily {
+		parsed, err := time.Parse("2006-01-02", day.Day)
+		if err != nil || !parsed.Before(end) {
+			continue
+		}
+		switch {
+		case !parsed.Before(currentStart):
+			current += day.Count
+		case !parsed.Before(previousStart):
+			previous += day.Count
+		}
 	}
 
 	dc := ""
@@ -570,10 +611,10 @@ func (s *Service) WorldDetail(ctx context.Context, worldName string) (*WorldDeta
 		Region:                region,
 		TotalCharacters:       total,
 		ActiveCharacters:      active,
-		NewCharacters30d:      new30d,
+		NewCharacters:         current,
+		NewCharactersPrevious: previous,
 		Races:                 races,
 		MSQCompletions:        msq,
-		NewCharactersTimeline: timeline,
 	}, nil
 }
 

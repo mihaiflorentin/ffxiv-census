@@ -612,9 +612,16 @@ func TestService_WorldDetail(t *testing.T) {
 		ID: 3, Name: "Char 3", World: "Mateus", Datacenter: "Crystal", Region: "NA", Race: "Hyur", FirstSeenAt: now,
 	}, nil)
 
-	ach.ChocoboCountResponse = 2
 	ach.ExpansionsResponse = []contract.ExpansionCount{{Expansion: "Endwalker", Count: 1}}
-	ach.NewCharactersResponse = []contract.DailyCount{{Day: "2026-08-17", Count: 2}}
+	// The 90-day window is the 90 complete UTC days before today; the
+	// previous window is the 90 days before it. Today is still in progress.
+	today := now.Truncate(24 * time.Hour)
+	day := func(daysAgo int) string { return today.AddDate(0, 0, -daysAgo).Format("2006-01-02") }
+	ach.NewCharactersResponse = []contract.DailyCount{
+		{Day: day(180), Count: 1}, {Day: day(91), Count: 2},
+		{Day: day(90), Count: 4}, {Day: day(1), Count: 8},
+		{Day: day(0), Count: 16},
+	}
 
 	detail, err := svc.WorldDetail(ctx, "Balmung")
 	if err != nil {
@@ -629,17 +636,14 @@ func TestService_WorldDetail(t *testing.T) {
 	if detail.ActiveCharacters != 1 {
 		t.Errorf("ActiveCharacters = %d, want 1", detail.ActiveCharacters)
 	}
-	if detail.NewCharacters30d != 2 {
-		t.Errorf("NewCharacters30d = %d, want 2", detail.NewCharacters30d)
+	if detail.NewCharacters != 12 || detail.NewCharactersPrevious != 3 {
+		t.Errorf("NewCharacters = %d, previous %d, want 12 and 3", detail.NewCharacters, detail.NewCharactersPrevious)
 	}
 	if len(detail.Races) != 2 {
 		t.Errorf("Races len = %d, want 2", len(detail.Races))
 	}
 	if len(detail.MSQCompletions) != 1 {
 		t.Errorf("MSQCompletions len = %d, want 1", len(detail.MSQCompletions))
-	}
-	if len(detail.NewCharactersTimeline) != 1 {
-		t.Errorf("NewCharactersTimeline len = %d, want 1", len(detail.NewCharactersTimeline))
 	}
 }
 
@@ -1010,6 +1014,18 @@ func TestService_GetCharacter(t *testing.T) {
 	}
 	if missing != nil {
 		t.Errorf("expected nil for missing character, got %+v", missing)
+	}
+}
+
+func TestService_NewCharactersWindowDefaultsTo90Days(t *testing.T) {
+	svc := NewService(nil, nil, nil)
+	if got := svc.NewCharactersWindow(); got != 90*24*time.Hour {
+		t.Fatalf("NewCharactersWindow() = %v, want 90 days", got)
+	}
+	svc.SetNewCharactersWindow(0)
+	svc.SetNewCharactersWindow(60 * 24 * time.Hour)
+	if got := svc.NewCharactersWindow(); got != 60*24*time.Hour {
+		t.Fatalf("NewCharactersWindow() after override = %v, want 60 days", got)
 	}
 }
 

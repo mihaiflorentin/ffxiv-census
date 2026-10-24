@@ -76,28 +76,29 @@ func TestWorldDetailHandler_NewCharactersTrend(t *testing.T) {
 	}{
 		{
 			name:      "growth shows positive trend",
-			days:      []contract.DailyCount{{Day: day(1), Count: 20}, {Day: day(5), Count: 10}, {Day: day(40), Count: 4}, {Day: day(50), Count: 6}},
-			wantTrend: "Up +20 (+200.0%) on the previous 30 days",
+			days:      []contract.DailyCount{{Day: day(1), Count: 20}, {Day: day(5), Count: 10}, {Day: day(100), Count: 4}, {Day: day(120), Count: 6}},
+			wantTrend: "Up +20 (+200.0%) on the previous 90 days",
 		},
 		{
 			name:      "decline shows negative trend",
-			days:      []contract.DailyCount{{Day: day(2), Count: 5}, {Day: day(35), Count: 15}, {Day: day(45), Count: 10}},
-			wantTrend: "Down −20 (−80.0%) on the previous 30 days",
+			days:      []contract.DailyCount{{Day: day(2), Count: 5}, {Day: day(100), Count: 15}, {Day: day(110), Count: 10}},
+			wantTrend: "Down −20 (−80.0%) on the previous 90 days",
 		},
 		{
 			name:      "no previous window shows absolute only",
 			days:      []contract.DailyCount{{Day: day(3), Count: 12}},
-			wantTrend: "Up +12 on the previous 30 days",
+			wantTrend: "Up +12 on the previous 90 days",
 		},
 		{
 			name:       "no data omits trend line",
 			days:       nil,
-			wantAbsent: "on the previous 30 days",
+			wantAbsent: "on the previous 90 days",
 		},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			rig := newTestRig(t)
+			rig.stats.everyWorld = true // the overridden series reaches every world
 			rig.ach.NewCharactersResponse = tc.days
 
 			req := httptest.NewRequest(http.MethodGet, "/ui/worlds/Louisoix", nil)

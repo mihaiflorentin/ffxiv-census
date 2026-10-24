@@ -369,9 +369,61 @@ func TestCensusController_NewCharacters(t *testing.T) {
 	}
 }
 
-func TestCensusController_NewCharacters_MissingSince(t *testing.T) {
+// Without since, the live path serves the service's new-characters window:
+// its complete UTC days before today.
+func TestCensusController_NewCharacters_DefaultsToTheWindow(t *testing.T) {
 	rig := newRig(t)
-	assertError(t, doGET(t, rig.c.NewCharacters, "/api/v1/stats/new-characters"), http.StatusBadRequest, "since")
+	rig.svc.SetNewCharactersWindow(10 * 24 * time.Hour)
+	ctx := context.Background()
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	for id, daysAgo := range map[uint32]int{1: 0, 2: 1, 3: 10, 4: 11} {
+		at := today.AddDate(0, 0, -daysAgo).Add(time.Hour)
+		if err := rig.chars.Upsert(ctx, contract.CharacterRecord{ID: id, Name: "A", World: "Ultros", Datacenter: "Primal", Region: "NA", FirstSeenAt: at}, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := rig.ach.UpsertCharacterMilestones(ctx, id, []contract.CharacterMilestone{{CharacterID: id, AchievementID: 590, AchievedAt: at}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var days []response.NewCharactersDay
+	decodeJSON(t, doGET(t, rig.c.NewCharacters, "/api/v1/stats/new-characters"), &days)
+	want := []string{today.AddDate(0, 0, -10).Format("2006-01-02"), today.AddDate(0, 0, -1).Format("2006-01-02")}
+	if len(days) != 2 || days[0].Day != want[0] || days[1].Day != want[1] {
+		t.Fatalf("days = %+v, want %v: the 10-day window up to yesterday", days, want)
+	}
+}
+
+// The snapshot path serves the snapshot's window by default and accepts
+// ranges inside its two windows (current and previous) only.
+func TestCensusController_NewCharactersUsesTheSnapshotWindow(t *testing.T) {
+	generated := time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC)
+	snapshot := &contract.UIStatsSnapshot{
+		SchemaVersion:           contract.UIStatsSchemaVersion,
+		GeneratedAt:             generated,
+		ActivitySince:           generated.Add(-90 * 24 * time.Hour),
+		NewCharactersWindowDays: 10,
+		MaxLevel:                100,
+	}
+	for _, day := range []string{"2026-10-04", "2026-10-13", "2026-10-14", "2026-10-23"} {
+		snapshot.NewCharacters = append(snapshot.NewCharacters, contract.ScopedDailyCount{Day: day, Count: 1})
+	}
+	stats := census.NewUIStatsService(mockrepo.NewUIStatsFake(snapshot), time.Minute, 24*365*time.Hour)
+	controller := NewCensusController(census.NewService(mockrepo.NewCharacterFake(), mockrepo.NewAchievementFake(), mockrepo.NewCensusRunFake()), stats)
+
+	var current []response.NewCharactersDay
+	decodeJSON(t, doGET(t, controller.NewCharacters, "/api/v1/stats/new-characters"), &current)
+	if len(current) != 2 || current[0].Day != "2026-10-14" || current[1].Day != "2026-10-23" {
+		t.Fatalf("default range = %+v, want the current window, Oct 14 to Oct 23", current)
+	}
+
+	var both []response.NewCharactersDay
+	decodeJSON(t, doGET(t, controller.NewCharacters, "/api/v1/stats/new-characters?since=2026-10-04"), &both)
+	if len(both) != 4 {
+		t.Fatalf("since the previous window's start = %+v, want all 4 days", both)
+	}
+
+	assertError(t, doGET(t, controller.NewCharacters, "/api/v1/stats/new-characters?since=2026-10-03"), http.StatusBadRequest, "outside")
 }
 
 func TestCensusController_NewCharacters_InvalidSince(t *testing.T) {

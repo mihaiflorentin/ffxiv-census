@@ -77,7 +77,7 @@ func TestUIStatsRepositoryRefreshAndLoadCurrent(t *testing.T) {
 	stats := repository.NewUIStatsRepository(driver)
 	ctx := context.Background()
 	now := time.Now().UTC()
-	recent := now.Add(-time.Hour)
+	recent := now.Truncate(24 * time.Hour).Add(-12 * time.Hour) // yesterday: today is still in progress
 	old := now.Add(-60 * 24 * time.Hour)
 
 	seed := []struct {
@@ -175,7 +175,7 @@ func TestUIStatsRefreshEmitsPreviousWindowDailies(t *testing.T) {
 		rec        contract.CharacterRecord
 		achievedAt time.Time
 	}{
-		{rec: contract.CharacterRecord{ID: 1, Name: "Current", World: "Balmung", Datacenter: "Crystal", Region: "NA", Race: "Hyur", FirstSeenAt: seen}, achievedAt: now.Add(-time.Hour)},
+		{rec: contract.CharacterRecord{ID: 1, Name: "Current", World: "Balmung", Datacenter: "Crystal", Region: "NA", Race: "Hyur", FirstSeenAt: seen}, achievedAt: now.Truncate(24 * time.Hour).Add(-12 * time.Hour)},
 		{rec: contract.CharacterRecord{ID: 2, Name: "Previous", World: "Balmung", Datacenter: "Crystal", Region: "NA", Race: "Hyur", FirstSeenAt: seen}, achievedAt: now.Add(-40 * 24 * time.Hour)},
 		{rec: contract.CharacterRecord{ID: 3, Name: "Older", World: "Ragnarok", Datacenter: "Chaos", Region: "EU", Race: "Miqo'te", FirstSeenAt: seen}, achievedAt: now.Add(-50 * 24 * time.Hour)},
 	}
@@ -216,7 +216,7 @@ func TestUIStatsRefreshEmitsPreviousWindowDailies(t *testing.T) {
 	}
 }
 
-func TestUIStatsSnapshotSchemaV3RoundTripAcceptsV2(t *testing.T) {
+func TestUIStatsSnapshotSchemaV4RoundTripAcceptsV2(t *testing.T) {
 	driver := newTestDriver(t)
 	chars := repository.NewCharacterRepository(driver)
 	achievements := repository.NewAchievementRepository(driver)
@@ -252,8 +252,8 @@ func TestUIStatsSnapshotSchemaV3RoundTripAcceptsV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.SchemaVersion != 3 {
-		t.Fatalf("stored snapshot schema version = %d, want 3", loaded.SchemaVersion)
+	if loaded.SchemaVersion != 4 {
+		t.Fatalf("stored snapshot schema version = %d, want 4", loaded.SchemaVersion)
 	}
 	// A stored v2 snapshot (written before the upgrade) still loads, so the
 	// existing pages keep working until the next refresh.

@@ -8,7 +8,7 @@
                 <th scope="col">World</th>
                 <th scope="col" class="text-right">Characters</th>
                 <th scope="col" class="text-right">Active, {{.ActivityWindow.Long}}</th>
-                <th scope="col" class="text-right">New, 30 days</th>
+                <th scope="col" class="text-right">New, {{.NewCharactersWindow.Long}}</th>
                 <th scope="col" class="text-right">Active share</th>
             </tr>
         </thead>
@@ -26,7 +26,7 @@
                 <th scope="row"><a href="/ui/worlds/{{$w.World}}">{{$w.World}}</a></th>
                 <td class="text-right">{{formatNumber $w.Total}}</td>
                 <td class="text-right">{{formatNumber $w.Active}}</td>
-                <td class="text-right">{{formatNumber $w.NewCharacters30d}}</td>
+                <td class="text-right">{{formatNumber $w.NewCharacters}}</td>
                 <td class="text-right">{{formatPercent $w.Active $w.Total}}</td>
             </tr>
         {{end}}

@@ -133,6 +133,10 @@ lock_refresh_interval = "100s"
 # Days a character's latest public achievement counts as "active". A full
 # census pass takes months, so a short window undercounts active players.
 activity_window_days = 90
+# Days the new-characters figures count (first company chocobo earned),
+# compared with the same number of days before them. The census sees a new
+# chocobo only when it revisits the character, so recent days lag.
+new_characters_window_days = 90
 # Days a character found private is left alone before its achievement census
 # runs again.
 private_recheck_days = 30
