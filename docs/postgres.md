@@ -102,6 +102,8 @@ No separate migration step is needed. The schema is always current when the proc
 
 The UI and aggregate REST endpoints load primary key `1` from `ui_stats_snapshots`; request handlers do not run census-wide aggregates. `refresh ui-stats` computes a snapshot (`--mode=full`, or `--mode=incremental` from the previous snapshot and its `watermark_at`) in a repeatable-read transaction, serializes it, then atomically replaces that row. PostgreSQL advisory locking prevents overlapping refreshes from competing.
 
+The full refresh reads `characters` in one statement (besides the milestone query): a plain `GROUP BY` over live characters at the fine grain (region, datacenter, world, race, tribe, gender) with filtered counts, planned as one sequential scan feeding a HashAggregate. Every scope and dimension is rolled up from those rows in Go; the incremental delta and active queries use the same grain and roll-up (see [ui.md](ui.md)).
+
 `characters.max_job_level` is maintained by every character upsert. This removes the former correlated `character_jobs` membership check from max-level counts: the refresh scans the character row directly with `max_job_level >= $maxLevel`. At tens of millions of characters, refresh cost still grows with the source tables, but web request cost remains bounded by the snapshot payload rather than census cardinality.
 
 `characters.jobs_levelled_mask` and `characters.jobs_at_cap_mask` are maintained the same way, so job figures can be summed from the character row without reading `character_jobs`. Rows stored before migration `00026` are filled by the throttled, resumable `backfill job-masks` command (see [census.md](census.md#job-bitmasks)), which is the only job-table reader outside the census write path.

@@ -76,7 +76,7 @@ func TestUIStatsRepositoryRefreshAndLoadCurrent(t *testing.T) {
 	achievements := repository.NewAchievementRepository(driver)
 	stats := repository.NewUIStatsRepository(driver)
 	ctx := context.Background()
-	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
+	now := time.Now().UTC()
 	recent := now.Add(-time.Hour)
 	old := now.Add(-60 * 24 * time.Hour)
 
