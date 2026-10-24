@@ -15,7 +15,7 @@
 | Route | Method | Description |
 |---|---|---|
 | `/` | `GET` | Dashboard overview served directly at the root URL (same handler as `/ui/dashboard`) |
-| `/ui/dashboard` | `GET` | Executive overview: responsive stat-card grid (total population, 30-day active ratio, new characters (30d) with trend vs the previous 30 days, ingest status), race distribution doughnut chart, expansion MSQ completion card, 30-day new-character line chart, and region summary with world drill-down. All aggregate data comes from the cached statistics snapshot. |
+| `/ui/dashboard` | `GET` | Overview, top to bottom: the realm tally (total population over a band split by region), stat tiles (active players, characters at the level cap, new characters in the last 30 days with a worded, signed trend), race distribution bar chart and main-scenario completion meters side by side, the 30-day new-character line chart, and the region table with world drill-down. All aggregate data comes from the cached statistics snapshot. |
 | `/ui/partials/world-breakdown` | `GET` | HTMX partial returning world and datacenter rows for a requested region (`?region=NA`), including each world's New (30d) count |
 | `/ui/races` | `GET` | Playable race demographics with cascading region/DC/world filters, a new-characters (30d) card that follows the active filters, global percentage shares, active ratios, and demographic charts. Filtering selects precomputed snapshot groups and performs no aggregate database query. |
 | `/ui/worlds` | `GET` | Global server rankings table (including a per-world New (30d) column) with interactive region/datacenter filters and a filter-scoped new-characters (30d) card |
@@ -25,7 +25,7 @@
 | `/ui/characters` | `GET` | Paginated directory browser of discovered player characters |
 | `/ui/characters/search` | `GET` | Global search handler: numeric IDs redirect directly to `/ui/characters/{id}`, text queries filter by character name |
 | `/ui/*` (anything else) | `GET` | Styled not-found page (`404`, through the page shell, `noindex`). The disabled character routes below also land here. |
-| `/ui/assets/*` | `GET` | Static asset file server (`styles.css`, `htmx.min.js`, `chart.umd.min.js`, `fonts/*.woff2` as `font/woff2` with year-long immutable caching) |
+| `/ui/assets/*` | `GET` | Static asset file server (`styles.css`, `htmx.min.js`, `chart.umd.min.js`, `chart-theme.js`, `fonts/*.woff2` as `font/woff2` with year-long immutable caching) |
 
 ### Head Metadata & Canonical URLs
 
@@ -84,6 +84,7 @@ Investigate `ui_stats_refresh_total{result="error"}`, a growing `ui_stats_snapsh
 cmd/http/ui/
 ├── assets/
 │   ├── chart.umd.min.js    # Vendored Chart.js v4.4.7 UMD bundle
+│   ├── chart-theme.js      # Shared Chart.js theme + window.CensusCharts (palette, race colours, formatting)
 │   ├── htmx.min.js         # Vendored HTMX v2.0.4 library
 │   ├── favicon.png         # Site icon served at /favicon.ico
 │   ├── fonts/
@@ -96,7 +97,7 @@ cmd/http/ui/
 │   ├── unavailable.html    # Styled 503 "Statistics are being prepared" page
 │   ├── components/
 │   │   └── states.html     # Shared "empty-state" and "state-mark" template components
-│   ├── dashboard.html      # Headline stats, 30-day time-series chart, region table
+│   ├── dashboard.html      # Realm tally, stat tiles, race and MSQ panels, 30-day chart, region table
 │   ├── races.html          # Race & clan demographics with race, tribe, gender, and race×gender doughnut charts
 │   ├── worlds.html         # Global worlds & datacenters table with active ratios
 │   ├── expansions.html     # MSQ expansion completion funnel & drop-off rates
@@ -108,6 +109,8 @@ cmd/http/ui/
 ├── routes.go               # ServeMux route registration and embedded asset handler (font headers)
 ├── controller.go           # Core UI controller & template renderer
 ├── dashboard.go            # Controller for /ui/dashboard & /ui/partials/world-breakdown
+├── realm_tally.go          # Realm-tally view model (region shares, band geometry, region colour slots)
+├── trend.go                # Worded, signed trend (Up +20 (+200.0%)) for stat tiles
 ├── races.go                # Controller for /ui/races
 ├── worlds.go               # Controller for /ui/worlds
 ├── expansions.go           # Controller for /ui/expansions
@@ -141,6 +144,8 @@ Every value is a CSS custom property on `:root`, defined once and reused:
 | `--color-crystal` | `#9D8CFF` | Secondary accent: comparison series, brand facet. Never text links |
 | `--color-ink` / `--color-ink-muted` | `#E8ECF5` / `#98A2BC` | Text and secondary text |
 | `--color-active` / `--color-warning` / `--color-negative` | `#4CC38A` / `#E8B04A` / `#EF7A72` | Status |
+| `--color-chart-1` … `--color-chart-8` | `#00A4C5` `#917EF4` `#BA8C01` `#D24C49` `#4194F9` `#27AF57` `#DD61A2` `#DD7303` | Categorical chart palette, fixed order (see Charts) |
+| `--color-chart-other` | `#7C869E` | Neutral for categories without a slot |
 | `--color-role-*` | tank `#5B8DEF`, healer `#4CC38A`, melee `#EF7A72`, phys-ranged `#F0975A`, magic-ranged `#B58CFF`, crafter `#3CC4B4`, gatherer `#E8C14A` | Job-role colours (`.role-*` classes) |
 
 Every text token meets WCAG 2.2 AA (4.5:1) on Night, Surface and Raised, and Night text on an Aether fill
@@ -206,8 +211,79 @@ Shell: `.skip-link`, `.site-header`, `.brand`, `.primary-nav`, `.nav-toggle`, `.
 Page components (restyled onto the tokens; page templates move onto them as
 they are redesigned): `.page-header` / `.page-title` / `.page-desc`, `.stat-grid` / `.stat-card`,
 `.panel` / `.panel-header` / `.panel-title` / `.panel-body`, `.chart-container`, `.data-table` inside
-`.table-responsive`, `.badge`, `.btn`, `.progress-bar-*`, `.funnel-*` (progression steps),
-`.visually-hidden`.
+`.table-responsive`, `.badge`, `.btn` (`.btn-small`), `.progress-bar-*`, `.funnel-*` (progression steps),
+`.visually-hidden`. Dashboard components: `.realm-tally` / `.realm-band` / `.realm-segment` /
+`.realm-key` / `.realm-tooltip`, `.trend` (`.trend-up` / `.trend-down` / `.trend-flat`), `.dashboard-grid`,
+`.panel-meta`, `.chart-summary` and `.chart-data` (chart text alternatives), `.progress-list` /
+`.progress-meter` (`<meter>` bars), `.drilldown-row` / `.drilldown-body`. `.chart-slot-0` … `.chart-slot-8`
+set `--slot-color` for SVG marks and swatches.
+
+### Realm tally
+
+The dashboard's one bold element. `realm_tally.go` builds it in the UI controller from the snapshot's
+global `region` groups (no snapshot schema change): each region's share of the census total, rounded once
+to 0.1% so the drawn width, the label and the offsets agree, plus a display name (NA → North America,
+EU → Europe, JP → Japan, OCE → Oceania), a link to `/ui/worlds?region=<code>` and a fixed colour slot
+(NA 1, EU 2, JP 3, OCE 4, anything else the neutral slot). Segments are ordered by population.
+
+The markup is a `<section aria-labelledby>` whose heading is the page `h1` ("Characters in the census"):
+
+- the total as an oversized Manrope 800 figure in Aether (`<data value>`), with proportional figures;
+- an inline SVG band (`role="group"`, "Population by region") on the Raised track. Each segment is an SVG
+  `<a>` with an `aria-label` ("Europe: 10,138 characters, 25.3% of the census") and a `<title>`, so it is
+  in the tab order and works without JavaScript. Widths are SVG `x`/`width` attributes, not inline
+  styles. Segments of at least 9% carry their region code in Night 800 (AA large text on every slot);
+  a 2px Night stroke separates neighbours;
+- a small script on the dashboard shows one positioned tooltip (count first, then region and share) on
+  hover and keyboard focus; the other segments dim and the focused one gets an Ink outline;
+- a visible key (swatch, name, share, count; `aria-hidden`) and a visually hidden table captioned
+  "Population by region" with the same figures for screen readers.
+
+### Charts
+
+Every Chart.js chart on every page starts from `assets/chart-theme.js`, loaded by the layout right after
+Chart.js and before any page script. It reads colours from the CSS tokens at runtime (the stylesheet stays
+the single source) and sets `Chart.defaults`: Manrope at 12px, Ink-muted text, Line-coloured hairline
+grid, the overlay tooltip (Raised, Line border, value in Ink 600), circular legend markers at the bottom,
+2px lines with no resting points and a 12px hit radius, bars capped at 24px with 4px rounded ends, a 2px
+Surface gap between doughnut arcs, `responsive` with `maintainAspectRatio: false` (size the
+`.chart-container`), and no animation under `prefers-reduced-motion` (updated live). It redraws charts once
+the web font has loaded. Opt-in plugins: `censusCrosshair` (vertical hairline at the hovered X, for line
+charts) and `censusBarValues` (value at each bar tip).
+
+Page scripts never hard-code colours (the dashboard test rejects hex/`rgba(` literals in its inline
+scripts); they use `window.CensusCharts`:
+
+| Helper | Returns |
+|---|---|
+| `primary()` / `comparison()` | Aether for a single or primary series, Crystal for a comparison series |
+| `slot(n)` | Categorical slot 1-8; anything else is `--color-chart-other` |
+| `raceColor(name)` / `raceColors(labels)` | The fixed race colour |
+| `sortRaces(labels, values)` | Labels and values in fixed race order, for doughnuts |
+| `wash(colour)` / `surface()` | 10% area fill for a line; Surface for rings and gaps |
+| `format(n)` / `compact(n)` / `formatDate(iso)` | `1,234`; `1.2K` axis ticks; `Sat, 24 Oct 2026` tooltip titles |
+
+**Categorical palette.** Eight slots, assigned in fixed order and never cycled. Slot 1 is the Aether hue
+and slot 2 the Crystal hue, stepped down into the dark-mode chart lightness band (OKLCH L 0.48–0.67),
+because the brand accents themselves (L 0.82 and 0.71) are too light to sit beside other series. Slots
+3-8 are amber, red, blue, green, pink and orange. Generated and checked with the dataviz palette
+validator against Night and Surface: every slot inside the band with chroma ≥ 0.10, worst adjacent CVD
+ΔE 8.2 (protan/deutan, target 8), worst adjacent normal-vision ΔE 17.0 (floor 15), every slot ≥ 3:1 on
+Surface; slots 1-4 also pass the all-pairs test, which is why regions use them. Single-series charts use
+Aether itself, comparisons Crystal. Past eight categories, fold the tail into "Other" (neutral slot).
+
+**Fixed race colours** (`RACE_SLOTS` in `chart-theme.js`): Hyur 1, Elezen 2, Lalafell 3, Miqo'te 4,
+Roegadyn 5, Au Ra 6, Hrothgar 7, Viera 8. A race keeps its colour on every chart whatever its rank. In a
+doughnut, call `sortRaces` first so neighbouring arcs are the validated adjacent pairs.
+
+**Text alternatives.** Every `<canvas>` has `role="img"`, an `aria-label` naming the chart, and
+`aria-describedby` pointing at a one-sentence summary below it; a "Show the numbers" `<details>` holds the
+full data table, so the figures are readable without JavaScript.
+
+On the dashboard the race distribution is a horizontal bar chart (eight close values compare better as
+bars than as a doughnut), main-scenario completion is a list of native `<meter>` elements, and the
+new-character trend on the stat tile is an arrow icon plus a word and a signed delta ("Down −124
+(−5.3%) on the previous 30 days"), never colour alone.
 
 ### Error, stale and empty states
 

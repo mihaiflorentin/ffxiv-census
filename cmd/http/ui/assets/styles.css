@@ -127,13 +127,9 @@
      * Gold is gone from the palette, so the gold aliases resolve to neutral ink.
      * Remove each alias once nothing references it.
      */
-    --bg-main: var(--color-night);
     --bg-card: var(--color-surface);
-    --bg-card-hover: var(--color-raised);
     --bg-elevated: var(--color-raised);
-    --bg-secondary: var(--color-raised);
     --border-color: var(--color-line);
-    --border-highlight: var(--color-line);
     --text: var(--color-ink);
     --text-main: var(--color-ink);
     --text-muted: var(--color-ink-muted);
@@ -141,11 +137,8 @@
     --gold: var(--color-ink);
     --gold-light: var(--color-ink);
     --cyan: var(--color-aether);
-    --active-green: var(--color-active);
     --inactive-red: var(--color-negative);
-    --radius-sm: var(--radius-control);
     --radius-md: var(--radius-panel);
-    --radius-lg: var(--radius-panel);
 }
 
 /* ---------- Base ---------- */
