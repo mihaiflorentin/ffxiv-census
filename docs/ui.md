@@ -31,7 +31,7 @@
 | `/ui/characters` | `GET` | Paginated directory browser of discovered player characters |
 | `/ui/characters/search` | `GET` | Global search handler: numeric IDs redirect directly to `/ui/characters/{id}`, text queries filter by character name |
 | any other path | `GET`/`HEAD` | Styled not-found page (`404`, through the page shell, `noindex`) for every path no route matches outside `/api/` (for example `/nope` or `/ui/nope`). The disabled character routes below also land here. |
-| `/ui/assets/*` | `GET` | Static asset file server (`styles.css`, `htmx.min.js`, `chart.umd.min.js`, `chart-theme.js`, `fonts/*.woff2` as `font/woff2` with year-long immutable caching) |
+| `/ui/assets/*` | `GET` | Static asset file server (`styles.css`, `htmx.min.js`, `chart.umd.min.js`, `chart-theme.js`, `fonts/*.woff2` as `font/woff2` with year-long immutable caching; pages link stylesheets and scripts through the `asset` template helper as `/ui/assets/<file>?v=<build fingerprint>`, served with year-long immutable caching, so each release gets new URLs and no browser or CDN serves the previous release's CSS/JS with new markup; unversioned or other-build URLs get `max-age=60`) |
 
 ### Head Metadata & Canonical URLs
 

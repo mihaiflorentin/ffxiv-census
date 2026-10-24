@@ -161,3 +161,39 @@ func TestNoPageReferencesExternalHosts(t *testing.T) {
 		})
 	}
 }
+
+// TestPagesLinkVersionedStylesAndScripts stops a cache (the browser or the
+// CDN) serving the previous release's CSS or JS with the new markup: every
+// stylesheet and script URL carries the build fingerprint, so each release
+// gets new URLs.
+func TestPagesLinkVersionedStylesAndScripts(t *testing.T) {
+	rig := newTestRig(t)
+	mux := http.NewServeMux()
+	rig.ctrl.RegisterRoutes(mux)
+
+	body := serveMuxGet(t, mux, "/ui/methodology").Body.String()
+	want := "?v=" + uiBuildID()
+	for _, name := range []string{"styles.css", "htmx.min.js", "chart.umd.min.js", "chart-theme.js", "census.js"} {
+		if !strings.Contains(body, "/ui/assets/"+name+want) {
+			t.Errorf("page links /ui/assets/%s without the build version %q", name, want)
+		}
+	}
+}
+
+// TestVersionedAssetsAreImmutable lets caches keep a versioned file for a
+// year, while an unversioned or out-of-date URL is only cached briefly.
+func TestVersionedAssetsAreImmutable(t *testing.T) {
+	rig := newTestRig(t)
+	mux := http.NewServeMux()
+	rig.ctrl.RegisterRoutes(mux)
+
+	current := serveMuxGet(t, mux, "/ui/assets/styles.css?v="+uiBuildID())
+	if got := current.Header().Get("Cache-Control"); got != "public, max-age=31536000, immutable" {
+		t.Errorf("current version Cache-Control = %q, want a year, immutable", got)
+	}
+	for _, target := range []string{"/ui/assets/styles.css", "/ui/assets/styles.css?v=old-build"} {
+		if got := serveMuxGet(t, mux, target).Header().Get("Cache-Control"); got != "public, max-age=60" {
+			t.Errorf("%s Cache-Control = %q, want a short cache", target, got)
+		}
+	}
+}

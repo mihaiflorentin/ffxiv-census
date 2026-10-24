@@ -203,7 +203,7 @@ func serveSiteScript(t *testing.T, mux *http.ServeMux, doc *html.Node) string {
 	const src = "/ui/assets/census.js"
 	found := false
 	for _, s := range findAll(doc, byAtom(atom.Script)) {
-		if v, _ := attr(s, "src"); v == src {
+		if v, _ := attr(s, "src"); strings.HasPrefix(v, src+"?v=") {
 			found = true
 			if _, deferred := attr(s, "defer"); !deferred {
 				t.Error("census.js must load deferred so it never blocks rendering")

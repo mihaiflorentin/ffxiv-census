@@ -78,6 +78,7 @@ func TestDashboardChartsUseSharedThemeAndHaveTextAlternatives(t *testing.T) {
 	themeAt, chartLibAt, firstInlineAt := -1, -1, -1
 	for i, s := range scripts {
 		src, _ := attr(s, "src")
+		src, _, _ = strings.Cut(src, "?") // drop the build version
 		if typ, _ := attr(s, "type"); typ == "application/json" {
 			continue // a data block, not a script
 		}
