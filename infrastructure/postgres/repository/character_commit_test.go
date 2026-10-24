@@ -115,7 +115,7 @@ func TestOtherWritePathsStaySynchronous(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := stats.Refresh(ctx, contract.UIStatsRefreshOptions{
-		ActivitySince: time.Now().Add(-24 * time.Hour), MaxLevel: 100, Timeout: time.Minute,
+		ActivitySince: time.Now().Add(-24 * time.Hour), MaxLevel: 100, NewCharactersWindowDays: 90, Timeout: time.Minute,
 	}); err != nil {
 		t.Fatal(err)
 	}

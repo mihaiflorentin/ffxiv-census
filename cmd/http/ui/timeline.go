@@ -31,9 +31,8 @@ func newCharactersTimeline(snapshot *contract.UIStatsSnapshot, scope contract.St
 	for _, day := range census.SnapshotDaily(snapshot, scope) {
 		daily[day.Day] = day.Count
 	}
-	lastComplete := snapshot.GeneratedAt.UTC().AddDate(0, 0, -1)
-	for i := census.SnapshotNewCharactersWindowDays(snapshot) - 1; i >= 0; i-- {
-		date := lastComplete.AddDate(0, 0, -i)
+	bounds := census.SnapshotNewCharactersBounds(snapshot)
+	for date := bounds.CurrentStart; date.Before(bounds.End); date = date.AddDate(0, 0, 1) {
 		day := date.Format("2006-01-02")
 		count := daily[day]
 		tl.Labels = append(tl.Labels, date.Format("Jan 2"))

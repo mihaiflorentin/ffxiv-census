@@ -12,7 +12,7 @@ import (
 )
 
 func incrementalOpts(mode contract.UIStatsRefreshMode, since time.Time) contract.UIStatsRefreshOptions {
-	return contract.UIStatsRefreshOptions{ActivitySince: since, MaxLevel: 100, Timeout: time.Minute, Mode: mode}
+	return contract.UIStatsRefreshOptions{ActivitySince: since, MaxLevel: 100, NewCharactersWindowDays: 90, Timeout: time.Minute, Mode: mode}
 }
 
 // comparable strips the fields that legitimately differ between two refreshes.

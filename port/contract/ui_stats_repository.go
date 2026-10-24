@@ -118,8 +118,8 @@ const (
 
 type UIStatsRefreshOptions struct {
 	ActivitySince time.Time
-	// NewCharactersWindowDays is the new-characters window; 0 means the
-	// default (census.DefaultNewCharactersWindowDays).
+	// NewCharactersWindowDays is the new-characters window, required (the
+	// census service holds the default).
 	NewCharactersWindowDays int
 	MaxLevel                uint32
 	Timeout                 time.Duration

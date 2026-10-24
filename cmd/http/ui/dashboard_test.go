@@ -25,6 +25,9 @@ type testRig struct {
 
 type testStatsRepository struct {
 	svc *census.Service
+	// ach is the achievement fake behind svc, for the per-world MSQ
+	// completions.
+	ach *mockrepo.AchievementRepository
 	// everyWorld gives worlds without characters their window totals too,
 	// for tests whose overridden series reaches every world.
 	everyWorld bool
@@ -118,22 +121,41 @@ func (r *testStatsRepository) LoadCurrent(ctx context.Context) (*contract.UIStat
 			worldGroups[group.Key] = i
 		}
 	}
+	bounds := census.SnapshotNewCharactersBounds(snapshot)
 	for _, world := range census.Worlds() {
-		detail, detailErr := r.svc.WorldDetail(ctx, world)
-		if detailErr != nil {
-			return nil, detailErr
-		}
 		scope := contract.StatsScope{World: world}
-		for _, expansion := range detail.MSQCompletions {
-			snapshot.Expansions = append(snapshot.Expansions, contract.ScopedExpansionCount{Scope: scope, Expansion: expansion.Expansion, Count: expansion.Count})
+		filter := contract.CharacterFilter{World: world}
+		if r.ach != nil {
+			msq, msqErr := r.ach.CountExpansionsFiltered(ctx, filter)
+			if msqErr != nil {
+				return nil, msqErr
+			}
+			for _, expansion := range msq {
+				snapshot.Expansions = append(snapshot.Expansions, contract.ScopedExpansionCount{Scope: scope, Expansion: expansion.Expansion, Count: expansion.Count})
+			}
+		}
+		worldDays, dayErr := r.svc.NewCharacters(ctx, bounds.PreviousStart, bounds.End, filter)
+		if dayErr != nil {
+			return nil, dayErr
+		}
+		var current, previous int64
+		for _, day := range worldDays {
+			parsed, parseErr := time.Parse("2006-01-02", day.Day)
+			switch {
+			case parseErr != nil:
+			case bounds.InCurrent(parsed):
+				current += day.Count
+			case bounds.InPrevious(parsed):
+				previous += day.Count
+			}
 		}
 		if i, ok := worldGroups[world]; ok {
-			snapshot.Groups[i].NewCharacters, snapshot.Groups[i].NewCharactersPrevious = detail.NewCharacters, detail.NewCharactersPrevious
-		} else if r.everyWorld && (detail.NewCharacters != 0 || detail.NewCharactersPrevious != 0) {
+			snapshot.Groups[i].NewCharacters, snapshot.Groups[i].NewCharactersPrevious = current, previous
+		} else if r.everyWorld && (current != 0 || previous != 0) {
 			// A series overridden for every world reaches worlds with
 			// no seeded characters too.
 			snapshot.Groups = append(snapshot.Groups, contract.ScopedGroupCount{Dimension: "world", Key: world,
-				NewCharacters: detail.NewCharacters, NewCharactersPrevious: detail.NewCharactersPrevious})
+				NewCharacters: current, NewCharactersPrevious: previous})
 		}
 	}
 	return snapshot, nil
@@ -160,7 +182,7 @@ func newTestRig(t *testing.T) *testRig {
 	runs := mockrepo.NewCensusRunFake()
 	svc := census.NewService(chars, ach, runs)
 	q := mockqueue.NewFake()
-	statsRepo := &testStatsRepository{svc: svc}
+	statsRepo := &testStatsRepository{svc: svc, ach: ach}
 	stats := census.NewUIStatsService(statsRepo, time.Nanosecond, time.Hour)
 	ctrl := NewUIController(svc, q, stats, testBaseURL)
 	return &testRig{

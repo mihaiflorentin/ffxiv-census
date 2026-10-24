@@ -21,10 +21,10 @@ func TestNewCharactersWindowCoversCompleteDays(t *testing.T) {
 		{Day: "2026-08-25", Count: 11}, // first day of the previous window
 		{Day: "2026-08-24", Count: 13}, // outside both
 	}
-	got := NewCharactersWindow(snapshot, contract.StatsScope{})
+	got := NewCharactersTotals(snapshot, contract.StatsScope{})
 	want := NewCharacterTotals{Current: 8, Previous: 18, StartDay: "2026-09-24", Days: 30}
 	if got != want {
-		t.Fatalf("NewCharactersWindow() = %+v, want %+v", got, want)
+		t.Fatalf("NewCharactersTotals() = %+v, want %+v", got, want)
 	}
 }
 
@@ -42,10 +42,10 @@ func TestNewCharactersWindowReadsTheSnapshotWindow(t *testing.T) {
 		{Day: "2026-04-27", Count: 11}, // first day of the previous window
 		{Day: "2026-04-26", Count: 13}, // outside both
 	}
-	got := NewCharactersWindow(snapshot, contract.StatsScope{})
+	got := NewCharactersTotals(snapshot, contract.StatsScope{})
 	want := NewCharacterTotals{Current: 8, Previous: 18, StartDay: "2026-07-26", Days: 90}
 	if got != want {
-		t.Fatalf("NewCharactersWindow() = %+v, want %+v", got, want)
+		t.Fatalf("NewCharactersTotals() = %+v, want %+v", got, want)
 	}
 	if days := SnapshotNewCharactersWindowDays(snapshot); days != 90 {
 		t.Fatalf("SnapshotNewCharactersWindowDays() = %d, want 90", days)
@@ -86,9 +86,9 @@ func TestNewCharactersWindowSumsWorldTotalsForLocations(t *testing.T) {
 		{contract.StatsScope{World: "Nowhere"}, 0, 0},
 	}
 	for _, tt := range tests {
-		got := NewCharactersWindow(snapshot, tt.scope)
+		got := NewCharactersTotals(snapshot, tt.scope)
 		if got.Current != tt.current || got.Previous != tt.previous || got.Days != 90 {
-			t.Errorf("NewCharactersWindow(%+v) = %+v, want current %d previous %d over 90 days", tt.scope, got, tt.current, tt.previous)
+			t.Errorf("NewCharactersTotals(%+v) = %+v, want current %d previous %d over 90 days", tt.scope, got, tt.current, tt.previous)
 		}
 	}
 }

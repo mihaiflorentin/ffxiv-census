@@ -67,7 +67,7 @@ func (c *UIController) Races(w http.ResponseWriter, r *http.Request) {
 	scope := place.scope()
 	scopeText := placeScope(selectedRegion, selectedDC, selectedWorld)
 
-	newWindow := census.NewCharactersWindow(snapshot, scope)
+	newWindow := census.NewCharactersTotals(snapshot, scope)
 
 	data := RacesViewData{
 		NewCharacters:      newWindow.Current,

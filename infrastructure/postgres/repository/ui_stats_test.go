@@ -57,9 +57,10 @@ func TestUIStatsRefreshScale(t *testing.T) {
 
 	started := time.Now()
 	result, err := repository.NewUIStatsRepository(driver).Refresh(ctx, contract.UIStatsRefreshOptions{
-		ActivitySince: time.Now().UTC().Add(-30 * 24 * time.Hour),
-		MaxLevel:      100,
-		Timeout:       2 * time.Hour,
+		ActivitySince:           time.Now().UTC().Add(-30 * 24 * time.Hour),
+		MaxLevel:                100,
+		NewCharactersWindowDays: 90,
+		Timeout:                 2 * time.Hour,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -122,9 +123,10 @@ func TestUIStatsRepositoryRefreshAndLoadCurrent(t *testing.T) {
 	}
 
 	result, err := stats.Refresh(ctx, contract.UIStatsRefreshOptions{
-		ActivitySince: now.Add(-30 * 24 * time.Hour),
-		MaxLevel:      100,
-		Timeout:       time.Minute,
+		ActivitySince:           now.Add(-30 * 24 * time.Hour),
+		MaxLevel:                100,
+		NewCharactersWindowDays: 90,
+		Timeout:                 time.Minute,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -196,9 +198,10 @@ func TestUIStatsRefreshEmitsPreviousWindowDailies(t *testing.T) {
 	}
 
 	result, err := stats.Refresh(ctx, contract.UIStatsRefreshOptions{
-		ActivitySince: now.Add(-30 * 24 * time.Hour),
-		MaxLevel:      100,
-		Timeout:       time.Minute,
+		ActivitySince:           now.Add(-30 * 24 * time.Hour),
+		MaxLevel:                100,
+		NewCharactersWindowDays: 90,
+		Timeout:                 time.Minute,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -242,9 +245,10 @@ func TestUIStatsSnapshotSchemaV4RoundTripAcceptsV2(t *testing.T) {
 	}
 
 	if _, err := stats.Refresh(ctx, contract.UIStatsRefreshOptions{
-		ActivitySince: now.Add(-30 * 24 * time.Hour),
-		MaxLevel:      100,
-		Timeout:       time.Minute,
+		ActivitySince:           now.Add(-30 * 24 * time.Hour),
+		MaxLevel:                100,
+		NewCharactersWindowDays: 90,
+		Timeout:                 time.Minute,
 	}); err != nil {
 		t.Fatal(err)
 	}

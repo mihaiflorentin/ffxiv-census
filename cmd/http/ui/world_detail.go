@@ -58,7 +58,7 @@ func (c *UIController) WorldDetail(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	scope := contract.StatsScope{World: worldName}
-	window := census.NewCharactersWindow(snapshot, scope)
+	window := census.NewCharactersTotals(snapshot, scope)
 	dc := WorldToDC(worldName)
 	region := census.RegionForDatacenter(dc)
 

@@ -72,6 +72,9 @@ func (r *UIStatsRepository) Refresh(ctx context.Context, opts contract.UIStatsRe
 	if opts.MaxLevel == 0 {
 		return nil, errors.New("UI statistics max level is required")
 	}
+	if opts.NewCharactersWindowDays <= 0 {
+		return nil, errors.New("UI statistics new-characters window is required")
+	}
 
 	db, err := r.driver.Acquire(ctx)
 	if err != nil {
@@ -109,15 +112,11 @@ func (r *UIStatsRepository) Refresh(ctx context.Context, opts contract.UIStatsRe
 	}
 	watermark = watermark.UTC()
 
-	windowDays := opts.NewCharactersWindowDays
-	if windowDays <= 0 {
-		windowDays = census.DefaultNewCharactersWindowDays
-	}
 	snapshot := &contract.UIStatsSnapshot{
 		SchemaVersion:           contract.UIStatsSchemaVersion,
 		GeneratedAt:             time.Now().UTC(),
 		ActivitySince:           opts.ActivitySince.UTC(),
-		NewCharactersWindowDays: windowDays,
+		NewCharactersWindowDays: opts.NewCharactersWindowDays,
 		MaxLevel:                opts.MaxLevel,
 	}
 	usedMode := contract.UIStatsRefreshFull
@@ -416,9 +415,7 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 // totals for both windows on its world group. Both windows end with the last
 // complete UTC day before the generation day.
 func (r *UIStatsRepository) readMilestoneStats(ctx context.Context, tx *sql.Tx, snapshot *contract.UIStatsSnapshot) error {
-	end := snapshot.GeneratedAt.UTC().Truncate(24 * time.Hour)
-	currentStart := end.AddDate(0, 0, -snapshot.NewCharactersWindowDays)
-	previousStart := currentStart.AddDate(0, 0, -snapshot.NewCharactersWindowDays)
+	bounds := census.NewCharactersWindowBounds(snapshot.GeneratedAt, snapshot.NewCharactersWindowDays)
 	rows, err := tx.QueryContext(ctx, `
 		WITH tracked AS MATERIALIZED (
 			SELECT cm.character_id, cm.achievement_id, cm.achieved_at,
@@ -457,7 +454,7 @@ func (r *UIStatsRepository) readMilestoneStats(ctx context.Context, tx *sql.Tx, 
 		UNION ALL
 		SELECT 'world_window', world, '', 0, count, previous
 		FROM world_window_stats`,
-		previousStart, currentStart, end)
+		bounds.PreviousStart, bounds.CurrentStart, bounds.End)
 	if err != nil {
 		return fmt.Errorf("query UI milestone statistics: %w", err)
 	}

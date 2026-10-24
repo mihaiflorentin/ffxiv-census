@@ -168,7 +168,7 @@ func SnapshotNewCharactersWindowDays(snapshot *contract.UIStatsSnapshot) int {
 	return legacyNewCharactersWindowDays
 }
 
-// NewCharactersWindow sums the snapshot's new characters for the given stats
+// NewCharactersTotals sums the snapshot's new characters for the given stats
 // scope across the current window (the window's complete UTC days before the
 // generation day) and the previous window (the same number of days before
 // it). The global scope reads the whole-game daily series. World, datacenter
@@ -178,18 +178,14 @@ func SnapshotNewCharactersWindowDays(snapshot *contract.UIStatsSnapshot) int {
 // those worlds' daily series rows instead. A selection matching no known
 // world, datacenter, or region totals zero rather than falling back to
 // global. Missing days count as zero.
-func NewCharactersWindow(snapshot *contract.UIStatsSnapshot, scope contract.StatsScope) NewCharacterTotals {
+func NewCharactersTotals(snapshot *contract.UIStatsSnapshot, scope contract.StatsScope) NewCharacterTotals {
 	var totals NewCharacterTotals
 	if snapshot == nil {
 		return totals
 	}
-	totals.Days = SnapshotNewCharactersWindowDays(snapshot)
-	// The generation day is still in progress; both windows end on the last
-	// complete UTC day.
-	end := snapshot.GeneratedAt.UTC().Truncate(24*time.Hour).AddDate(0, 0, -1)
-	currentStart := end.AddDate(0, 0, -(totals.Days - 1))
-	previousStart := currentStart.AddDate(0, 0, -totals.Days)
-	totals.StartDay = currentStart.Format("2006-01-02")
+	bounds := SnapshotNewCharactersBounds(snapshot)
+	totals.Days = bounds.Days
+	totals.StartDay = bounds.CurrentStart.Format("2006-01-02")
 
 	global := scope == (contract.StatsScope{})
 	selected := worldSet(scope)
@@ -223,9 +219,9 @@ func NewCharactersWindow(snapshot *contract.UIStatsSnapshot, scope contract.Stat
 			continue
 		}
 		switch {
-		case !parsed.Before(currentStart) && !parsed.After(end):
+		case bounds.InCurrent(parsed):
 			totals.Current += day.Count
-		case !parsed.Before(previousStart) && parsed.Before(currentStart):
+		case bounds.InPrevious(parsed):
 			totals.Previous += day.Count
 		}
 	}

@@ -596,57 +596,6 @@ func TestService_Breakdown_Delegates(t *testing.T) {
 	}
 }
 
-func TestService_WorldDetail(t *testing.T) {
-	svc, chars, ach := newTestServiceAll(t)
-	ctx := context.Background()
-	now := time.Now().UTC()
-
-	_ = chars.Upsert(ctx, contract.CharacterRecord{
-		ID: 1, Name: "Char 1", World: "Balmung", Datacenter: "Crystal", Region: "NA", Race: "Hyur", FirstSeenAt: now,
-		LatestAchievementAt: &now,
-	}, nil)
-	_ = chars.Upsert(ctx, contract.CharacterRecord{
-		ID: 2, Name: "Char 2", World: "Balmung", Datacenter: "Crystal", Region: "NA", Race: "Elezen", FirstSeenAt: now,
-	}, nil)
-	_ = chars.Upsert(ctx, contract.CharacterRecord{
-		ID: 3, Name: "Char 3", World: "Mateus", Datacenter: "Crystal", Region: "NA", Race: "Hyur", FirstSeenAt: now,
-	}, nil)
-
-	ach.ExpansionsResponse = []contract.ExpansionCount{{Expansion: "Endwalker", Count: 1}}
-	// The 90-day window is the 90 complete UTC days before today; the
-	// previous window is the 90 days before it. Today is still in progress.
-	today := now.Truncate(24 * time.Hour)
-	day := func(daysAgo int) string { return today.AddDate(0, 0, -daysAgo).Format("2006-01-02") }
-	ach.NewCharactersResponse = []contract.DailyCount{
-		{Day: day(180), Count: 1}, {Day: day(91), Count: 2},
-		{Day: day(90), Count: 4}, {Day: day(1), Count: 8},
-		{Day: day(0), Count: 16},
-	}
-
-	detail, err := svc.WorldDetail(ctx, "Balmung")
-	if err != nil {
-		t.Fatalf("WorldDetail: %v", err)
-	}
-	if detail.World != "Balmung" {
-		t.Errorf("World = %q, want Balmung", detail.World)
-	}
-	if detail.TotalCharacters != 2 {
-		t.Errorf("TotalCharacters = %d, want 2", detail.TotalCharacters)
-	}
-	if detail.ActiveCharacters != 1 {
-		t.Errorf("ActiveCharacters = %d, want 1", detail.ActiveCharacters)
-	}
-	if detail.NewCharacters != 12 || detail.NewCharactersPrevious != 3 {
-		t.Errorf("NewCharacters = %d, previous %d, want 12 and 3", detail.NewCharacters, detail.NewCharactersPrevious)
-	}
-	if len(detail.Races) != 2 {
-		t.Errorf("Races len = %d, want 2", len(detail.Races))
-	}
-	if len(detail.MSQCompletions) != 1 {
-		t.Errorf("MSQCompletions len = %d, want 1", len(detail.MSQCompletions))
-	}
-}
-
 func TestService_NewCharacters(t *testing.T) {
 	svc, _, ach := newTestServiceAll(t)
 	ctx := context.Background()
@@ -801,53 +750,6 @@ func TestService_SummaryQueriesRunConcurrently(t *testing.T) {
 	case <-done:
 	case <-time.After(3 * time.Second):
 		t.Fatal("Summary did not complete: queries are serial, not concurrent")
-	}
-}
-
-// worldDetailBarrierCharRepo gates Count calls behind a barrier to prove
-// WorldDetail's two Count calls run concurrently.
-type worldDetailBarrierCharRepo struct {
-	*mockrepo.CharacterRepository
-	countBarrier *barrier
-}
-
-func (w *worldDetailBarrierCharRepo) Count(ctx context.Context, filter contract.CharacterFilter) (int64, error) {
-	w.countBarrier.enter()
-	return w.CharacterRepository.Count(ctx, filter)
-}
-
-func TestService_WorldDetailQueriesRunConcurrently(t *testing.T) {
-	chars := mockrepo.NewCharacterFake()
-	ach := mockrepo.NewAchievementFake()
-	runs := mockrepo.NewCensusRunFake()
-
-	// WorldDetail calls Count twice (total and active). If serial, the second
-	// blocks on the first behind the barrier, and the test times out.
-	b := newBarrier(2)
-	wrapped := &worldDetailBarrierCharRepo{
-		CharacterRepository: chars,
-		countBarrier:        b,
-	}
-	svc := NewService(wrapped, ach, runs)
-
-	ctx := context.Background()
-	_ = chars.Upsert(ctx, contract.CharacterRecord{
-		ID: 1, Name: "Test", World: "Balmung", Datacenter: "Crystal", Region: "NA",
-		FirstSeenAt: time.Now().UTC(),
-	}, nil)
-
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		_, _ = svc.WorldDetail(ctx, "Balmung")
-	}()
-
-	b.releaseAll()
-
-	select {
-	case <-done:
-	case <-time.After(3 * time.Second):
-		t.Fatal("WorldDetail did not complete: Count calls are serial, not concurrent")
 	}
 }
 

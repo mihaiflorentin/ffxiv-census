@@ -36,7 +36,7 @@ func newSitemapTestController(t *testing.T) (*UIController, *census.UIStatsServi
 	svc := census.NewService(chars, ach, runs)
 	// Long cache TTL pins the snapshot so the handler and the test observe the
 	// same GeneratedAt deterministically.
-	stats := census.NewUIStatsService(&testStatsRepository{svc: svc}, time.Hour, time.Hour)
+	stats := census.NewUIStatsService(&testStatsRepository{svc: svc, ach: ach}, time.Hour, time.Hour)
 	ctrl := NewUIController(svc, mockqueue.NewFake(), stats, testBaseURL)
 	return ctrl, stats, chars
 }

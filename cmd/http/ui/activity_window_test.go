@@ -63,7 +63,7 @@ func windowedSeededMux(t *testing.T) *http.ServeMux {
 	rig := newTestRig(t)
 	seedFullDashboard(t, rig)
 	seedWorldsCharacters(t, rig)
-	stats := census.NewUIStatsService(&windowedStatsRepository{testStatsRepository: testStatsRepository{svc: rig.svc}, activityDays: 45, newCharactersDays: testNewCharactersDays}, time.Nanosecond, time.Hour)
+	stats := census.NewUIStatsService(&windowedStatsRepository{testStatsRepository: testStatsRepository{svc: rig.svc, ach: rig.ach}, activityDays: 45, newCharactersDays: testNewCharactersDays}, time.Nanosecond, time.Hour)
 	seeded := http.NewServeMux()
 	NewUIController(rig.svc, mockqueue.NewFake(), stats, testBaseURL).RegisterRoutes(seeded)
 	return seeded

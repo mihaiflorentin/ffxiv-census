@@ -151,3 +151,13 @@ func TestUIStatsIncrementalRebuildsOnChangedWindowOrOlderSchema(t *testing.T) {
 		t.Fatalf("older schema: mode %q, want a full rebuild", older.Mode)
 	}
 }
+
+// The new-characters window has one default, the census service's: a
+// refresh without a window is refused rather than guessing one.
+func TestUIStatsRefreshRequiresTheNewCharactersWindow(t *testing.T) {
+	driver := newTestDriver(t)
+	opts := windowOpts(contract.UIStatsRefreshFull, 0)
+	if _, err := repository.NewUIStatsRepository(driver).Refresh(context.Background(), opts); err == nil {
+		t.Fatal("Refresh without a new-characters window succeeded, want an error")
+	}
+}
