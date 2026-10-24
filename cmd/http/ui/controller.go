@@ -5,6 +5,7 @@ import (
 	"hash/fnv"
 	"html/template"
 	"net/http"
+	"path"
 	"strings"
 
 	census "github.com/mihaiflorentin88/ffxiv-census/domain/census"
@@ -41,20 +42,17 @@ func NewUIController(svc *census.Service, q contract.Queue, stats *census.UIStat
 		"templates/methodology.html",
 		"templates/character.html",
 		"templates/characters_list.html",
+		notFoundTemplate,
+		unavailableTemplate,
 	} {
-		controller.pageTemplates[page] = template.Must(template.New("layout.html").Funcs(templateFuncs).ParseFS(content, "templates/layout.html", page))
+		controller.pageTemplates[page] = template.Must(template.New("layout.html").Funcs(templateFuncs).ParseFS(content, "templates/layout.html", componentsTemplate, page))
 	}
 	for _, partial := range []string{
 		"templates/partials/world_drilldown.html",
 		"templates/partials/search_results.html",
 	} {
-		parsed := template.Must(template.New("partial").Funcs(templateFuncs).ParseFS(content, partial))
-		for _, candidate := range parsed.Templates() {
-			if candidate.Name() != "partial" {
-				controller.partialTemplates[partial] = candidate
-				break
-			}
-		}
+		parsed := template.Must(template.New("partial").Funcs(templateFuncs).ParseFS(content, partial, componentsTemplate))
+		controller.partialTemplates[partial] = parsed.Lookup(path.Base(partial))
 	}
 	return controller
 }
@@ -69,20 +67,38 @@ type PageData struct {
 	SearchQuery   string
 	StatsUpdated  string
 	StatsStale    bool
-	Data          any
+	// NoIndex marks error pages: they carry a robots noindex hint and no
+	// canonical URL.
+	NoIndex bool
+	Data    any
+}
+
+const (
+	componentsTemplate  = "templates/components/states.html"
+	notFoundTemplate    = "templates/not_found.html"
+	unavailableTemplate = "templates/unavailable.html"
+)
+
+// UnavailableViewData feeds the 503 "statistics are being prepared" page.
+type UnavailableViewData struct {
+	RetryPath string
+}
+
+// NotFoundViewData feeds the styled 404 page.
+type NotFoundViewData struct {
+	Heading string
+	Message string
 }
 
 func (c *UIController) currentStats(w http.ResponseWriter, r *http.Request) (*contract.UIStatsSnapshot, census.UIStatsState, bool) {
 	if c.stats == nil {
-		w.Header().Set("Retry-After", "60")
-		http.Error(w, "Statistics are temporarily unavailable. Please retry shortly.", http.StatusServiceUnavailable)
+		c.renderUnavailable(w, r)
 		return nil, census.UIStatsState{}, false
 	}
 	snapshot, state, err := c.stats.Current(r.Context())
 	if err != nil {
 		logging.Error("ui.stats", err.Error())
-		w.Header().Set("Retry-After", "60")
-		http.Error(w, "Statistics are temporarily unavailable. Please retry shortly.", http.StatusServiceUnavailable)
+		c.renderUnavailable(w, r)
 		return nil, census.UIStatsState{}, false
 	}
 
@@ -111,8 +127,68 @@ func statsPageData(title, activeNav, canonicalPath, description string, state ce
 	}
 }
 
+// renderUnavailable answers 503 with Retry-After while no statistics snapshot
+// can be served. Browsers get the styled "being prepared" page in the shell;
+// HTMX fragment requests keep a short plain-text body, which HTMX does not swap.
+func (c *UIController) renderUnavailable(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Retry-After", "60")
+	if strings.EqualFold(r.Header.Get("HX-Request"), "true") {
+		http.Error(w, "Statistics are temporarily unavailable. Please retry shortly.", http.StatusServiceUnavailable)
+		return
+	}
+	c.renderStatus(w, unavailableTemplate, PageData{
+		Title:         "Statistics are being prepared",
+		CanonicalPath: r.URL.Path,
+		Description:   "The FFXIV Census statistics snapshot is being prepared. Try again shortly.",
+		NoIndex:       true,
+		Data:          UnavailableViewData{RetryPath: r.URL.RequestURI()},
+	}, http.StatusServiceUnavailable)
+}
+
+// NotFound renders the styled 404 page for any unknown route under /ui/.
+func (c *UIController) NotFound(w http.ResponseWriter, r *http.Request) {
+	c.renderNotFound(w, r, NotFoundViewData{
+		Heading: "Page not found",
+		Message: "This page is not part of the census. The link may be out of date, or the address may have a typo.",
+	})
+}
+
+// renderNotFound answers 404 through the page shell. The footer still shows
+// snapshot freshness when a snapshot is available, but a missing snapshot
+// never turns a 404 into a 503.
+func (c *UIController) renderNotFound(w http.ResponseWriter, r *http.Request, view NotFoundViewData) {
+	data := PageData{
+		Title:         view.Heading,
+		CanonicalPath: r.URL.Path,
+		Description:   view.Message,
+		NoIndex:       true,
+		Data:          view,
+	}
+	c.fillFreshness(r, &data)
+	// A not-found page shows no figures, so the stale notice would be noise.
+	data.StatsStale = false
+	c.renderStatus(w, notFoundTemplate, data, http.StatusNotFound)
+}
+
+// fillFreshness sets the footer freshness from the current snapshot, if any,
+// for pages that do not otherwise depend on it.
+func (c *UIController) fillFreshness(r *http.Request, data *PageData) {
+	if c.stats == nil {
+		return
+	}
+	if _, state, err := c.stats.Current(r.Context()); err == nil {
+		data.StatsUpdated = formatStatsUpdated(state)
+		data.StatsStale = state.Stale
+	}
+}
+
 // render executes a template compiled once at controller construction.
 func (c *UIController) render(w http.ResponseWriter, pageTemplate string, data PageData) {
+	c.renderStatus(w, pageTemplate, data, http.StatusOK)
+}
+
+// renderStatus executes a precompiled page template with the given status code.
+func (c *UIController) renderStatus(w http.ResponseWriter, pageTemplate string, data PageData, status int) {
 	tmpl := c.pageTemplates[pageTemplate]
 	if tmpl == nil {
 		err := fmt.Errorf("page template %q is not compiled", pageTemplate)
@@ -122,6 +198,7 @@ func (c *UIController) render(w http.ResponseWriter, pageTemplate string, data P
 	}
 	data.BaseURL = c.baseURL
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
 	if err := tmpl.Execute(w, data); err != nil {
 		logging.Error("ui.render.execute", err.Error())
 	}
@@ -170,12 +247,7 @@ func (c *UIController) Methodology(w http.ResponseWriter, r *http.Request) {
 	// The footer shows snapshot freshness on every page. Methodology does not
 	// depend on the snapshot, so a missing snapshot never fails this page and
 	// its caching headers stay unchanged.
-	if c.stats != nil {
-		if _, state, err := c.stats.Current(r.Context()); err == nil {
-			data.StatsUpdated = formatStatsUpdated(state)
-			data.StatsStale = state.Stale
-		}
-	}
+	c.fillFreshness(r, &data)
 	c.render(w, "templates/methodology.html", data)
 }
 

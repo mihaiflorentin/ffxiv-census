@@ -51,7 +51,7 @@
             {{end}}
         </div>
         {{else}}
-        <p class="text-dim">No expansion achievement records have been ingested yet.</p>
+        {{template "empty-state" (emptyState "No expansion completions yet." "Statistics appear after the next census refresh.")}}
         {{end}}
     </div>
 </div>

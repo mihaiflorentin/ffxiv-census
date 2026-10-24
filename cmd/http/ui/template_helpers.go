@@ -172,6 +172,8 @@ func roleColor(role string) string {
 
 // templateFuncs is the standard FuncMap registered across all UI templates.
 var templateFuncs = template.FuncMap{
+	"emptyState":     emptyState,
+	"emptyStateLink": emptyStateLink,
 	"formatNumber":   formatNumber,
 	"formatPercent":  formatPercent,
 	"formatDate":     formatDate,
@@ -217,4 +219,21 @@ var templateFuncs = template.FuncMap{
 		}
 		return d, nil
 	},
+}
+
+// EmptyState is the argument of the shared "empty-state" template component.
+// Title says what is missing; Hint says what happens next or what to do.
+type EmptyState struct {
+	Title  string
+	Hint   string
+	Href   string
+	Action string
+}
+
+func emptyState(title, hint string) EmptyState {
+	return EmptyState{Title: title, Hint: hint}
+}
+
+func emptyStateLink(title, hint, href, action string) EmptyState {
+	return EmptyState{Title: title, Hint: hint, Href: href, Action: action}
 }

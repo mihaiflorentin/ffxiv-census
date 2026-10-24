@@ -116,7 +116,7 @@
                 </table>
             </div>
             {{else}}
-            <p class="text-dim">No race census data available for this world.</p>
+            {{template "empty-state" (emptyState "No race data for this world yet." "Statistics appear after the next census refresh.")}}
             {{end}}
         </div>
     </div>
@@ -152,7 +152,7 @@
                 </table>
             </div>
             {{else}}
-            <p class="text-dim">No MSQ completion milestones recorded for this world.</p>
+            {{template "empty-state" (emptyState "No expansion completions for this world yet." "Statistics appear after the next census refresh.")}}
             {{end}}
         </div>
     </div>

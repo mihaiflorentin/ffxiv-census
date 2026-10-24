@@ -35,6 +35,9 @@ func (c *UIController) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /sitemap.xml", c.Sitemap)
 	mux.HandleFunc("GET /favicon.ico", c.Favicon)
 	mux.Handle("GET /ui/assets/", http.StripPrefix("/ui/assets/", assetHandler()))
+	// Any other path under /ui/ (including the disabled routes below) gets the
+	// styled not-found page.
+	mux.HandleFunc("GET /ui/", c.NotFound)
 	// Personal info routes are currently disabled to protect player privacy.
 	// mux.HandleFunc("GET /ui/characters/{id}", c.CharacterDetail)
 	// mux.HandleFunc("GET /ui/characters", c.CharacterList)

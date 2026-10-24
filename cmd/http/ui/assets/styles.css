@@ -488,6 +488,152 @@ input[type="search"] {
     border-left-color: var(--color-warning);
 }
 
+/* A notice with a leading icon (the layout's stale notice). */
+.notice:has(> .notice-icon) {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+}
+
+.notice-icon {
+    flex-shrink: 0;
+    margin-top: 0.15em;
+    color: var(--color-aether);
+}
+
+.notice-stale .notice-icon { color: var(--color-warning); }
+
+.notice-title {
+    font-weight: var(--weight-heading);
+    color: var(--color-ink);
+}
+
+/* ---------- Components: empty state ---------- */
+
+.empty-state {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-5) var(--space-4);
+    border-radius: var(--radius-control);
+    background: var(--color-night);
+}
+
+.empty-state-text { max-width: var(--measure); }
+
+@media (max-width: 479px) {
+    .notice { font-size: var(--step--1); }
+}
+
+.empty-state-mark {
+    flex-shrink: 0;
+    margin-top: 0.1em;
+    fill: none;
+    stroke: var(--color-ink-muted);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+}
+
+.empty-state-mark path { stroke: var(--color-aether); }
+
+.empty-state-title {
+    font-weight: var(--weight-heading);
+    color: var(--color-ink);
+}
+
+.empty-state-hint {
+    color: var(--color-ink-muted);
+    font-size: var(--step--1);
+    margin-top: var(--space-1);
+}
+
+.empty-state-action {
+    margin-top: var(--space-2);
+    font-size: var(--step--1);
+    font-weight: var(--weight-heading);
+}
+
+/* ---------- Components: state page (404 / 503) ---------- */
+
+.state-page {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    max-width: 40rem;
+    padding: var(--space-7) 0 var(--space-6);
+}
+
+.state-mark {
+    margin-bottom: var(--space-5);
+}
+
+.state-mark-orbit {
+    fill: none;
+    stroke: var(--color-line);
+    stroke-width: 1.5;
+}
+
+.state-mark-orbit-inner { stroke-dasharray: 3 5; }
+.state-mark-node { fill: var(--color-line); }
+.state-mark-pending .state-mark-node { fill: var(--color-aether); }
+.state-mark-facet-aether { fill: var(--color-aether); }
+.state-mark-facet-crystal { fill: var(--color-crystal); }
+.state-mark-facet-crown { fill: var(--color-ink); opacity: 0.85; }
+
+/* Not found: the crystal is unlit, drawn only as an outline. */
+.state-mark-missing .state-mark-facet-aether,
+.state-mark-missing .state-mark-facet-crystal,
+.state-mark-missing .state-mark-facet-crown {
+    fill: var(--color-surface);
+    stroke: var(--color-ink-muted);
+    stroke-width: 1.5;
+    stroke-linejoin: round;
+    opacity: 1;
+}
+
+.state-code {
+    color: var(--color-ink-muted);
+    font-size: var(--step--1);
+    font-weight: var(--weight-heading);
+    font-variant-numeric: tabular-nums;
+    margin-bottom: var(--space-2);
+}
+
+.state-title {
+    font-size: var(--step-4);
+    font-weight: var(--weight-display);
+    letter-spacing: var(--tracking-display);
+    line-height: var(--leading-tight);
+    color: var(--color-ink);
+}
+
+.state-lead {
+    margin-top: var(--space-4);
+    color: var(--color-ink-muted);
+    font-size: var(--step-1);
+    max-width: var(--measure);
+}
+
+.state-actions {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    margin-top: var(--space-6);
+}
+
+.state-actions .btn {
+    min-height: 2.75rem;
+    padding: var(--space-2) var(--space-5);
+    font-size: var(--step-0);
+}
+
+@media (max-width: 479px) {
+    .state-page { padding-top: var(--space-5); }
+    .state-title { font-size: var(--step-3); }
+    .state-lead { font-size: var(--step-0); }
+}
+
 /* Legacy alert (pages restyled later map onto .notice). */
 .alert {
     display: flex;
@@ -1004,8 +1150,8 @@ input[type="search"] {
     padding: 0;
 }
 
-.panel-body-flush .empty-state {
-    padding: var(--space-5);
+.panel-body-flush > .empty-state {
+    margin: var(--space-5);
 }
 
 /* ---------- Components: chart text alternatives ---------- */

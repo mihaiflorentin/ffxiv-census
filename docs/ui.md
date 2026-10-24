@@ -19,11 +19,12 @@
 | `/ui/partials/world-breakdown` | `GET` | HTMX partial returning world and datacenter rows for a requested region (`?region=NA`), including each world's New (30d) count |
 | `/ui/races` | `GET` | Playable race demographics with cascading region/DC/world filters, a new-characters (30d) card that follows the active filters, global percentage shares, active ratios, and demographic charts. Filtering selects precomputed snapshot groups and performs no aggregate database query. |
 | `/ui/worlds` | `GET` | Global server rankings table (including a per-world New (30d) column) with interactive region/datacenter filters and a filter-scoped new-characters (30d) card |
-| `/ui/worlds/{world}` | `GET` | World detail page: total population, active players (30d), new characters (chocobo milestone 590 in last 30 days, with trend vs the previous 30 days), race breakdown, MSQ completions, and 30-day new-character timeline |
+| `/ui/worlds/{world}` | `GET` | World detail page (an unknown world answers the styled `404`): total population, active players (30d), new characters (chocobo milestone 590 in last 30 days, with trend vs the previous 30 days), race breakdown, MSQ completions, and 30-day new-character timeline |
 | `/ui/expansions` | `GET` | MSQ story completion funnel (A Realm Reborn, Heavensward, Stormblood, Shadowbringers, Endwalker, Dawntrail) with retention and drop-off metrics |
 | `/ui/characters/{id}` | `GET` | Detailed character profile with Dawntrail Lv 100 job matrix, story milestone timeline, Free Company badge, and external links |
 | `/ui/characters` | `GET` | Paginated directory browser of discovered player characters |
 | `/ui/characters/search` | `GET` | Global search handler: numeric IDs redirect directly to `/ui/characters/{id}`, text queries filter by character name |
+| `/ui/*` (anything else) | `GET` | Styled not-found page (`404`, through the page shell, `noindex`). The disabled character routes below also land here. |
 | `/ui/assets/*` | `GET` | Static asset file server (`styles.css`, `htmx.min.js`, `chart.umd.min.js`, `fonts/*.woff2` as `font/woff2` with year-long immutable caching) |
 
 ### Head Metadata & Canonical URLs
@@ -55,7 +56,7 @@ root URL `/` and `/ui/dashboard` serve the same dashboard handler, and each rend
 
 The Helm chart runs two CronJobs, both with `concurrencyPolicy: Forbid`: `refresh-ui-stats-full` (`--mode=full`) nightly at 01:00 Europe/Bucharest, and `refresh-ui-stats-incremental` (`--mode=incremental`) every 30 minutes (change its `schedule` in `k8s/values.yaml` to change the interval). A full rebuild scans every character (about 6 minutes at 34.5 million rows); the incremental pass does not.
 
-**Incremental mode.** The snapshot stores a watermark (`ui_stats_snapshots.watermark_at`, the database clock when the counts were read). An incremental pass takes the previous snapshot's group totals and adds the characters with `first_seen_at` in (watermark, now] and subtracts those with `deleted_at` in the same window (soft deletes only). Active and max-level counts are recomputed exactly each pass from `latest_achievement_at` and `max_job_level` (partial index `idx_characters_max_job_level`), and the milestone figures are recomputed in full. It falls back to a full rebuild when there is no previous snapshot, the schema version or watermark is unusable, or the adjusted result fails validation. Accepted drift until the next nightly rebuild: a character whose world, datacenter, region, race or tribe changes after it was counted, a soft delete later reverted, and a character that commits after the read snapshot with a `first_seen_at` before the watermark. The advisory lock keeps the two jobs from overlapping (the later one reports "skipped"). Each server process reloads the database row no more frequently than `cache_ttl`; concurrent cold loads are coalesced. If a reload fails after a successful load, the last good snapshot remains available. A cold process with no snapshot returns `503 Service Unavailable` with `Retry-After`; there is deliberately no fallback to unbounded aggregate queries.
+**Incremental mode.** The snapshot stores a watermark (`ui_stats_snapshots.watermark_at`, the database clock when the counts were read). An incremental pass takes the previous snapshot's group totals and adds the characters with `first_seen_at` in (watermark, now] and subtracts those with `deleted_at` in the same window (soft deletes only). Active and max-level counts are recomputed exactly each pass from `latest_achievement_at` and `max_job_level` (partial index `idx_characters_max_job_level`), and the milestone figures are recomputed in full. It falls back to a full rebuild when there is no previous snapshot, the schema version or watermark is unusable, or the adjusted result fails validation. Accepted drift until the next nightly rebuild: a character whose world, datacenter, region, race or tribe changes after it was counted, a soft delete later reverted, and a character that commits after the read snapshot with a `first_seen_at` before the watermark. The advisory lock keeps the two jobs from overlapping (the later one reports "skipped"). Each server process reloads the database row no more frequently than `cache_ttl`; concurrent cold loads are coalesced. If a reload fails after a successful load, the last good snapshot remains available. A cold process with no snapshot returns `503 Service Unavailable` with `Retry-After: 60` and the styled "Statistics are being prepared" page (see section 5, Error, stale and empty states); there is deliberately no fallback to unbounded aggregate queries.
 
 ```toml
 [census.ui_stats]
@@ -64,7 +65,7 @@ stale_warning   = "12h"
 refresh_timeout = "2h"
 ```
 
-Aggregate HTML and HTMX responses include a query-aware `ETag`, `Cache-Control`, and `Vary: HX-Request, Accept-Encoding`. The page shell displays the snapshot generation time and warns when it exceeds `stale_warning`. This response contract is suitable for a future reverse proxy such as Varnish without making it a runtime dependency.
+Aggregate HTML and HTMX responses include a query-aware `ETag`, `Cache-Control`, and `Vary: HX-Request, Accept-Encoding`. The page shell displays the snapshot generation time and shows the stale notice when the snapshot is stale (see section 5, Error, stale and empty states, for exactly when). This response contract is suitable for a future reverse proxy such as Varnish without making it a runtime dependency.
 
 Operational checks:
 
@@ -91,6 +92,10 @@ cmd/http/ui/
 │   └── styles.css          # Design tokens, shell and component styles (see section 5)
 ├── templates/
 │   ├── layout.html         # Page shell (skip link, brand, primary nav, stale notice, footer, font preload)
+│   ├── not_found.html      # Styled 404 page (unknown world or /ui/ route)
+│   ├── unavailable.html    # Styled 503 "Statistics are being prepared" page
+│   ├── components/
+│   │   └── states.html     # Shared "empty-state" and "state-mark" template components
 │   ├── dashboard.html      # Headline stats, 30-day time-series chart, region table
 │   ├── races.html          # Race & clan demographics with race, tribe, gender, and race×gender doughnut charts
 │   ├── worlds.html         # Global worlds & datacenters table with active ratios
@@ -185,7 +190,8 @@ Ship a changed font under a new file name: the asset route serves `.woff2` files
 - Primary navigation (`<nav aria-label="Primary">`: Dashboard `/`, Races, Worlds, Expansions,
   Methodology) with `aria-current="page"` on the active item. Below 768px it collapses behind a "Menu"
   toggle that is a native checkbox and label, so it opens and closes without JavaScript.
-- A stale-snapshot notice at the top of `main` when the snapshot is older than `stale_warning`.
+- A stale-snapshot notice at the top of `main` when the snapshot is stale (see Error, stale and empty
+  states below).
 - A footer with snapshot freshness ("Statistics updated …"), a Methodology link and a link to
   ffxivbard.com.
 
@@ -196,11 +202,48 @@ host in `src`, `href` or CSS `url(...)` apart from canonical/OG URLs and the ffx
 ### Components
 
 Shell: `.skip-link`, `.site-header`, `.brand`, `.primary-nav`, `.nav-toggle`, `.site-footer`,
-`.notice` / `.notice-stale`. Page components (restyled onto the tokens; page templates move onto them as
+`.notice` / `.notice-stale` (with optional `.notice-icon` and `.notice-title`), `.empty-state`, `.state-page`.
+Page components (restyled onto the tokens; page templates move onto them as
 they are redesigned): `.page-header` / `.page-title` / `.page-desc`, `.stat-grid` / `.stat-card`,
 `.panel` / `.panel-header` / `.panel-title` / `.panel-body`, `.chart-container`, `.data-table` inside
 `.table-responsive`, `.badge`, `.btn`, `.progress-bar-*`, `.funnel-*` (progression steps),
 `.visually-hidden`.
+
+### Error, stale and empty states
+
+All three render through the page shell, so they keep the header, navigation and footer.
+
+- **No snapshot (503).** When no statistics snapshot can be served (cold process, empty database or the
+  snapshot service is missing), every snapshot-backed page answers `503 Service Unavailable` with
+  `Retry-After: 60` and `templates/unavailable.html`: "Statistics are being prepared", a line telling
+  the visitor to try again in a minute or two, a "Try again" link to the same URL and a link to
+  Methodology (which renders without a snapshot). HTMX fragment requests (`HX-Request: true`) keep a
+  short plain-text 503 body, which HTMX does not swap.
+- **Not found (404).** An unknown world (`/ui/worlds/{world}` for a name outside the world hierarchy,
+  matched case-insensitively) and any other unknown path under `/ui/` answer `404` with
+  `templates/not_found.html`: a heading ("World not found" or "Page not found"), one line of direction,
+  and links to the dashboard and the worlds list. The footer still shows snapshot freshness when a
+  snapshot exists, but a missing snapshot never turns a 404 into a 503, and the stale notice is not shown
+  (the page has no figures). Paths outside `/ui/` keep Go's default plain 404.
+- Both error pages set `PageData.NoIndex`: the head carries `<meta name="robots" content="noindex">`
+  instead of a canonical link, and no primary-nav item is marked `aria-current`.
+- **Stale notice.** `UIStatsService.Current` reports a snapshot stale only when it is at least
+  `stale_warning` old, or when the most recent reload attempt failed while a warm snapshot was held.
+  A routine background reload after `cache_ttl` (stale-while-revalidate, metric result `stale_served`)
+  does not mark it stale. A later successful reload or refresh clears the failed-reload flag. The notice
+  (`role="status"`) reads "Statistics may be behind." and names the snapshot time; the footer adds
+  "(stale)".
+- **Empty states.** Every "no data here" block uses the shared `empty-state` component from
+  `templates/components/states.html`, which is parsed into every page and partial. Build its argument
+  with the `emptyState` / `emptyStateLink` helpers:
+
+  ```
+  {{template "empty-state" (emptyState "No race data yet." "Statistics appear after the next census refresh.")}}
+  {{template "empty-state" (emptyStateLink "No worlds match these filters." "Try another region or datacenter, or show every world." "/ui/worlds" "Show all worlds")}}
+  ```
+
+  The title says what is missing; the hint says what happens next or what to do. Use the link form when
+  filters caused the emptiness, pointing at the unfiltered page.
 
 ## 6. Cascading Filters
 

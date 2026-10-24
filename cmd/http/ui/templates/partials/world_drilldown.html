@@ -31,5 +31,5 @@
     </table>
 </div>
 {{else}}
-<p class="text-dim">No worlds found for region {{.Region}}.</p>
+{{template "empty-state" (emptyState (printf "No worlds recorded for %s yet." .Region) "Statistics appear after the next census refresh.")}}
 {{end}}

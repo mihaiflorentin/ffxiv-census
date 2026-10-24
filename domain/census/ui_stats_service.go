@@ -30,6 +30,11 @@ type UIStatsService struct {
 	loadedAt time.Time
 	loading  bool
 	wait     chan struct{}
+	// reloadFailed records that the most recent reload attempt failed while a
+	// warm snapshot was held. Only then (or once the snapshot outlives
+	// staleWarning) is the served snapshot reported stale; a routine
+	// stale-while-revalidate reload after cacheTTL is not.
+	reloadFailed bool
 }
 
 func (s *UIStatsService) SetObserver(observer contract.UIStatsObserver) {
@@ -71,16 +76,18 @@ func (s *UIStatsService) Current(ctx context.Context) (*contract.UIStatsSnapshot
 	s.mu.Lock()
 	if s.snapshot != nil && now.Sub(s.loadedAt) < s.cacheTTL {
 		snapshot := cloneUIStatsSnapshot(s.snapshot)
+		failed := s.reloadFailed
 		s.mu.Unlock()
 		s.observeCache("hit", snapshot)
-		return snapshot, s.state(snapshot, now, false), nil
+		return snapshot, s.state(snapshot, now, failed), nil
 	}
 	if s.loading {
 		if s.snapshot != nil {
 			snapshot := cloneUIStatsSnapshot(s.snapshot)
+			failed := s.reloadFailed
 			s.mu.Unlock()
 			s.observeCache("stale_served", snapshot)
-			return snapshot, s.state(snapshot, now, true), nil
+			return snapshot, s.state(snapshot, now, failed), nil
 		}
 		wait := s.wait
 		s.mu.Unlock()
@@ -94,11 +101,12 @@ func (s *UIStatsService) Current(ctx context.Context) (*contract.UIStatsSnapshot
 	s.loading = true
 	s.wait = make(chan struct{})
 	previous := cloneUIStatsSnapshot(s.snapshot)
+	failed := s.reloadFailed
 	s.mu.Unlock()
 	if previous != nil {
 		go s.reload(context.WithoutCancel(ctx))
 		s.observeCache("stale_served", previous)
-		return previous, s.state(previous, now, true), nil
+		return previous, s.state(previous, now, failed), nil
 	}
 
 	loaded, err := s.repo.LoadCurrent(ctx)
@@ -108,10 +116,6 @@ func (s *UIStatsService) Current(ctx context.Context) (*contract.UIStatsSnapshot
 	current := s.finishReload(loaded, err)
 
 	if err != nil {
-		if previous != nil {
-			s.observeCache("error", previous)
-			return previous, s.state(previous, now, true), nil
-		}
 		s.observeCache("error", nil)
 		return nil, UIStatsState{}, fmt.Errorf("%w: %v", ErrUIStatsUnavailable, err)
 	}
@@ -140,6 +144,7 @@ func (s *UIStatsService) finishReload(loaded *contract.UIStatsSnapshot, err erro
 	if err == nil {
 		s.snapshot = cloneUIStatsSnapshot(loaded)
 	}
+	s.reloadFailed = err != nil && s.snapshot != nil
 	// Apply the cache TTL to both success and warm failure so a database outage
 	// cannot turn request traffic into a continuous sequence of reload attempts.
 	if err == nil || s.snapshot != nil {
@@ -181,11 +186,12 @@ func (s *UIStatsService) Refresh(ctx context.Context, opts contract.UIStatsRefre
 	s.mu.Lock()
 	s.snapshot = cloneUIStatsSnapshot(result.Snapshot)
 	s.loadedAt = s.now().UTC()
+	s.reloadFailed = false
 	s.mu.Unlock()
 	return result, nil
 }
 
-func (s *UIStatsService) state(snapshot *contract.UIStatsSnapshot, now time.Time, forcedStale bool) UIStatsState {
+func (s *UIStatsService) state(snapshot *contract.UIStatsSnapshot, now time.Time, reloadFailed bool) UIStatsState {
 	age := now.Sub(snapshot.GeneratedAt)
 	if age < 0 {
 		age = 0
@@ -193,7 +199,7 @@ func (s *UIStatsService) state(snapshot *contract.UIStatsSnapshot, now time.Time
 	return UIStatsState{
 		GeneratedAt: snapshot.GeneratedAt,
 		Age:         age,
-		Stale:       forcedStale || age >= s.staleWarning,
+		Stale:       reloadFailed || age >= s.staleWarning,
 	}
 }
 

@@ -38,7 +38,7 @@
         </tbody>
     </table>
     {{else}}
-    <p class="realm-tally-lede">No regional data yet. Statistics appear after the next census refresh.</p>
+    <p class="realm-tally-lede">The regional split appears after the next census refresh.</p>
     {{end}}
 </section>
 
@@ -98,7 +98,7 @@
                 </div>
             </details>
             {{else}}
-            <p class="empty-state">No race data yet. Statistics appear after the next census refresh.</p>
+            {{template "empty-state" (emptyState "No race data yet." "Statistics appear after the next census refresh.")}}
             {{end}}
         </div>
     </section>
@@ -122,7 +122,7 @@
                 {{end}}
             </ol>
             {{else}}
-            <p class="empty-state">No completion data yet. Statistics appear after the next census refresh.</p>
+            {{template "empty-state" (emptyState "No expansion completions yet." "Statistics appear after the next census refresh.")}}
             {{end}}
         </div>
     </section>
@@ -194,7 +194,7 @@
             </table>
         </div>
         {{else}}
-        <p class="empty-state">No regional data yet. Statistics appear after the next census refresh.</p>
+        {{template "empty-state" (emptyState "No regional data yet." "Statistics appear after the next census refresh.")}}
         {{end}}
     </div>
 </section>
