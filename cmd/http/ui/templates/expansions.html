@@ -1,86 +1,49 @@
 {{define "content"}}
 <div class="page-header">
-    <h1 class="page-title">
-        <span>📜</span>
-        <span>Expansion Progression Funnel</span>
-    </h1>
-    <p class="page-desc">Track player story progression and completion rates across all FINAL FANTASY XIV main scenario storylines.</p>
+    <h1 class="page-title">Expansion progression</h1>
+    <p class="page-desc">How far characters have taken the main scenario, from A Realm Reborn to Dawntrail. Each step counts the characters who finished that expansion's story and how many of the previous expansion's finishers carried on.</p>
 </div>
 
-<!-- Funnel Overview Panel -->
-<div class="panel">
+<section class="panel" aria-labelledby="progression-heading">
     <div class="panel-header">
-        <h2 class="panel-title">
-            <span>🎯</span>
-            <span>Main Scenario Quest (MSQ) Story Funnel</span>
-        </h2>
-        <span class="badge badge-gold">Sample: {{formatNumber .Data.TotalCharacters}} Characters</span>
+        <h2 id="progression-heading" class="panel-title">Main scenario progression</h2>
+        <p class="panel-meta">Of {{formatNumber .Data.TotalCharacters}} characters in the census</p>
     </div>
     <div class="panel-body">
-        {{if .Data.Expansions}}
-        <div class="funnel-list">
+        {{if .Data.TotalCharacters}}
+        <ol class="progression">
             {{range .Data.Expansions}}
-            <div class="funnel-item">
-                <div class="funnel-header">
-                    <div class="funnel-title">
-                        <span style="font-size: 1.25rem; margin-right: 0.35rem;">{{.Icon}}</span>
-                        <strong>{{.Name}}</strong>
-                        <span class="text-dim" style="font-size: 0.82rem; font-weight: normal; margin-left: 0.5rem;">({{.Version}} &bull; {{.FinalQuest}})</span>
+            <li class="progression-step">
+                <div class="progression-head">
+                    <h3 class="progression-name">{{.Name}}</h3>
+                    <p class="progression-meta">{{.Version}}, level {{.LevelCap}}, finale <cite>{{.FinalQuest}}</cite></p>
+                </div>
+                <meter class="progress-meter progression-meter" min="0" max="100" value="{{.MeterValue}}" aria-label="{{.Name}} completion">{{.PercentOfTotal}}</meter>
+                <dl class="progression-figures">
+                    <div class="progression-figure">
+                        <dt>Completed</dt>
+                        <dd>{{formatNumber .Completions}}</dd>
                     </div>
-                    <div class="funnel-stats">
-                        <div>
-                            <span class="text-muted" style="font-size: 0.82rem;">Completed:</span>
-                            <strong style="color: var(--gold-light);">{{formatNumber .Completions}}</strong>
-                        </div>
-                        <div>
-                            <span class="text-muted" style="font-size: 0.82rem;">Global Share:</span>
-                            <span class="badge badge-active">{{.PercentOfTotal}}</span>
-                        </div>
-                        {{if ne .RetentionRate "-"}}
-                        <div>
-                            <span class="text-muted" style="font-size: 0.82rem;">Retention:</span>
-                            <span class="badge badge-gold">{{.RetentionRate}}</span>
-                        </div>
+                    <div class="progression-figure">
+                        <dt>Share of total</dt>
+                        <dd>{{.PercentOfTotal}}</dd>
+                    </div>
+                    <div class="progression-figure">
+                        {{if .Previous}}
+                        <dt>Retention from {{.Previous}}</dt>
+                        <dd>{{.Retention}}</dd>
+                        {{else}}
+                        <dt>Retention</dt>
+                        <dd class="progression-muted">Starting point</dd>
                         {{end}}
                     </div>
-                </div>
-                <div class="funnel-bar">
-                    <div class="funnel-bar-fill" style="width: {{.PercentOfTotal}};"></div>
-                </div>
-            </div>
+                </dl>
+            </li>
             {{end}}
-        </div>
+        </ol>
         {{else}}
         {{template "empty-state" (emptyState "No expansion completions yet." "Statistics appear after the next census refresh.")}}
         {{end}}
     </div>
-</div>
-
-<!-- Expansion Breakdown Cards -->
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem;">
-    {{range .Data.Expansions}}
-    <div class="stat-card">
-        <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 0.75rem;">
-            <div>
-                <span style="font-size: 1.5rem;">{{.Icon}}</span>
-                <div style="font-size: 1.15rem; font-weight: 700; color: var(--gold-light); margin-top: 0.25rem;">{{.Name}}</div>
-                <div class="text-dim" style="font-size: 0.8rem;">{{.Version}}</div>
-            </div>
-            <span class="badge badge-region">{{.PercentOfTotal}}</span>
-        </div>
-        <div style="border-top: 1px solid var(--border-color); padding-top: 0.75rem; margin-top: 0.5rem;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 0.35rem; font-size: 0.88rem;">
-                <span class="text-muted">Total Finishes:</span>
-                <strong style="color: var(--cyan);">{{formatNumber .Completions}}</strong>
-            </div>
-            {{if ne .DropOffRate "-"}}
-            <div style="display: flex; justify-content: space-between; font-size: 0.88rem;">
-                <span class="text-muted">Drop-off:</span>
-                <span style="color: var(--inactive-red); font-weight: 600;">-{{.DropOffRate}}</span>
-            </div>
-            {{end}}
-        </div>
-    </div>
-    {{end}}
-</div>
+</section>
 {{end}}

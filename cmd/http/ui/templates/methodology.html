@@ -1,167 +1,75 @@
 {{define "content"}}
-<div class="page-header">
-    <h1 class="page-title">
-        <span>📖</span>
-        <span>Census Methodology &amp; Metrics</span>
-    </h1>
-    <p class="page-desc">Detailed breakdown of how the FFXIV Census collects data, determines active player populations,
-        tracks new character creation, and measures storyline progression.</p>
-</div>
+<article class="prose">
+    <header class="page-header">
+        <h1 class="page-title">How the census works</h1>
+        <p class="page-desc">Where the figures come from, what counts as an active player or a new character, and how main scenario progress is measured.</p>
+    </header>
 
-<!-- Grid with Methodology Sections -->
-<div style="display: grid; grid-template-columns: 1fr; gap: 2rem; max-width: 1000px; margin: 0 auto;">
+    <nav class="prose-toc" aria-label="On this page">
+        <ol>
+            <li><a href="#data-collection">Data collection</a></li>
+            <li><a href="#active-players">Active players</a></li>
+            <li><a href="#new-characters">New characters</a></li>
+            <li><a href="#main-scenario">Main scenario progression</a></li>
+        </ol>
+    </nav>
 
-    <!-- Section 1: Overview & Data Ingestion -->
-    <div class="panel">
-        <div class="panel-header">
-            <h2 class="panel-title">
-                <span>🔍</span>
-                <span>Data Collection &amp; Ingestion</span>
-            </h2>
-        </div>
-        <div class="panel-body" style="line-height: 1.7; color: var(--text-muted);">
-            <p style="margin-bottom: 1rem;">
-                The <strong style="color: var(--text-main);">FFXIV Census</strong> operates by indexing public character
-                profiles from the official Square Enix <em>Final Fantasy XIV Lodestone</em> service.
-            </p>
-            <p style="margin-bottom: 0;">
-                Character discovery runs via distributed, rate-limited background workers designed to scan ID sequences,
-                detect new player registrations, and periodically refresh existing character profiles. All requests
-                adhere to strict rate limiting and polite backoff policies to avoid impacting official infrastructure.
-            </p>
-            <div
-                style="background: var(--bg-elevated); border-left: 3px solid var(--gold-light); border-radius: var(--radius-md); padding: 1rem 1.25rem; margin-top: 1.25rem;">
-                <p style="margin: 0; font-size: 0.92rem; color: var(--text-muted);">
-                    <strong style="color: var(--gold-light);">Profile Visibility:</strong> Players can restrict
-                    access to their Lodestone data through Square Enix account settings. The entire character
-                    profile page, achievements, login activity, minions, mounts, and other categories can each
-                    be set to private independently. When a character's profile page is hidden, the census cannot
-                    retrieve any data for that character. When only achievements are private, the character's
-                    basic data (name, world, race, job levels) is still collected, but achievement-dependent
-                    metrics such as active status and MSQ completion will be incomplete. Characters with fully
-                    private profiles are excluded from all census metrics.
-                </p>
-            </div>
-        </div>
-    </div>
+    <section class="prose-section" aria-labelledby="data-collection">
+        <h2 id="data-collection">Data collection</h2>
+        <p>The FFXIV Census indexes public character profiles from the official Square Enix <em>FINAL FANTASY XIV: The Lodestone</em>.</p>
+        <p>Rate-limited background workers scan character ID ranges to discover new characters and refresh known profiles on a schedule. Every request follows strict rate limits and backs off politely, so the census never strains the Lodestone.</p>
+        <aside class="notice prose-note" aria-labelledby="visibility-heading">
+            <p class="notice-title" id="visibility-heading">Profile visibility</p>
+            <p>Players can make parts of their Lodestone profile private from their Square Enix account: the whole profile, achievements, login activity, minions, mounts and more, each on its own. When the profile page is hidden, the census cannot read anything about that character, and the character is left out of every figure. When only achievements are private, the census still records the name, world, race and job levels, but activity and main scenario figures for that character are incomplete.</p>
+        </aside>
+    </section>
 
-    <!-- Section 2: Active Players (30-Day Activity Window) -->
-    <div class="panel">
-        <div class="panel-header">
-            <h2 class="panel-title">
-                <span>⚡</span>
-                <span>Active Player Criteria</span>
-            </h2>
-        </div>
-        <div class="panel-body" style="line-height: 1.7; color: var(--text-muted);">
-            <p style="margin-bottom: 1rem;">
-                Because Square Enix does not publish real-time login statistics or active subscription counts, the
-                census estimates activity from the most recent public achievement observed within a <strong
-                    style="color: var(--cyan);">rolling 30-day activity window</strong>.
-            </p>
-            <p style="margin-bottom: 1rem;">
-                A character is designated as <span class="badge badge-active"
-                    style="display: inline-block; vertical-align: middle;">Active</span> if their latest observed
-                globally latest public achievement was earned within the last 30 days. This is an achievement-based
-                activity signal, not a direct login or subscription measurement.
-            </p>
-            <p style="margin-bottom: 1rem;">
-                The latest achievement is refreshed from one history-page request. Missing story milestones are then
-                checked separately in order, stopping as soon as the first incomplete milestone is found.
-            </p>
-            <p style="font-size: 0.92rem; color: var(--text-dim);">
-                Characters can still be playing without earning achievements. They are categorized as inactive when
-                their latest public achievement is older than 30 days or their Lodestone achievements are private, so
-                this metric does not infer activity that the public achievement history cannot demonstrate.
-            </p>
-        </div>
-    </div>
+    <section class="prose-section" aria-labelledby="active-players">
+        <h2 id="active-players">Active players</h2>
+        <p>Square Enix does not publish login figures or subscription counts, so the census estimates activity from public achievements within a rolling 30-day window.</p>
+        <p>A character counts as <strong>active</strong> when their globally latest public achievement was earned in the last 30 days. This is an achievement-based signal, not a measure of logins or subscriptions.</p>
+        <p>Each refresh reads the latest achievement from one achievement-history request. Missing story milestones are then checked one by one in release order, stopping at the first one the character has not earned.</p>
+        <p class="prose-aside">Characters can play without earning achievements. A character counts as inactive when their latest public achievement is older than 30 days or their achievements are private, so this figure never claims activity the public achievement history cannot show.</p>
+    </section>
 
-    <!-- Section 3: New Characters Created (The Chocobo Milestone) -->
-    <div class="panel">
-        <div class="panel-header">
-            <h2 class="panel-title">
-                <span>🐥</span>
-                <span>New Characters Created (Chocobo Milestone)</span>
-            </h2>
-        </div>
-        <div class="panel-body" style="line-height: 1.7; color: var(--text-muted);">
-            <p style="margin-bottom: 1rem;">
-                In previous iterations, "New Characters" were estimated based on the date a character ID was first
-                crawled. However, discovery timestamps can be misleading when older or returning characters are indexed
-                during routine sweeps.
-            </p>
-            <p style="margin-bottom: 1rem;">
-                To guarantee true accuracy, the <strong style="color: var(--gold-light);">New Characters Created (Last
-                    30 days)</strong> metric calculates new characters strictly by using the timestamp they achieved the
-                early-game Chocobo milestone:
-            </p>
-            <div
-                style="background: var(--bg-elevated); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 1.25rem; margin-bottom: 1.25rem;">
-                <div style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem;">
-                    <span style="font-size: 1.5rem;">🏅</span>
-                    <div>
-                        <strong style="color: var(--gold-light); font-size: 1.05rem;">Achievement ID 590: "My Little
-                            Chocobo"</strong>
-                        <div style="font-size: 0.85rem; color: var(--text-dim);">Grand Company Questline &bull; Level 20
-                            MSQ Milestone</div>
-                    </div>
-                </div>
-                <p style="font-size: 0.92rem; margin: 0; color: var(--text-muted);">
-                    Unlocked upon acquiring a company chocobo issued by the player's chosen Grand Company (Maelstrom,
-                    Order of the Twin Adder, or Immortal Flames) early in the Main Scenario Questline.
-                </p>
-            </div>
-            <p style="margin-bottom: 0;">
-                <strong style="color: var(--text-main);">Strict Inclusion:</strong> Characters who have not earned this
-                milestone (or whose Lodestone achievements remain private) are excluded from the New Characters
-                timeline. This eliminates indexing artifacts and ensures that every counted point represents an
-                authentic player who progressed past character creation into Eorzea.
-            </p>
-        </div>
-    </div>
+    <section class="prose-section" aria-labelledby="new-characters">
+        <h2 id="new-characters">New characters</h2>
+        <p>Earlier versions counted a character as new on the day the census first found it. That date can mislead: older or returning characters are often found during routine sweeps.</p>
+        <p>The new characters figure, and every 30-day timeline, instead dates a character by when they earned an early main scenario milestone:</p>
+        <dl class="prose-definition">
+            <dt>Achievement ID 590, “My Little Chocobo”</dt>
+            <dd>Earned for receiving a company chocobo from the player’s Grand Company (the Maelstrom, the Order of the Twin Adder or the Immortal Flames) around level 20 of the main scenario.</dd>
+        </dl>
+        <p>Characters without this achievement, or whose achievements are private, are left out of the new characters timeline. Every counted character has played past character creation and into the story, rather than being an indexing artefact.</p>
+    </section>
 
-    <!-- Section 4: Main Scenario Quest (MSQ) & Expansion Progression -->
-    <div class="panel">
-        <div class="panel-header">
-            <h2 class="panel-title">
-                <span>⚔️</span>
-                <span>Main Scenario Quest (MSQ) Progression</span>
-            </h2>
+    <section class="prose-section" aria-labelledby="main-scenario">
+        <h2 id="main-scenario">Main scenario progression</h2>
+        <p>Completion of each expansion’s story is read from the capstone achievement awarded when its base main scenario ends.</p>
+        <div class="table-scroll" role="region" aria-label="Capstone achievement for each expansion" tabindex="0">
+            <table class="data-table">
+                <caption class="visually-hidden">Capstone achievement for each expansion</caption>
+                <thead>
+                    <tr>
+                        <th scope="col">Expansion</th>
+                        <th scope="col">Capstone achievement</th>
+                        <th scope="col">Patch</th>
+                        <th scope="col" class="text-right">Level cap</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {{range .Data.Expansions}}
+                    <tr>
+                        <th scope="row">{{.Name}}</th>
+                        <td><cite>{{.FinalQuest}}</cite></td>
+                        <td>{{.Version}}</td>
+                        <td class="text-right">{{.LevelCap}}</td>
+                    </tr>
+                    {{end}}
+                </tbody>
+            </table>
         </div>
-        <div class="panel-body" style="line-height: 1.7; color: var(--text-muted);">
-            <p style="margin-bottom: 1rem;">
-                Expansion storyline completion is tracked through the official capstone achievements awarded at the
-                conclusion of each expansion's base Main Scenario Questline:
-            </p>
-            <div class="table-responsive" style="margin-bottom: 1.25rem;">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Expansion</th>
-                            <th>Milestone Achievement</th>
-                            <th class="text-right">Level Cap</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {{range .Data.Expansions}}
-                        <tr>
-                            <td><strong>{{.Name}}</strong></td>
-                            <td><em>{{.FinalQuest}}</em> ({{.Version}} Finale)</td>
-                            <td class="text-right"><span
-                                    class="badge {{if ge .LevelCap 100}}badge-gold{{else}}badge-region{{end}}">Lv.
-                                    {{.LevelCap}}</span></td>
-                        </tr>
-                        {{end}}
-                    </tbody>
-                </table>
-            </div>
-            <p style="font-size: 0.92rem; color: var(--text-dim); margin: 0;">
-                Milestone achievements allow the census to construct accurate completion funnels showing how players
-                advance through each era of the story.
-            </p>
-        </div>
-    </div>
-
-</div>
+        <p>Together these milestones show how far players carry the story through each expansion. See the <a href="/ui/expansions">expansion progression</a> for the current figures.</p>
+    </section>
+</article>
 {{end}}

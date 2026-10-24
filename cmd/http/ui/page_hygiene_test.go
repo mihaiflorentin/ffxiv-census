@@ -56,13 +56,18 @@ func assertChartsThemedAndDescribed(t *testing.T, doc *html.Node, wantCharts int
 	}
 }
 
-func TestRacesAndWorldsFollowThePagePrinciples(t *testing.T) {
-	for _, path := range []string{
-		"/ui/races",
+// TestEveryPageFollowsThePagePrinciples covers every indexable page, plus
+// filtered variants, so no page reintroduces inline styles or emoji.
+func TestEveryPageFollowsThePagePrinciples(t *testing.T) {
+	paths := []string{
 		"/ui/races?region=EU&dc=Chaos&world=Cerberus",
-		"/ui/worlds",
 		"/ui/worlds?region=EU&dc=Chaos",
-	} {
+		"/ui/worlds/Balmung",
+	}
+	for _, p := range shellPages {
+		paths = append(paths, p.path)
+	}
+	for _, path := range paths {
 		t.Run(path, func(t *testing.T) {
 			assertNoInlineStylesOrEmoji(t, renderPage(t, path))
 		})

@@ -5,6 +5,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"golang.org/x/net/html/atom"
 )
 
 func TestMethodologyHandler(t *testing.T) {
@@ -18,29 +20,40 @@ func TestMethodologyHandler(t *testing.T) {
 		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	body := strings.Join(strings.Fields(rec.Body.String()), " ")
-	if !strings.Contains(body, "Census Methodology &amp; Metrics") {
-		t.Errorf("expected body to contain 'Census Methodology &amp; Metrics', got:\n%s", body)
+	doc := parseHTML(t, rec.Body.String())
+	if h1 := findAll(doc, byAtom(atom.H1)); len(h1) != 1 || textOf(h1[0]) != "How the census works" {
+		t.Errorf("expected one h1 'How the census works'")
 	}
-	if !strings.Contains(body, "My Little Chocobo") {
-		t.Errorf("expected body to contain 'My Little Chocobo', got:\n%s", body)
+	var sections []string
+	for _, h := range findAll(doc, byAtom(atom.H2)) {
+		sections = append(sections, textOf(h))
 	}
-	if !strings.Contains(body, "Achievement ID 590") {
-		t.Errorf("expected body to contain 'Achievement ID 590', got:\n%s", body)
+	wantSections := []string{"Data collection", "Active players", "New characters", "Main scenario progression"}
+	if strings.Join(sections, "|") != strings.Join(wantSections, "|") {
+		t.Errorf("section headings = %q, want %q", sections, wantSections)
 	}
-	if !strings.Contains(body, "Active Player Criteria") {
-		t.Errorf("expected body to contain 'Active Player Criteria', got:\n%s", body)
+
+	body := textOf(doc)
+	for _, want := range []string{
+		"My Little Chocobo",
+		"Achievement ID 590",
+		"globally latest public achievement",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("expected body to contain %q", want)
+		}
 	}
-	if !strings.Contains(body, "globally latest public achievement") {
-		t.Errorf("expected body to describe the global latest-achievement activity signal, got:\n%s", body)
+
+	rows := map[string]bool{}
+	for _, row := range tableBodyRows(tableCaptioned(t, doc, "Capstone achievement for each expansion")) {
+		rows[strings.Join(row, "|")] = true
 	}
-	if !strings.Contains(body, "Main Scenario Quest (MSQ) Progression") {
-		t.Errorf("expected body to contain 'Main Scenario Quest (MSQ) Progression', got:\n%s", body)
-	}
-	if !strings.Contains(body, "Dawntrail") || !strings.Contains(body, "Lv. 100") {
-		t.Errorf("expected body to contain Dawntrail and Lv. 100, got:\n%s", body)
-	}
-	if !strings.Contains(body, "A Realm Reborn") || !strings.Contains(body, "Lv. 50") {
-		t.Errorf("expected body to contain A Realm Reborn and Lv. 50, got:\n%s", body)
+	for _, want := range []string{
+		"A Realm Reborn|Before the Dawn|Patch 2.55|50",
+		"Dawntrail|In the Glow of a New Dawn|Patch 7.0|100",
+	} {
+		if !rows[want] {
+			t.Errorf("milestone rows %v missing %q", rows, want)
+		}
 	}
 }

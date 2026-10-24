@@ -77,22 +77,22 @@ func TestWorldDetailHandler_NewCharactersTrend(t *testing.T) {
 		{
 			name:      "growth shows positive trend",
 			days:      []contract.DailyCount{{Day: day(1), Count: 20}, {Day: day(5), Count: 10}, {Day: day(40), Count: 4}, {Day: day(50), Count: 6}},
-			wantTrend: "▲ 20 (200.0%) vs previous 30d",
+			wantTrend: "Up +20 (+200.0%) on the previous 30 days",
 		},
 		{
 			name:      "decline shows negative trend",
 			days:      []contract.DailyCount{{Day: day(2), Count: 5}, {Day: day(35), Count: 15}, {Day: day(45), Count: 10}},
-			wantTrend: "▼ 20 (80.0%) vs previous 30d",
+			wantTrend: "Down −20 (−80.0%) on the previous 30 days",
 		},
 		{
 			name:      "no previous window shows absolute only",
 			days:      []contract.DailyCount{{Day: day(3), Count: 12}},
-			wantTrend: "▲ 12 vs previous 30d",
+			wantTrend: "Up +12 on the previous 30 days",
 		},
 		{
 			name:       "no data omits trend line",
 			days:       nil,
-			wantAbsent: "vs previous 30d",
+			wantAbsent: "on the previous 30 days",
 		},
 	}
 	for _, tc := range cases {
@@ -108,7 +108,7 @@ func TestWorldDetailHandler_NewCharactersTrend(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
 			}
-			body := rec.Body.String()
+			body := textOf(parseHTML(t, rec.Body.String()))
 			if tc.wantTrend != "" && !strings.Contains(body, tc.wantTrend) {
 				t.Errorf("expected body to contain trend %q, got:\n%s", tc.wantTrend, body)
 			}

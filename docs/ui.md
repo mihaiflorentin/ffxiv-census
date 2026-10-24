@@ -19,8 +19,9 @@
 | `/ui/partials/world-breakdown` | `GET` | HTMX partial returning world and datacenter rows for a requested region (`?region=NA`), including each world's New (30d) count |
 | `/ui/races` | `GET` | Playable race demographics with cascading region/DC/world filters, a new-characters (30d) card that follows the active filters, global percentage shares, active ratios, and demographic charts. Filtering selects precomputed snapshot groups and performs no aggregate database query. |
 | `/ui/worlds` | `GET` | Global server rankings table (including a per-world New (30d) column) with interactive region/datacenter filters and a filter-scoped new-characters (30d) card |
-| `/ui/worlds/{world}` | `GET` | World detail page (an unknown world answers the styled `404`): total population, active players (30d), new characters (chocobo milestone 590 in last 30 days, with trend vs the previous 30 days), race breakdown, MSQ completions, and 30-day new-character timeline |
-| `/ui/expansions` | `GET` | MSQ story completion funnel (A Realm Reborn, Heavensward, Stormblood, Shadowbringers, Endwalker, Dawntrail) with retention and drop-off metrics |
+| `/ui/worlds/{world}` | `GET` | World detail page (an unknown world answers the styled `404`): node breadcrumbs (region › datacenter › world, linking to the filtered Worlds page), stat tiles (characters, active players (30d), new characters from chocobo milestone 590 with a worded trend vs the previous 30 days), race distribution bar chart, main-scenario completion meters and the 30-day new-character line chart, each chart with a text alternative |
+| `/ui/expansions` | `GET` | Main scenario progression from A Realm Reborn to Dawntrail as stepped, connected nodes: each step shows completions, share of all characters and retention from the previous expansion |
+| `/ui/methodology` | `GET` | How the census works: data collection, the active-player signal, the new-character (chocobo) milestone and the capstone achievement of each expansion. Renders without a snapshot. |
 | `/ui/characters/{id}` | `GET` | Detailed character profile with Dawntrail Lv 100 job matrix, story milestone timeline, Free Company badge, and external links |
 | `/ui/characters` | `GET` | Paginated directory browser of discovered player characters |
 | `/ui/characters/search` | `GET` | Global search handler: numeric IDs redirect directly to `/ui/characters/{id}`, text queries filter by character name |
@@ -102,9 +103,12 @@ cmd/http/ui/
 │   ├── dashboard.html      # Realm tally, stat tiles, race and MSQ panels, 30-day chart, region table
 │   ├── races.html          # Races and clans: filter bar, stat tiles, race/gender doughnuts, clan and race×gender bars, race table
 │   ├── worlds.html         # Worlds: filter bar, stat tiles, world rankings data table
-│   ├── expansions.html     # MSQ expansion completion funnel & drop-off rates
-│   ├── character.html      # Full character profile (jobs grid, milestones, FC, badges)
-│   ├── characters_list.html# Paginated character directory and search results
+│   ├── world_detail.html   # World: node breadcrumbs, stat tiles, race and MSQ panels, 30-day chart
+│   ├── expansions.html     # Main scenario progression steps (completions, share, retention)
+│   ├── methodology.html    # Long-form methodology at a 70ch measure
+│   ├── character.html      # Character profile (route disabled; not yet restyled)
+│   ├── characters_list.html# Character directory (route disabled; not yet restyled)
+│   ├── free_companies_list.html # Free company directory (route disabled; not yet restyled)
 │   └── partials/
 │       ├── world_drilldown.html # HTMX partial: a region's worlds grouped by datacenter
 │       └── search_results.html  # HTMX partial for live character search
@@ -116,11 +120,13 @@ cmd/http/ui/
 ├── filters.go              # FilterBar view model and filterChips (URL with one filter removed)
 ├── races.go                # Controller for /ui/races (fixed race order, clan -> race map)
 ├── worlds.go               # Controller for /ui/worlds
-├── expansions.go           # Controller for /ui/expansions
+├── world_detail.go         # Controller for /ui/worlds/{world}
+├── timeline.go             # 30-day new-character series (dashboard and world detail charts)
+├── expansions.go           # Controller for /ui/expansions (progression steps and retention)
 ├── character.go            # Controller for /ui/characters/{id} & /ui/characters/search
 ├── world_data.go           # UI wrappers over the domain world hierarchy + indexable-world helper
 ├── template_helpers.go     # Template helper functions (formatting numbers, dates, job roles)
-└── ui_test.go              # Table-driven HTTP handler test suite
+└── *_test.go               # HTTP handler and page-render tests (page_hygiene_test.go checks every page)
 ```
 
 ## 5. Theme & Styling System
@@ -164,9 +170,10 @@ does too; `tokens_test.go` enforces this against the served stylesheet. The focu
   (buttons, selects, nav items); `--radius-pill` for chips and badges. No resting shadows;
   `--shadow-overlay` is only for open menus and tooltips.
 - **Layout:** `--content-max` 1280px, `--gutter` 16px on phones and 24px from 768px.
-- **Legacy aliases:** the old names (`--bg-card`, `--text-muted`, `--cyan`, `--gold`, …) are kept as
-  aliases onto the new tokens while page templates still use them; gold no longer exists and resolves to
-  Ink. Remove each alias once nothing references it.
+- **Legacy aliases:** a few old names (`--bg-card`, `--border-color`, `--text`, `--text-dim`, `--gold`,
+  `--gold-light`, `--cyan`) remain only for the inline styles of the disabled character and free company
+  templates; gold resolves to Ink. Every indexable page uses the tokens directly. Delete the aliases when
+  those templates are restyled.
 
 ### Font
 
@@ -214,8 +221,9 @@ Shell: `.skip-link`, `.site-header`, `.brand`, `.primary-nav`, `.nav-toggle`, `.
 Page components (restyled onto the tokens; page templates move onto them as
 they are redesigned): `.page-header` / `.page-title` / `.page-desc`, `.stat-grid` / `.stat-card`,
 `.panel` / `.panel-header` / `.panel-title` / `.panel-body`, `.chart-container`, `.data-table` inside
-`.table-responsive`, `.badge`, `.btn` (`.btn-small`), `.progress-bar-*`, `.funnel-*` (progression steps),
-`.visually-hidden`. Dashboard components: `.realm-tally` / `.realm-band` / `.realm-segment` /
+`.table-responsive`, `.badge`, `.btn` (`.btn-small`), `.progress-bar-*`, `.visually-hidden`.
+Page-specific components: `.node-breadcrumb` / `.node-crumb` (world detail), `.progression` /
+`.progression-step` (Expansions) and `.prose` (Methodology), described under Page layouts. Dashboard components: `.realm-tally` / `.realm-band` / `.realm-segment` /
 `.realm-key` / `.realm-tooltip`, `.trend` (`.trend-up` / `.trend-down` / `.trend-flat`), `.dashboard-grid`,
 `.panel-meta`, `.chart-summary` and `.chart-data` (chart text alternatives), `.progress-list` /
 `.progress-meter` (`<meter>` bars), `.drilldown-row` / `.drilldown-body`. `.chart-slot-0` … `.chart-slot-8`
@@ -226,6 +234,28 @@ partial: `filter-bar` (see Cascading Filters), `trend` (the arrow + word + signe
 `Trend` from `newTrend`, used by the new-characters tiles on the dashboard, Races and Worlds) and
 `empty-state`. Page grids: `.panel-grid` pairs chart panels (two columns from 720px), `.stat-grid-quad`
 lays four tiles out 1 / 2 × 2 / 4 across. `.chart-container-tall` sizes bar charts with many categories.
+
+### Page layouts
+
+- **Node breadcrumb** (world detail): `<nav aria-label="Breadcrumb">` with an ordered list of region ›
+  datacenter › world. Each crumb is drawn as a small aetheryte node (an Aether ring) joined to the
+  previous one by a short line; the current world is a filled node, marked `aria-current="page"` and not
+  linked. Region and datacenter link to `/ui/worlds?region=NA` and `/ui/worlds?region=NA&dc=Aether`.
+- **World detail** reuses the dashboard vocabulary: three stat tiles (with the shared `trend`), a
+  `.dashboard-grid` pairing the race distribution bar chart (race colours from `CensusCharts`, a summary
+  sentence and a "Show the numbers" table with characters, share and active) with the main-scenario
+  `.progress-list`, then the 30-day line chart (zero-filled by `newCharactersTimeline`, the same series
+  as the dashboard) with its summary and table.
+- **Progression steps** (Expansions): one `<li>` per expansion in an `<ol class="progression">`. Each
+  step has a node on a vertical connector, the expansion name (`h3`) with patch, level cap and finale,
+  a `<meter>` for its share of all characters (so the bars step down), and a `<dl>` of Completed, Share
+  of total and "Retention from {previous expansion}". A Realm Reborn reads "Starting point"; retention
+  after an expansion nobody finished reads "Not measured". Below 600px the figures fold into two
+  columns with retention on its own row. Expansion names are spelled out; the domain `ExpansionConfig.Icon`
+  emoji is no longer rendered anywhere.
+- **Prose** (Methodology): an `<article class="prose">` capped at `--measure` (70ch) with an
+  "On this page" list, `h2` sections separated by hairlines, an info `.notice` for profile visibility, a
+  definition block for the chocobo milestone and the capstone table in a scroll region.
 
 ### Data table
 

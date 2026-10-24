@@ -54,8 +54,8 @@ func TestExpansionsHandler(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	if !strings.Contains(body, "Expansion Progression Funnel") {
-		t.Errorf("expected body to contain 'Expansion Progression Funnel', got:\n%s", body)
+	if !strings.Contains(body, "Expansion progression") {
+		t.Errorf("expected body to contain 'Expansion progression', got:\n%s", body)
 	}
 	if !strings.Contains(body, "Dawntrail") {
 		t.Errorf("expected body to contain Dawntrail, got:\n%s", body)

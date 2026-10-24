@@ -129,26 +129,7 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 		expansionCards = append(expansionCards, ExpansionCard{Name: expansion.Name, Count: countMap[expansion.Name]})
 	}
 
-	dailyMap := make(map[string]int64)
-	for _, day := range census.SnapshotDaily(snapshot, contract.StatsScope{}) {
-		dailyMap[day.Day] = day.Count
-	}
-	now := snapshot.GeneratedAt.UTC()
-	var chartLabels, chartDates []string
-	var chartData []int64
-	var timeline TimelineSummary
-	for i := 29; i >= 0; i-- {
-		date := now.AddDate(0, 0, -i)
-		day := date.Format("2006-01-02")
-		count := dailyMap[day]
-		chartLabels = append(chartLabels, date.Format("Jan 2"))
-		chartDates = append(chartDates, day)
-		chartData = append(chartData, count)
-		timeline.Total += count
-		if count > timeline.PeakCount {
-			timeline.PeakCount, timeline.PeakDate = count, day
-		}
-	}
+	timeline := newCharactersTimeline(snapshot, contract.StatsScope{})
 
 	// Fix expansion percents now that total is known
 	for i := range expansionCards {
@@ -167,10 +148,10 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 		MaxLevelCharacters:   maxLevelCount,
 		MaxLevelPercent:      formatPercent(maxLevelCount, total),
 		MaxLevel:             maxLevel,
-		ChartLabels:          chartLabels,
-		ChartDates:           chartDates,
-		ChartData:            chartData,
-		Timeline:             timeline,
+		ChartLabels:          timeline.Labels,
+		ChartDates:           timeline.Dates,
+		ChartData:            timeline.Counts,
+		Timeline:             timeline.TimelineSummary,
 		Regions:              regions,
 		RaceLabels:           raceLabels,
 		RaceData:             raceData,
