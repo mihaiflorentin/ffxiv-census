@@ -58,32 +58,6 @@ func formatPercent(num, denom int64) string {
 	return fmt.Sprintf("%.1f%%", pct)
 }
 
-// formatTrend renders the change between two window totals as an arrow with
-// the absolute delta and the percentage of the previous value. A zero
-// previous window renders the absolute delta only; two zero windows render
-// an empty string; equal non-zero windows render without an arrow.
-func formatTrend(current, previous int64) string {
-	delta := current - previous
-	if delta == 0 && previous == 0 {
-		return ""
-	}
-	if delta == 0 {
-		return fmt.Sprintf("%s (%s)", formatNumber(0), formatPercent(0, previous))
-	}
-	arrow := "▲"
-	if delta < 0 {
-		arrow = "▼"
-	}
-	absolute := delta
-	if absolute < 0 {
-		absolute = -absolute
-	}
-	if previous == 0 {
-		return fmt.Sprintf("%s %s", arrow, formatNumber(absolute))
-	}
-	return fmt.Sprintf("%s %s (%s)", arrow, formatNumber(absolute), formatPercent(absolute, previous))
-}
-
 // formatDate formats a time.Time or *time.Time as "YYYY-MM-DD" or returns "-" if nil/zero.
 func formatDate(v any) string {
 	if v == nil {
@@ -172,7 +146,11 @@ func roleColor(role string) string {
 
 // templateFuncs is the standard FuncMap registered across all UI templates.
 var templateFuncs = template.FuncMap{
+	"censusTaxonomy": censusTaxonomy,
+	"emptyState":     emptyState,
+	"emptyStateLink": emptyStateLink,
 	"formatNumber":   formatNumber,
+	"regionName":     regionDisplayName,
 	"formatPercent":  formatPercent,
 	"formatDate":     formatDate,
 	"formatDateTime": formatDateTime,
@@ -217,4 +195,21 @@ var templateFuncs = template.FuncMap{
 		}
 		return d, nil
 	},
+}
+
+// EmptyState is the argument of the shared "empty-state" template component.
+// Title says what is missing; Hint says what happens next or what to do.
+type EmptyState struct {
+	Title  string
+	Hint   string
+	Href   string
+	Action string
+}
+
+func emptyState(title, hint string) EmptyState {
+	return EmptyState{Title: title, Hint: hint}
+}
+
+func emptyStateLink(title, hint, href, action string) EmptyState {
+	return EmptyState{Title: title, Hint: hint, Href: href, Action: action}
 }

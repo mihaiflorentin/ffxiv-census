@@ -180,11 +180,11 @@ func TestWorldsHandler_NewCharactersCard(t *testing.T) {
 				{Day: newCharactersDay(50), Count: 6},
 			},
 			wantTrend: map[string]string{
-				"":                    "▲ 20 (200.0%) vs previous 30d",
-				"?dc=Chaos":           fmt.Sprintf("▲ %s (200.0%%) vs previous 30d", formatNumber(int64(20*chaosCount))),
-				"?region=EU&dc=Chaos": fmt.Sprintf("▲ %s (200.0%%) vs previous 30d", formatNumber(int64(20*chaosCount))),
-				"?region=EU":          fmt.Sprintf("▲ %s (200.0%%) vs previous 30d", formatNumber(int64(20*euCount))),
-				"?region=eu":          fmt.Sprintf("▲ %s (200.0%%) vs previous 30d", formatNumber(int64(20*euCount))),
+				"":                    "Up +20 (+200.0%)",
+				"?dc=Chaos":           fmt.Sprintf("Up +%s (+200.0%%)", formatNumber(int64(20*chaosCount))),
+				"?region=EU&dc=Chaos": fmt.Sprintf("Up +%s (+200.0%%)", formatNumber(int64(20*chaosCount))),
+				"?region=EU":          fmt.Sprintf("Up +%s (+200.0%%)", formatNumber(int64(20*euCount))),
+				"?region=eu":          fmt.Sprintf("Up +%s (+200.0%%)", formatNumber(int64(20*euCount))),
 			},
 		},
 		{
@@ -193,11 +193,11 @@ func TestWorldsHandler_NewCharactersCard(t *testing.T) {
 				{Day: newCharactersDay(3), Count: 12},
 			},
 			wantTrend: map[string]string{
-				"":                    "▲ 12 vs previous 30d",
-				"?dc=Chaos":           fmt.Sprintf("▲ %s vs previous 30d", formatNumber(int64(12*chaosCount))),
-				"?region=EU&dc=Chaos": fmt.Sprintf("▲ %s vs previous 30d", formatNumber(int64(12*chaosCount))),
-				"?region=EU":          fmt.Sprintf("▲ %s vs previous 30d", formatNumber(int64(12*euCount))),
-				"?region=eu":          fmt.Sprintf("▲ %s vs previous 30d", formatNumber(int64(12*euCount))),
+				"":                    "Up +12 on the previous 30 days",
+				"?dc=Chaos":           fmt.Sprintf("Up +%s on the previous 30 days", formatNumber(int64(12*chaosCount))),
+				"?region=EU&dc=Chaos": fmt.Sprintf("Up +%s on the previous 30 days", formatNumber(int64(12*chaosCount))),
+				"?region=EU":          fmt.Sprintf("Up +%s on the previous 30 days", formatNumber(int64(12*euCount))),
+				"?region=eu":          fmt.Sprintf("Up +%s on the previous 30 days", formatNumber(int64(12*euCount))),
 			},
 		},
 		{
@@ -228,11 +228,11 @@ func TestWorldsHandler_NewCharactersCard(t *testing.T) {
 				if rec.Code != http.StatusOK {
 					t.Fatalf("%s: expected status 200, got %d: %s", query, rec.Code, rec.Body.String())
 				}
-				body := rec.Body.String()
+				body := textOf(parseHTML(t, rec.Body.String()))
 				if !strings.Contains(body, want) {
 					t.Errorf("%s: expected card subtext %q in body:\n%s", query, want, body)
 				}
-				if scenario.denyTrend && strings.Contains(body, "vs previous 30d") {
+				if scenario.denyTrend && strings.Contains(body, "on the previous 30 days") {
 					t.Errorf("%s: expected no trend subtext, got:\n%s", query, body)
 				}
 			}
@@ -256,8 +256,8 @@ func TestWorldsWorldRankings_NewColumn(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	if !strings.Contains(body, `<th class="text-right">New (30d)</th>`) {
-		t.Errorf("expected 'New (30d)' table header in body:\n%s", body)
+	if !strings.Contains(body, `>New, 30 days</th>`) {
+		t.Errorf("expected New, 30 days table header in body:\n%s", body)
 	}
 
 	row := rankingsRowFor(body, "Cerberus")

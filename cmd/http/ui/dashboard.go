@@ -3,7 +3,6 @@ package ui
 import (
 	"net/http"
 	"sort"
-	"strings"
 
 	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
@@ -15,28 +14,50 @@ type DashboardViewData struct {
 	ActiveCharacters     int64
 	ActivePercent        string
 	MaxLevelCharacters   int64
+	MaxLevelPercent      string
 	MaxLevel             uint32
 	NewCharacters30d     int64
-	NewCharactersTrend   string
+	NewCharactersTrend   Trend
 	ChartLabels          []string
+	ChartDates           []string
 	ChartData            []int64
+	Timeline             TimelineSummary
 	Regions              []RegionSummary
 	RaceLabels           []string
 	RaceData             []int64
+	Races                []ShareRow
 	ExpansionCompletions []ExpansionCard
+	RealmTally           RealmTally
+}
+
+// ShareRow is one category's count and share of the census, used as the
+// text alternative of part-to-whole charts.
+type ShareRow struct {
+	Name  string
+	Total int64
+	Share string
+}
+
+// TimelineSummary feeds the one-sentence text alternative of the 30-day chart.
+type TimelineSummary struct {
+	Total     int64
+	PeakDate  string // display date of the busiest day, like "Oct 23"
+	PeakCount int64
 }
 
 // ExpansionCard holds completion stats for one expansion.
 type ExpansionCard struct {
-	Icon    string
 	Name    string
 	Count   int64
 	Percent string
+	// Value is the completion share as a plain number (0-100) for the meter.
+	Value float64
 }
 
 // RegionSummary holds aggregated stats for a region in the dashboard.
 type RegionSummary struct {
 	Region      string
+	Name        string
 	Total       int64
 	Active      int64
 	ActiveRatio string
@@ -74,19 +95,19 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var regions []RegionSummary
-	for _, row := range census.SnapshotGroups(snapshot, "region", contract.StatsScope{}) {
-		name := row.Key
-		if name == "" {
-			name = "Unknown"
-		}
-		regions = append(regions, RegionSummary{Region: name, Total: row.Total, Active: row.Active, ActiveRatio: formatPercent(row.Active, row.Total)})
+	regionGroups := census.SnapshotGroups(snapshot, "region", contract.StatsScope{})
+	for _, row := range regionGroups {
+		name := orUnknown(row.Key)
+		regions = append(regions, RegionSummary{Region: name, Name: regionDisplayName(name), Total: row.Total, Active: row.Active, ActiveRatio: formatPercent(row.Active, row.Total)})
 	}
 	var raceLabels []string
 	var raceData []int64
+	var raceRows []ShareRow
 	for _, row := range census.SnapshotGroups(snapshot, "race", contract.StatsScope{}) {
 		if row.Key != "" {
 			raceLabels = append(raceLabels, row.Key)
 			raceData = append(raceData, row.Total)
+			raceRows = append(raceRows, ShareRow{Name: row.Key, Total: row.Total, Share: formatPercent(row.Total, total)})
 		}
 	}
 
@@ -101,25 +122,15 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 	}
 	var expansionCards []ExpansionCard
 	for _, expansion := range expansions {
-		expansionCards = append(expansionCards, ExpansionCard{Icon: expansion.Icon, Name: expansion.Name, Count: countMap[expansion.Name]})
+		expansionCards = append(expansionCards, ExpansionCard{Name: expansion.Name, Count: countMap[expansion.Name]})
 	}
 
-	dailyMap := make(map[string]int64)
-	for _, day := range census.SnapshotDaily(snapshot, contract.StatsScope{}) {
-		dailyMap[day.Day] = day.Count
-	}
-	now := snapshot.GeneratedAt.UTC()
-	var chartLabels []string
-	var chartData []int64
-	for i := 29; i >= 0; i-- {
-		day := now.AddDate(0, 0, -i).Format("2006-01-02")
-		chartLabels = append(chartLabels, day[5:])
-		chartData = append(chartData, dailyMap[day])
-	}
+	timeline := newCharactersTimeline(snapshot, contract.StatsScope{})
 
 	// Fix expansion percents now that total is known
 	for i := range expansionCards {
 		expansionCards[i].Percent = formatPercent(expansionCards[i].Count, total)
+		expansionCards[i].Value = percentValue(expansionCards[i].Count, total)
 	}
 
 	newCharactersWindow := census.NewCharactersWindow(snapshot, contract.StatsScope{})
@@ -129,15 +140,20 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 		ActiveCharacters:     active,
 		ActivePercent:        formatPercent(active, total),
 		NewCharacters30d:     newCharactersWindow.Current,
-		NewCharactersTrend:   formatTrend(newCharactersWindow.Current, newCharactersWindow.Previous),
+		NewCharactersTrend:   newTrend(newCharactersWindow.Current, newCharactersWindow.Previous),
 		MaxLevelCharacters:   maxLevelCount,
+		MaxLevelPercent:      formatPercent(maxLevelCount, total),
 		MaxLevel:             maxLevel,
-		ChartLabels:          chartLabels,
-		ChartData:            chartData,
+		ChartLabels:          timeline.Labels,
+		ChartDates:           timeline.Dates,
+		ChartData:            timeline.Counts,
+		Timeline:             timeline.TimelineSummary,
 		Regions:              regions,
 		RaceLabels:           raceLabels,
 		RaceData:             raceData,
+		Races:                raceRows,
 		ExpansionCompletions: expansionCards,
+		RealmTally:           newRealmTally(total, regionGroups),
 	}
 
 	c.render(w, "templates/dashboard.html", statsPageData("Dashboard", "dashboard", "/", "Final Fantasy XIV population census: total characters, active players, race demographics, and 30-day growth trends across every region and datacenter.", state, viewData))
@@ -149,7 +165,7 @@ func (c *UIController) WorldDrilldown(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	region := strings.TrimSpace(r.URL.Query().Get("region"))
+	region := parsePlaceFilter(r).Region
 	if region == "" {
 		region = "NA"
 	}
@@ -158,12 +174,9 @@ func (c *UIController) WorldDrilldown(w http.ResponseWriter, r *http.Request) {
 	for _, wc := range census.SnapshotGroups(snapshot, "world", contract.StatsScope{}) {
 		wName := wc.Key
 		wDC := WorldToDC(wName)
-		wReg := census.RegionForDatacenter(wDC)
-		if wReg == "" {
-			wReg = "Unknown"
-		}
+		wReg := orUnknown(census.RegionForDatacenter(wDC))
 
-		if strings.EqualFold(wReg, region) || (region == "Unknown" && wReg == "Unknown") {
+		if wReg == region {
 			newCharacters := census.NewCharactersWindow(snapshot, contract.StatsScope{World: wName})
 			worlds = append(worlds, WorldRow{
 				Region:           wReg,

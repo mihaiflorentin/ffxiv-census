@@ -321,9 +321,14 @@ func TestProxyRetry_CooldownGrowsWithConsecutiveFailures(t *testing.T) {
 
 func TestProxyRetry_SuccessResetsTheFailureStreak(t *testing.T) {
 	repo := repository.NewFakeProxyRepository(workerPolicy)
+	// A controllable clock: with the wall clock, two calls can read the same
+	// instant on coarse-resolution timers, leaving the 1ns cooldown unexpired.
+	clock := time.Now().UTC()
+	repo.Now = func() time.Time { return clock }
 	seedFreshProxies(t, repo, 1)
 	// Two earlier failures, cooldowns long over.
 	for range 2 {
+		clock = clock.Add(time.Second)
 		rec, err := repo.ClaimProxy(context.Background(), "seed", time.Minute)
 		if err != nil || rec == nil {
 			t.Fatalf("ClaimProxy: %v, %v", rec, err)
@@ -335,6 +340,7 @@ func TestProxyRetry_SuccessResetsTheFailureStreak(t *testing.T) {
 	if got := mustGet(t, repo, 1).DestinationFailures; got != 2 {
 		t.Fatalf("setup: %d failures, want 2", got)
 	}
+	clock = clock.Add(time.Second)
 
 	run := runRetryJob(t, repo, 0, func(int, string) error { return nil })
 	if run.err != nil {

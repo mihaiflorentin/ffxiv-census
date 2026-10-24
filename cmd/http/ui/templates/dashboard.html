@@ -1,184 +1,314 @@
 {{define "content"}}
-<div class="page-header">
-    <h1 class="page-title">
-        <span>📊</span>
-        <span>Eorzea Census Overview</span>
-    </h1>
-    <p class="page-desc">Global character demographics, activity tracking, and expansion progression from the latest census snapshot.</p>
-</div>
+<section class="realm-tally" aria-labelledby="realm-tally-heading">
+    <h1 id="realm-tally-heading" class="realm-tally-heading">Characters in the census</h1>
+    <p class="realm-tally-figure"><data value="{{.Data.RealmTally.Total}}">{{formatNumber .Data.RealmTally.Total}}</data></p>
+    {{with .Data.RealmTally.Segments}}
+    <p class="realm-tally-lede">Split by home region. Select a region to see its worlds.</p>
+    <div class="realm-band-wrap">
+        <svg class="realm-band" width="100%" height="56" role="group" aria-label="Population by region">
+            <rect class="realm-band-track" x="0" y="0" width="100%" height="100%"/>
+            {{range .}}
+            <a class="realm-segment chart-slot-{{.Slot}}" href="{{.Href}}" aria-label="{{.Name}}: {{formatNumber .Total}} characters, {{.Share}} of the census" data-region="{{.Name}}" data-count="{{formatNumber .Total}}" data-share="{{.Share}}">
+                <title>{{.Name}}: {{formatNumber .Total}} characters ({{.Share}})</title>
+                <rect class="realm-segment-fill" x="{{.Offset}}" y="0" width="{{.Width}}" height="100%"/>
+                {{if .ShowLabel}}<text class="realm-segment-label" x="{{.LabelX}}" y="50%" dy="0.35em" aria-hidden="true">{{.Code}}</text>{{end}}
+            </a>
+            {{end}}
+        </svg>
+        <div class="realm-tooltip" aria-hidden="true" hidden></div>
+    </div>
+    <ul class="realm-key" aria-hidden="true">
+        {{range .}}
+        <li class="realm-key-item chart-slot-{{.Slot}}">
+            <span class="realm-key-name">{{.Name}}</span>
+            <span class="realm-key-share">{{.Share}}</span>
+            <span class="realm-key-count">{{formatNumber .Total}}</span>
+        </li>
+        {{end}}
+    </ul>
+    <table class="visually-hidden">
+        <caption>Population by region</caption>
+        <thead>
+            <tr><th scope="col">Region</th><th scope="col">Characters</th><th scope="col">Share of census</th></tr>
+        </thead>
+        <tbody>
+            {{range .}}
+            <tr><th scope="row">{{.Name}}</th><td>{{formatNumber .Total}}</td><td>{{.Share}}</td></tr>
+            {{end}}
+        </tbody>
+    </table>
+    {{else}}
+    <p class="realm-tally-lede">The regional split appears after the next census refresh.</p>
+    {{end}}
+</section>
 
-<!-- Stat Cards Grid -->
-<div class="stat-grid">
+<section class="stat-grid stat-grid-trio" aria-label="Key figures">
     <div class="stat-card">
-        <div class="stat-label">Total Population</div>
-        <div class="stat-value">{{formatNumber .Data.TotalCharacters}}</div>
-        <div class="stat-subtext">Discovered Characters</div>
+        <p class="stat-label">Active players, last 30 days</p>
+        <p class="stat-value">{{formatNumber .Data.ActiveCharacters}}</p>
+        <p class="stat-subtext">{{.Data.ActivePercent}} of the census</p>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Max Level (Lv. {{.Data.MaxLevel}})</div>
-        <div class="stat-value" style="color: var(--gold);">{{formatNumber .Data.MaxLevelCharacters}}</div>
-        <div class="stat-subtext">Characters at Cap</div>
+        <p class="stat-label">At level {{.Data.MaxLevel}}</p>
+        <p class="stat-value">{{formatNumber .Data.MaxLevelCharacters}}</p>
+        <p class="stat-subtext">{{.Data.MaxLevelPercent}} of the census have a job at the level cap</p>
     </div>
     <div class="stat-card">
-        <div class="stat-label">Active Players (30d)</div>
-        <div class="stat-value" style="color: var(--cyan);">{{formatNumber .Data.ActiveCharacters}}</div>
-        <div class="stat-subtext highlight">{{.Data.ActivePercent}} Active Ratio</div>
+        <p class="stat-label">New characters, last 30 days</p>
+        <p class="stat-value">{{formatNumber .Data.NewCharacters30d}}</p>
+        {{template "trend" .Data.NewCharactersTrend}}
     </div>
-    <div class="stat-card">
-        <div class="stat-label">New Characters (30d)</div>
-        <div class="stat-value" style="color: var(--gold);">{{formatNumber .Data.NewCharacters30d}}</div>
-        <div class="stat-subtext">{{if .Data.NewCharactersTrend}}{{.Data.NewCharactersTrend}} vs previous 30d{{else}}No new characters recorded{{end}}</div>
-    </div>
-</div>
+</section>
 
-<!-- Race Distribution & Expansion Completion -->
-<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: 1.25rem; margin-bottom: 1.25rem;">
-    <div class="panel" style="margin-bottom: 0;">
+<div class="dashboard-grid">
+    <section class="panel" aria-labelledby="races-heading">
         <div class="panel-header">
-            <h2 class="panel-title"><span>🧬</span><span>Race Distribution</span></h2>
+            <h2 id="races-heading" class="panel-title">Race distribution</h2>
+            <p class="panel-meta">Share of all characters</p>
         </div>
         <div class="panel-body">
-            {{if .Data.RaceLabels}}
-            <div class="chart-container" style="height: 340px;"><canvas id="racePieChart"></canvas></div>
+            {{if .Data.Races}}
+            <div class="chart-container chart-container-bars">
+                <canvas id="raceChart" role="img" aria-label="Bar chart of characters by race" aria-describedby="race-summary"></canvas>
+            </div>
+            {{with index .Data.Races 0}}
+            <p id="race-summary" class="chart-summary">{{.Name}} is the most common race, with {{.Share}} of characters.</p>
+            {{end}}
+            <details class="chart-data">
+                <summary>Show the numbers</summary>
+                <div class="table-responsive">
+                    <table class="data-table">
+                        <caption class="visually-hidden">Characters by race</caption>
+                        <thead><tr><th scope="col">Race</th><th scope="col" class="text-right">Characters</th><th scope="col" class="text-right">Share</th></tr></thead>
+                        <tbody>
+                            {{range .Data.Races}}
+                            <tr><th scope="row">{{.Name}}</th><td class="text-right">{{formatNumber .Total}}</td><td class="text-right">{{.Share}}</td></tr>
+                            {{end}}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
             {{else}}
-            <p class="text-dim">No race data available yet.</p>
+            {{template "empty-state" (emptyState "No race data yet." "Statistics appear after the next census refresh.")}}
             {{end}}
         </div>
-    </div>
-    <div class="panel" style="margin-bottom: 0;">
+    </section>
+
+    <section class="panel" aria-labelledby="msq-heading">
         <div class="panel-header">
-            <h2 class="panel-title"><span>⚔️</span><span>MSQ Expansion Completion</span></h2>
+            <h2 id="msq-heading" class="panel-title">Main scenario completion</h2>
+            <p class="panel-meta">Share of all characters</p>
         </div>
         <div class="panel-body">
             {{if .Data.ExpansionCompletions}}
-            <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+            <ol class="progress-list">
                 {{range .Data.ExpansionCompletions}}
-                <div style="display: flex; align-items: center; gap: 0.75rem;">
-                    <span style="font-size: 1.3rem; width: 2rem; text-align: center;">{{.Icon}}</span>
-                    <div style="flex: 1;">
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 0.25rem;">
-                            <span style="font-size: 0.85rem; font-weight: 600;">{{.Name}}</span>
-                            <span style="font-size: 0.8rem; color: var(--gold);">{{formatNumber .Count}} ({{.Percent}})</span>
-                        </div>
-                        <div style="background: var(--bg-secondary); border-radius: 4px; height: 6px; overflow: hidden;">
-                            <div style="background: linear-gradient(90deg, var(--gold), var(--gold-light)); height: 100%; width: {{.Percent}}; border-radius: 4px; min-width: 2px;">
-                            </div>
-                        </div>
+                <li class="progress-item">
+                    <div class="progress-row">
+                        <span class="progress-name">{{.Name}}</span>
+                        <span class="progress-value">{{.Percent}} <span class="progress-count">{{formatNumber .Count}}</span></span>
                     </div>
-                </div>
+                    <meter class="progress-meter" min="0" max="100" value="{{printf "%.1f" .Value}}" aria-label="{{.Name}} completion">{{.Percent}}</meter>
+                </li>
                 {{end}}
-            </div>
+            </ol>
             {{else}}
-            <p class="text-dim">No expansion completion data available yet.</p>
+            {{template "empty-state" (emptyState "No expansion completions yet." "Statistics appear after the next census refresh.")}}
             {{end}}
         </div>
-    </div>
+    </section>
 </div>
 
-<!-- Time Series Chart Panel -->
-<div class="panel">
+<section class="panel" aria-labelledby="timeline-heading">
     <div class="panel-header">
-        <h2 class="panel-title"><span>📈</span><span>New Characters Created (Last 30 days)</span></h2>
+        <h2 id="timeline-heading" class="panel-title">New characters per day</h2>
+        <p class="panel-meta">Last 30 days</p>
     </div>
     <div class="panel-body">
-        <div class="chart-container"><canvas id="newCharactersChart"></canvas></div>
+        <div class="chart-container">
+            <canvas id="newCharactersChart" role="img" aria-label="Line chart of new characters per day over the last 30 days" aria-describedby="timeline-summary"></canvas>
+        </div>
+        <p id="timeline-summary" class="chart-summary">{{formatNumber .Data.Timeline.Total}} new characters in the last 30 days{{if .Data.Timeline.PeakCount}}, peaking at {{formatNumber .Data.Timeline.PeakCount}} on {{.Data.Timeline.PeakDate}}{{end}}.</p>
+        <details class="chart-data">
+            <summary>Show the numbers</summary>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <caption class="visually-hidden">New characters per day</caption>
+                    <thead><tr><th scope="col">Date</th><th scope="col" class="text-right">New characters</th></tr></thead>
+                    <tbody>
+                        {{$counts := .Data.ChartData}}{{$labels := .Data.ChartLabels}}
+                        {{range $i, $day := .Data.ChartDates}}
+                        <tr><th scope="row"><time datetime="{{$day}}">{{index $labels $i}}</time></th><td class="text-right">{{formatNumber (index $counts $i)}}</td></tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </details>
     </div>
-</div>
+</section>
 
-<!-- Region Breakdown Panel -->
-<div class="panel">
+<section class="panel" aria-labelledby="regions-heading">
     <div class="panel-header">
-        <h2 class="panel-title"><span>🌐</span><span>Regional Demographics &amp; World Drill-Down</span></h2>
+        <h2 id="regions-heading" class="panel-title">Regions</h2>
+        <p class="panel-meta">Show a region's worlds without leaving the page</p>
     </div>
-    <div class="panel-body">
+    <div class="panel-body panel-body-flush">
         {{if .Data.Regions}}
-        <div class="table-responsive">
+        <div class="table-scroll" role="region" aria-labelledby="regions-heading" tabindex="0">
             <table class="data-table">
+                <caption class="visually-hidden">Characters by region</caption>
                 <thead>
                     <tr>
-                        <th>Region</th>
-                        <th class="text-right">Total Population</th>
-                        <th class="text-right">Active Players (30d)</th>
-                        <th class="text-right">Active %</th>
-                        <th class="text-center">Action</th>
+                        <th scope="col">Region</th>
+                        <th scope="col" class="text-right">Characters</th>
+                        <th scope="col" class="text-right">Active, 30 days</th>
+                        <th scope="col" class="text-right">Active share</th>
                     </tr>
                 </thead>
                 <tbody>
                     {{range .Data.Regions}}
                     <tr>
-                        <td><span class="badge badge-region" style="font-size: 0.88rem; padding: 0.35rem 0.75rem;">{{.Region}}</span></td>
-                        <td class="text-right"><strong>{{formatNumber .Total}}</strong></td>
-                        <td class="text-right" style="color: var(--cyan);">{{formatNumber .Active}}</td>
-                        <td class="text-right"><span class="badge badge-active">{{.ActiveRatio}}</span></td>
-                        <td class="text-center"><button class="btn btn-outline" style="font-size: 0.8rem; padding: 0.3rem 0.75rem;" onclick="toggleWorldDrilldown(this, '{{.Region}}')">View Worlds ▾</button></td>
+                        <th scope="row">
+                            <span class="row-heading">
+                                <a href="/ui/worlds?region={{.Region}}">{{.Name}}</a>
+                                <button type="button" class="drilldown-toggle" aria-expanded="false" aria-controls="drilldown-{{.Region}}"
+                                    hx-get="/ui/partials/world-breakdown?region={{.Region}}" hx-target="#drilldown-{{.Region}}-body" hx-trigger="click once">
+                                    <svg class="drilldown-icon" viewBox="0 0 12 12" width="12" height="12" aria-hidden="true" focusable="false"><path d="M2.5 4.5 6 8l3.5-3.5"/></svg>
+                                    <span class="drilldown-label">Show worlds</span>
+                                </button>
+                            </span>
+                        </th>
+                        <td class="text-right">{{formatNumber .Total}}</td>
+                        <td class="text-right">{{formatNumber .Active}}</td>
+                        <td class="text-right">{{.ActiveRatio}}</td>
                     </tr>
-                    <tr>
-                        <td colspan="5" style="padding: 0; border-bottom: 1px solid var(--border-color);">
-                            <div id="drilldown-{{.Region}}" style="padding: 0.5rem 1rem; background: rgba(0,0,0,0.2);">
-                            </div>
-                        </td>
+                    <tr id="drilldown-{{.Region}}" class="drilldown-row" hidden>
+                        <td colspan="4"><div id="drilldown-{{.Region}}-body" class="drilldown-body" aria-live="polite"></div></td>
                     </tr>
                     {{end}}
                 </tbody>
             </table>
         </div>
         {{else}}
-        <p class="text-dim">No regional census data available yet. Ingest workers are processing sweeps.</p>
+        {{template "empty-state" (emptyState "No regional data yet." "Statistics appear after the next census refresh.")}}
         {{end}}
     </div>
-</div>
+</section>
 
 <script>
-document.addEventListener("DOMContentLoaded", function() {
-    var lineCtx = document.getElementById("newCharactersChart");
-    if (lineCtx) {
-        var chartLabels = {{jsonSafe .Data.ChartLabels}};
-        var chartData = {{jsonSafe .Data.ChartData}};
-        new Chart(lineCtx, {
-            type: "line",
-            data: { labels: chartLabels, datasets: [{ label: "New Characters", data: chartData, borderColor: "#38bdf8", backgroundColor: "rgba(56,189,248,0.1)", borderWidth: 2, fill: true, tension: 0.3, pointBackgroundColor: "#d4af37", pointBorderColor: "#0b0e14", pointRadius: 4, pointHoverRadius: 6 }] },
-            options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } }, scales: { x: { grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#94a3b8" } }, y: { beginAtZero: true, grid: { color: "rgba(255,255,255,0.05)" }, ticks: { color: "#94a3b8", precision: 0 } } } }
-        });
-    }
-    var pieCtx = document.getElementById("racePieChart");
-    if (pieCtx) {
+document.addEventListener("DOMContentLoaded", function () {
+    var theme = window.CensusCharts;
+
+    var raceCanvas = document.getElementById("raceChart");
+    if (raceCanvas && window.Chart && theme) {
         var raceLabels = {{jsonSafe .Data.RaceLabels}};
         var raceData = {{jsonSafe .Data.RaceData}};
-        var colors = ["#d4af37","#38bdf8","#f472b6","#34d399","#a78bfa","#fb923c","#e879f9","#22d3ee","#fbbf24","#60a5fa","#f87171","#4ade80"];
-        new Chart(pieCtx, {
-            type: "doughnut",
-            data: { labels: raceLabels, datasets: [{ data: raceData, backgroundColor: colors.slice(0, raceLabels.length), borderColor: "#0b0e14", borderWidth: 2 }] },
+        var raceTotal = {{.Data.TotalCharacters}};
+        new Chart(raceCanvas, {
+            type: "bar",
+            data: { labels: raceLabels, datasets: [{ label: "Characters", data: raceData, backgroundColor: theme.raceColors(raceLabels) }] },
             options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                cutout: "65%",
+                indexAxis: "y",
+                layout: { padding: { right: 48 } },
                 plugins: {
-                    legend: {
-                        position: "bottom",
-                        align: "center",
-                        labels: { color: "#94a3b8", padding: 12, font: { size: 11 }, usePointStyle: true, pointStyle: "circle" }
-                    },
+                    legend: { display: false },
+                    censusBarValues: { enabled: true },
                     tooltip: {
-                        backgroundColor: "#141923", borderColor: "#263248", borderWidth: 1,
-                        titleColor: "#d4af37", bodyColor: "#f1f5f9", padding: 10,
                         callbacks: {
-                            label: function(ctx) {
-                                var total = ctx.dataset.data.reduce(function(a,b){return a+b;},0);
-                                var pct = ((ctx.parsed/total)*100).toFixed(1);
-                                return ctx.label+": "+ctx.parsed.toLocaleString()+" ("+pct+"%)";
+                            label: function (ctx) {
+                                var share = raceTotal ? (ctx.parsed.x / raceTotal * 100).toFixed(1) + "%" : "";
+                                return theme.format(ctx.parsed.x) + " characters" + (share ? " (" + share + ")" : "");
                             }
                         }
                     }
+                },
+                scales: {
+                    x: { beginAtZero: true, ticks: { callback: theme.compact, maxTicksLimit: 5 } },
+                    y: { grid: { display: false }, border: { display: false } }
                 }
             }
         });
     }
+
+    var lineCanvas = document.getElementById("newCharactersChart");
+    if (lineCanvas && window.Chart && theme) {
+        var dates = {{jsonSafe .Data.ChartDates}};
+        var primary = theme.primary();
+        new Chart(lineCanvas, {
+            type: "line",
+            data: {
+                labels: {{jsonSafe .Data.ChartLabels}},
+                datasets: [{
+                    label: "New characters",
+                    data: {{jsonSafe .Data.ChartData}},
+                    borderColor: primary,
+                    backgroundColor: theme.wash(primary),
+                    pointBackgroundColor: primary,
+                    pointBorderColor: theme.surface(),
+                    fill: true
+                }]
+            },
+            options: {
+                interaction: { mode: "index", intersect: false },
+                plugins: {
+                    legend: { display: false },
+                    censusCrosshair: { enabled: true },
+                    tooltip: {
+                        callbacks: {
+                            title: function (items) { return items.length ? theme.formatDate(dates[items[0].dataIndex]) : ""; },
+                            label: function (ctx) { return theme.format(ctx.parsed.y) + " new characters"; }
+                        }
+                    }
+                },
+                scales: {
+                    x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 16 } },
+                    y: { beginAtZero: true, ticks: { precision: 0, callback: theme.compact, maxTicksLimit: 5 } }
+                }
+            }
+        });
+    }
+
+    // Realm tally: one positioned tooltip shared by every segment, shown on
+    // hover and keyboard focus. Values also live in the key and the table.
+    var wrap = document.querySelector(".realm-band-wrap");
+    var tip = wrap && wrap.querySelector(".realm-tooltip");
+    if (wrap && tip) {
+        var show = function (segment) {
+            tip.textContent = "";
+            var value = document.createElement("strong");
+            value.textContent = segment.getAttribute("data-count");
+            var name = document.createElement("span");
+            name.textContent = segment.getAttribute("data-region") + ", " + segment.getAttribute("data-share");
+            tip.appendChild(value);
+            tip.appendChild(name);
+            tip.hidden = false;
+            var band = wrap.getBoundingClientRect();
+            var box = segment.getBoundingClientRect();
+            var centre = box.left + box.width / 2 - band.left;
+            var half = tip.offsetWidth / 2;
+            tip.style.left = Math.max(half, Math.min(band.width - half, centre)) + "px";
+        };
+        var hide = function () { tip.hidden = true; };
+        wrap.querySelectorAll(".realm-segment").forEach(function (segment) {
+            segment.addEventListener("pointerenter", function () { show(segment); });
+            segment.addEventListener("pointerleave", hide);
+            segment.addEventListener("focus", function () { show(segment); });
+            segment.addEventListener("blur", hide);
+        });
+    }
+
+    // Region drill-down: htmx loads the worlds once; the button then toggles.
+    document.querySelectorAll(".drilldown-toggle").forEach(function (button) {
+        button.addEventListener("click", function () {
+            var row = document.getElementById(button.getAttribute("aria-controls"));
+            if (!row) { return; }
+            var open = button.getAttribute("aria-expanded") === "true";
+            row.hidden = open;
+            button.setAttribute("aria-expanded", open ? "false" : "true");
+            var label = button.querySelector(".drilldown-label");
+            if (label) { label.textContent = open ? "Show worlds" : "Hide worlds"; }
+        });
+    });
 });
-function toggleWorldDrilldown(btn, region) {
-    var target = document.getElementById("drilldown-" + region);
-    if (!target) return;
-    if (target.innerHTML.trim().length > 0) { target.innerHTML = ""; btn.innerHTML = "View Worlds ▾"; btn.classList.remove("active"); }
-    else { htmx.ajax("GET", "/ui/partials/world-breakdown?region=" + encodeURIComponent(region), { target: target, swap: "innerHTML" }); btn.innerHTML = "Hide Worlds ▴"; btn.classList.add("active"); }
-}
 </script>
 {{end}}

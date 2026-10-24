@@ -119,7 +119,8 @@ func scopeKey(scope contract.StatsScope) string {
 }
 
 // NewCharacterTotals holds new-character sums for the current and previous
-// 30-day windows, both ending on the snapshot's generation day. StartDay is
+// 30-day windows, both ending on the last complete UTC day before the
+// snapshot's generation day. StartDay is
 // the first UTC day (YYYY-MM-DD) of the current window.
 type NewCharacterTotals struct {
 	Current  int64
@@ -128,8 +129,8 @@ type NewCharacterTotals struct {
 }
 
 // NewCharactersWindow sums the snapshot's daily new-character series for the
-// given stats scope across the current window (the trailing 30 UTC days
-// ending on the generation day) and the previous window (the 30 days before
+// given stats scope across the current window (the 30 complete UTC days
+// before the generation day) and the previous window (the 30 days before
 // it). Global and world scopes read their exact-scope series rows;
 // datacenter and region scopes sum the member worlds of the world hierarchy,
 // with a datacenter selection reducing to that datacenter's world set. A
@@ -140,7 +141,9 @@ func NewCharactersWindow(snapshot *contract.UIStatsSnapshot, scope contract.Stat
 	if snapshot == nil {
 		return totals
 	}
-	end := snapshot.GeneratedAt.UTC().Truncate(24 * time.Hour)
+	// The generation day is still in progress; both windows end on the last
+	// complete UTC day.
+	end := snapshot.GeneratedAt.UTC().Truncate(24*time.Hour).AddDate(0, 0, -1)
 	currentStart := end.AddDate(0, 0, -29)
 	previousStart := end.AddDate(0, 0, -59)
 	totals.StartDay = currentStart.Format("2006-01-02")
@@ -182,7 +185,7 @@ func worldSet(scope contract.StatsScope) map[string]struct{} {
 	set := make(map[string]struct{})
 	switch {
 	case scope.World != "":
-		set[canonicalWorld(scope.World)] = struct{}{}
+		set[CanonicalWorld(scope.World)] = struct{}{}
 	case scope.Datacenter != "":
 		for _, world := range WorldsForDatacenter(scope.Datacenter) {
 			set[world] = struct{}{}

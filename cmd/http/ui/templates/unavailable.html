@@ -1,0 +1,12 @@
+{{define "content"}}
+<section class="state-page" aria-labelledby="state-title">
+    {{template "state-mark" "pending"}}
+    <p class="state-code">Error 503</p>
+    <h1 class="state-title" id="state-title">Statistics are being prepared</h1>
+    <p class="state-lead">The census is building its statistics snapshot. Try again in a minute or two; the figures appear as soon as the snapshot is ready.</p>
+    <ul class="state-actions">
+        <li><a class="btn btn-primary" href="{{.Data.RetryPath}}">Try again</a></li>
+        <li><a class="btn btn-outline" href="/ui/methodology">Read how the census works</a></li>
+    </ul>
+</section>
+{{end}}

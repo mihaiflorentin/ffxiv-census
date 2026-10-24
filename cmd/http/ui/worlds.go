@@ -2,6 +2,7 @@ package ui
 
 import (
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 
@@ -14,12 +15,13 @@ type WorldsViewData struct {
 	TotalCharacters    int64
 	ActiveCharacters   int64
 	NewCharacters30d   int64
-	NewCharactersTrend string
+	NewCharactersTrend Trend
 	SelectedRegion     string
 	SelectedDC         string
-	Regions            []string
-	Datacenters        []string
-	Worlds             []WorldDetailRow
+	// Scope reads like "across every region" or "in Europe".
+	Scope   string
+	Worlds  []WorldDetailRow
+	Filters FilterBar
 }
 
 // WorldDetailRow represents one row in the global worlds table.
@@ -30,7 +32,6 @@ type WorldDetailRow struct {
 	Total            int64
 	Active           int64
 	ActiveRatio      string
-	ActivePctVal     float64
 	NewCharacters30d int64
 }
 
@@ -40,8 +41,8 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	selectedRegion := strings.TrimSpace(r.URL.Query().Get("region"))
-	selectedDC := strings.TrimSpace(r.URL.Query().Get("dc"))
+	place := parsePlaceFilter(r)
+	selectedRegion, selectedDC := place.Region, place.Datacenter
 
 	var allWorlds []WorldDetailRow
 	var totalChars, activeChars int64
@@ -60,11 +61,6 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 		regionSet[wReg] = true
 		dcSet[wDC] = true
 
-		var actPctVal float64
-		if row.Total > 0 {
-			actPctVal = (float64(row.Active) / float64(row.Total)) * 100
-		}
-
 		allWorlds = append(allWorlds, WorldDetailRow{
 			World:            wName,
 			Datacenter:       wDC,
@@ -72,7 +68,6 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 			Total:            row.Total,
 			Active:           row.Active,
 			ActiveRatio:      formatPercent(row.Active, row.Total),
-			ActivePctVal:     actPctVal,
 			NewCharacters30d: census.NewCharactersWindow(snapshot, contract.StatsScope{World: wName}).Current,
 		})
 	}
@@ -99,7 +94,7 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 	for reg := range regionSet {
 		regionList = append(regionList, reg)
 	}
-	sort.Strings(regionList)
+	sortRegionCodes(regionList)
 
 	var dcList []string
 	if selectedRegion != "" {
@@ -117,11 +112,40 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 		TotalCharacters:    totalChars,
 		ActiveCharacters:   activeChars,
 		NewCharacters30d:   newWindow.Current,
-		NewCharactersTrend: formatTrend(newWindow.Current, newWindow.Previous),
+		NewCharactersTrend: newTrend(newWindow.Current, newWindow.Previous),
+		Scope:              placeScope(selectedRegion, selectedDC, ""),
 		SelectedRegion:     selectedRegion,
 		SelectedDC:         selectedDC,
-		Regions:            regionList,
-		Datacenters:        dcList,
 		Worlds:             filteredWorlds,
+		Filters:            worldsFilterBar(regionList, dcList, selectedRegion, selectedDC),
 	}))
+}
+
+// worldsFilterBar builds the Worlds filter bar: region pills (links that drop
+// any datacenter) and, when there are datacenters to pick, a datacenter select
+// that keeps the selected region.
+func worldsFilterBar(regions, dcs []string, selectedRegion, selectedDC string) FilterBar {
+	pills := &FilterPills{ID: "filter-region-label", Label: "Region", Options: []FilterLink{
+		{Label: "All", Href: "/ui/worlds", Current: selectedRegion == "" && selectedDC == ""},
+	}}
+	for _, reg := range regions {
+		pills.Options = append(pills.Options, FilterLink{
+			Label:   regionDisplayName(reg),
+			Href:    "/ui/worlds?region=" + url.QueryEscape(reg),
+			Current: selectedRegion == reg,
+		})
+	}
+	bar := FilterBar{Action: "/ui/worlds", Label: "Filter worlds", Pills: pills, ClearHref: "/ui/worlds",
+		Chips: filterChips("/ui/worlds", []appliedFilter{
+			{Name: "region", Label: "Region", Value: selectedRegion, Shown: regionDisplayName(selectedRegion)},
+			{Name: "dc", Label: "Datacenter", Value: selectedDC},
+		}),
+	}
+	if len(dcs) > 0 {
+		if selectedRegion != "" {
+			bar.Hidden = []FilterHidden{{Name: "region", Value: selectedRegion}}
+		}
+		bar.Selects = []FilterSelect{{ID: "filter-dc", Name: "dc", Label: "Datacenter", AllLabel: "All datacenters", Options: filterOptions(dcs, selectedDC, nil)}}
+	}
+	return bar
 }

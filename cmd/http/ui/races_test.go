@@ -55,8 +55,8 @@ func TestRacesHandler(t *testing.T) {
 	if !strings.Contains(body, "Lalafell") {
 		t.Errorf("expected body to contain Lalafell, got:\n%s", body)
 	}
-	if !strings.Contains(body, "Race Distribution") {
-		t.Errorf("expected body to contain 'Race Distribution', got:\n%s", body)
+	if !strings.Contains(strings.ToLower(body), "race distribution") {
+		t.Errorf("expected body to contain 'Race distribution', got:\n%s", body)
 	}
 
 	// Filtered request: Datacenter Chaos (should exclude Miqo'te on Balmung)
@@ -67,7 +67,7 @@ func TestRacesHandler(t *testing.T) {
 	if recFiltered.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", recFiltered.Code, recFiltered.Body.String())
 	}
-	bodyFiltered := recFiltered.Body.String()
+	bodyFiltered := renderedMain(t, parseHTML(t, recFiltered.Body.String()))
 	if !strings.Contains(bodyFiltered, "Lalafell") {
 		t.Errorf("expected filtered body to contain Lalafell, got:\n%s", bodyFiltered)
 	}
@@ -251,7 +251,7 @@ func TestRacesHandler_NewCharactersCard(t *testing.T) {
 	}
 	growthTrend := func(worldCount int) string {
 		// Current 30 (20+10) vs previous 10 (4+6) -> delta 20, 200.0%.
-		return fmt.Sprintf("▲ %d (200.0%%) vs previous 30d", 20*worldCount)
+		return fmt.Sprintf("Up +%s (+200.0%%)", formatNumber(int64(20*worldCount)))
 	}
 	crystalWorlds := len(WorldsForDC("Crystal"))
 	naWorlds := len(regionWorlds("NA"))
@@ -299,13 +299,13 @@ func TestRacesHandler_NewCharactersCard(t *testing.T) {
 			name:          "zero previous window renders absolute delta",
 			query:         "/ui/races?dc=Crystal",
 			newCharacters: newCharactersDaysFor(map[int]int64{3: 12}),
-			wantContains:  []string{fmt.Sprintf("▲ %d vs previous 30d", 12*crystalWorlds)},
+			wantContains:  []string{fmt.Sprintf("Up +%s on the previous 30 days", formatNumber(int64(12*crystalWorlds)))},
 		},
 		{
 			name:         "both windows zero renders fallback",
 			query:        "/ui/races",
 			wantContains: []string{"No new characters recorded"},
-			wantAbsent:   []string{"vs previous 30d"},
+			wantAbsent:   []string{"on the previous 30 days"},
 		},
 	}
 	for _, tt := range tests {
@@ -320,7 +320,7 @@ func TestRacesHandler_NewCharactersCard(t *testing.T) {
 			if rec.Code != http.StatusOK {
 				t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
 			}
-			body := rec.Body.String()
+			body := textOf(parseHTML(t, rec.Body.String()))
 			for _, want := range tt.wantContains {
 				if !strings.Contains(body, want) {
 					t.Errorf("expected body to contain %q, got:\n%s", want, body)

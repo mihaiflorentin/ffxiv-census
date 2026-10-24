@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"net/http"
 
 	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
@@ -14,17 +13,22 @@ type ExpansionsViewData struct {
 	Expansions      []ExpansionProgression
 }
 
-// ExpansionProgression holds the stats and drop-off rate for an expansion milestone.
+// ExpansionProgression is one step of the main scenario progression.
 type ExpansionProgression struct {
-	Name           string
-	Version        string
-	FinalQuest     string
-	Icon           string
-	Completions    int64
+	Name        string
+	Version     string
+	FinalQuest  string
+	LevelCap    uint32
+	Completions int64
+	// PercentOfTotal is the share of all characters ("12.5%"); MeterValue
+	// the same share as a plain 0-100 number for the step's meter.
 	PercentOfTotal string
-	PercentValue   float64
-	RetentionRate  string
-	DropOffRate    string
+	MeterValue     float64
+	// Previous names the expansion before this one ("" for the first).
+	Previous string
+	// Retention is the share of Previous's finishers who also finished this
+	// one, or "Not measured" when nobody finished Previous.
+	Retention string
 }
 
 // Expansions handles GET /ui/expansions.
@@ -49,43 +53,27 @@ func (c *UIController) Expansions(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var list []ExpansionProgression
-	var prevCount int64 = -1
-
-	for _, info := range expansionList {
+	for i, info := range expansionList {
 		count := countMap[info.Name]
-		var pctVal float64
-		if totalChars > 0 {
-			pctVal = (float64(count) / float64(totalChars)) * 100
-		}
-
-		retention := "-"
-		dropOff := "-"
-		if prevCount > 0 {
-			retPct := (float64(count) / float64(prevCount)) * 100
-			dropPct := 100.0 - retPct
-			if dropPct < 0 {
-				dropPct = 0
-			}
-			retention = fmt.Sprintf("%.1f%%", retPct)
-			dropOff = fmt.Sprintf("%.1f%%", dropPct)
-		} else if prevCount == 0 {
-			retention = "0.0%"
-			dropOff = "100.0%"
-		}
-
-		list = append(list, ExpansionProgression{
+		percent := formatPercent(count, totalChars)
+		step := ExpansionProgression{
 			Name:           info.Name,
 			Version:        info.Version,
 			FinalQuest:     info.FinalQuest,
-			Icon:           info.Icon,
+			LevelCap:       info.LevelCap,
 			Completions:    count,
-			PercentOfTotal: formatPercent(count, totalChars),
-			PercentValue:   pctVal,
-			RetentionRate:  retention,
-			DropOffRate:    dropOff,
-		})
-
-		prevCount = count
+			PercentOfTotal: percent,
+			MeterValue:     percentValue(count, totalChars),
+		}
+		if i > 0 {
+			prev := expansionList[i-1]
+			step.Previous = prev.Name
+			step.Retention = "Not measured"
+			if prevCount := countMap[prev.Name]; prevCount > 0 {
+				step.Retention = formatPercent(count, prevCount)
+			}
+		}
+		list = append(list, step)
 	}
 
 	c.render(w, "templates/expansions.html", statsPageData("Expansion Progression", "expansions", "/ui/expansions", "Main scenario quest completion rates for every Final Fantasy XIV expansion from A Realm Reborn to Dawntrail, with retention and drop-off metrics.", state, ExpansionsViewData{

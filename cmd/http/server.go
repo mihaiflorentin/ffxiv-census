@@ -15,17 +15,18 @@ import (
 	"github.com/mihaiflorentin88/ffxiv-census/infrastructure/logging"
 )
 
-func RegisterRoutes(mux *http.ServeMux) {
+// RegisterRoutes mounts every route on mux and returns the handler to serve.
+func RegisterRoutes(mux *http.ServeMux) http.Handler {
 	router := NewRouter()
 	RegisterSwagger(mux)
-	router.RegisterRoutes(mux)
+	return router.RegisterRoutes(mux)
 }
 
 func StartServer(ctx context.Context, port int, poolSize int, certFile, keyFile string, profile bool, maxRequests uint64) error {
 	runtime.GOMAXPROCS(poolSize)
 
 	mux := http.NewServeMux()
-	RegisterRoutes(mux)
+	routes := RegisterRoutes(mux)
 
 	mw := middleware.NewMiddleware()
 	mw.Register(middleware.Recoverer(logging.Logger))
@@ -33,7 +34,7 @@ func StartServer(ctx context.Context, port int, poolSize int, certFile, keyFile 
 	mw.Register(middleware.NewMaxReqMiddleware(maxRequests).Handler)
 	initMetricsMiddleWare(mw)
 
-	handler := mw.Chain(mux)
+	handler := mw.Chain(routes)
 
 	srv := &http.Server{
 		Addr:              fmt.Sprintf(":%d", port),

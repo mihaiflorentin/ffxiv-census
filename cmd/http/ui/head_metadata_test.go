@@ -100,8 +100,8 @@ func TestRootServesDashboardContent(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET / expected status 200, got %d (redirect to /ui/dashboard is not allowed)", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "Eorzea Census Overview") {
-		t.Errorf("GET / expected dashboard content marker 'Eorzea Census Overview', got:\n%s", rec.Body.String())
+	if !strings.Contains(rec.Body.String(), "Characters in the census") {
+		t.Errorf("GET / expected dashboard content marker 'Characters in the census', got:\n%s", rec.Body.String())
 	}
 }
 
