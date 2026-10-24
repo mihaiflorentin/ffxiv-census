@@ -57,7 +57,8 @@ const fontCacheControl = "public, max-age=31536000, immutable"
 
 // assetHandler serves the embedded assets directory. WOFF2 fonts get an
 // explicit content type (Go's built-in MIME table has no .woff2 entry, so it
-// would otherwise depend on the host's mime.types) and long-lived caching.
+// would otherwise depend on the host's mime.types) and long-lived caching, as
+// do stylesheets and scripts requested through assetURL's versioned URL.
 func assetHandler() http.Handler {
 	assets, err := fs.Sub(content, "assets")
 	if err != nil {
@@ -65,9 +66,17 @@ func assetHandler() http.Handler {
 	}
 	fileServer := http.FileServer(http.FS(assets))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.EqualFold(path.Ext(r.URL.Path), ".woff2") {
+		switch {
+		case strings.EqualFold(path.Ext(r.URL.Path), ".woff2"):
 			w.Header().Set("Content-Type", "font/woff2")
 			w.Header().Set("Cache-Control", fontCacheControl)
+		case r.URL.Query().Get("v") == uiBuildID():
+			// A URL from assetURL names this build's file: it never changes.
+			w.Header().Set("Cache-Control", fontCacheControl)
+		default:
+			// Unversioned or another build's URL: cache briefly, so a CDN or
+			// browser never pins an old file behind a new release.
+			w.Header().Set("Cache-Control", "public, max-age=60")
 		}
 		fileServer.ServeHTTP(w, r)
 	})

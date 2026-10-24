@@ -28,3 +28,12 @@ var uiBuildID = sync.OnceValue(func() string {
 	}
 	return "start-" + strconv.FormatInt(time.Now().UnixNano(), 36)
 })
+
+// assetURL is the URL of an embedded stylesheet or script, versioned with the
+// build fingerprint so every release gets new URLs and no cache serves the
+// previous release's file with the new markup. Fonts keep plain URLs: the
+// stylesheet's url() and the preload link must match, and font files are
+// renamed when they change.
+func assetURL(name string) string {
+	return "/ui/assets/" + name + "?v=" + uiBuildID()
+}
