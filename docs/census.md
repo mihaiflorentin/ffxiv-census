@@ -24,6 +24,8 @@ One row per Lodestone character. `id` is the Lodestone character ID (externally 
 | `first_seen_at` | TEXT NOT NULL | first discovery time |
 | `last_census_at` | TEXT (nullable) | NULL until a full census has run |
 | `deleted_at` | TEXT (nullable) | set when Lodestone returns 404 (character gone) |
+| `max_job_level` | SMALLINT NOT NULL | highest stored class/job level, maintained by every upsert |
+| `jobs_levelled_mask`, `jobs_at_cap_mask` | BIGINT (nullable) | the two [job bitmasks](#job-bitmasks): jobs levelled and jobs at their level cap. NULL = not computed yet (rows stored before migration `00026`, until `backfill job-masks` reaches them) |
 
 **Discovery:** the `id-sweep` handler collects every character it finds in its range (profile + jobs), hands them to the per-pod batching writer as one result and waits for the batch to commit before chaining the dependent `achievement-census` jobs. `last_census_at` is set by the upsert; `latest_achievement_at` stays NULL until the achievement census runs.
 
@@ -37,6 +39,20 @@ The command publishes the live selection first and then the deleted batch. `--de
 ### `character_jobs`
 
 One row per (character, class/job) pair: `character_id`, `class_job_id`, `name`, `level`, `exp_level`. Primary key is `(character_id, class_job_id)`; the character repository replaces the whole set on each upsert. The `class_job_id` values come from the Lodestone name→ID lookup table (see `lodestoneJobIDs` in `infrastructure/lodestone/client.go`).
+### Job bitmasks
+
+Each character stores which jobs it has levelled (level 1 or more) and which it has at their level cap as two 64-bit masks, so the statistics refresh can count jobs without reading `character_jobs`. Bit `n` is the official job id `n` after folding base classes into their jobs (Gladiator → Paladin, Pugilist → Monk, Marauder → Warrior, Lancer → Dragoon, Archer → Bard, Conjurer → White Mage, Thaumaturge → Black Mage, Arcanist → Summoner, Rogue → Ninja). Arcanist leads to both Summoner and Scholar; it counts towards Summoner. Every job's cap is the configured `census.max_level`, except Blue Mage, a limited job capped at 80 (`census.BlueMageLevelCap`).
+
+The rules live in the census taxonomy (`domain/census/jobs.go`: `Jobs`, `JobByID`, `FoldJobID`, `Roles`, `Job.LevelCap`, `JobMasks`), shared by the write path, the backfill and the pages. The character write path sets both masks whenever it stores a character's jobs, exactly like `max_job_level`; a character with no jobs gets `0`, `0`.
+
+Rows stored before the columns existed stay NULL until the operator runs the backfill once, during quiet hours:
+
+```bash
+./bin/ffxiv-census backfill job-masks --batch-size 1000 --pause 200ms
+```
+
+It walks characters by ascending ID in keyset batches, one short transaction per batch, filling only NULL masks from the stored jobs (already-set masks are left alone) and storing its cursor in `job_mask_backfill_state` with each batch. Stopping it (Ctrl-C) is safe: a rerun resumes from the cursor. It is not a migration and never runs at boot; characters re-censused meanwhile get their masks from the normal write path.
+
 ### `character_gear`
 
 One row per equipped gear slot: `(character_id, slot)` primary key, `item_id`, `name`, `item_level`, `dye`, `materia` (JSON array of materia names/tiers), `updated_at`. Stores equipped gear pieces scraped from character profiles.

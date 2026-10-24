@@ -226,6 +226,10 @@ _Avoid_: new-character series, created character, new player (players own charac
 A character whose census record shows at least one class or job at the current level cap — combat, crafting, or gathering alike — counted once per character no matter how many of its jobs sit at the cap.
 _Avoid_: maxed character, max-level jobs (the census counts characters, not jobs)
 
+**Job bitmask**:
+One of the two 64-bit values stored on each character recording which jobs it has levelled and which it has at their level cap, one bit per job (base classes folded into their jobs; Blue Mage measured against its own lower cap). Empty until computed, by a census write or the one-off backfill.
+_Avoid_: job flags, job set
+
 **MSQ completion funnel**:
 The expansion-by-expansion view of how many characters' milestone records show each expansion's main-scenario story completed, read as retention and drop-off. Characters with private or unscanned achievements are invisible to it, however far they have progressed.
 
