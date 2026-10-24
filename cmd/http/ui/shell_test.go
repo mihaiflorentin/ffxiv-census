@@ -25,6 +25,7 @@ var shellPages = []struct {
 	{"World Detail", "/ui/worlds/Adamantoise", "/ui/worlds"},
 	{"Expansions", "/ui/expansions", "/ui/expansions"},
 	{"Methodology", "/ui/methodology", "/ui/methodology"},
+	{"Private Achievements", "/ui/privacy", "/ui/methodology"},
 }
 
 func parseHTML(t *testing.T, body string) *html.Node {

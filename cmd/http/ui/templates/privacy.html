@@ -1,0 +1,135 @@
+{{define "content"}}
+<div class="page-header">
+    <h1 class="page-title">Private achievements</h1>
+    <p class="page-desc">How many characters hide their achievements, how many the census hasn’t checked yet, and how that lowers the activity and story figures.</p>
+</div>
+
+{{if not .Data.Ready}}
+{{template "next-refresh" (nextRefresh "Privacy figures")}}
+{{else if not .Data.Total}}
+{{template "empty-state" (emptyState "No characters in the census yet." "Statistics appear after the next census refresh.")}}
+{{else}}
+<section class="panel veil-panel" aria-labelledby="veil-heading">
+    <div class="panel-header">
+        <h2 id="veil-heading" class="panel-title">The veil</h2>
+        <p class="panel-meta">Of {{formatNumber .Data.Total}} characters</p>
+    </div>
+    <div class="panel-body">
+        <svg class="veil" data-entrance width="100%" height="100%" aria-hidden="true" focusable="false">
+            <defs>
+                <pattern id="veil-hatch" class="veil-hatch" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)">
+                    <rect class="veil-hatch-ground" width="8" height="8"/>
+                    <rect class="veil-hatch-thread" width="3" height="8"/>
+                </pattern>
+            </defs>
+            <rect class="veil-track" width="100%" height="100%"/>
+            {{range .Data.Veil}}<rect class="veil-segment veil-{{.Kind}}" x="{{.X}}" y="0" width="{{.Width}}" height="100%"{{if eq .Kind "private"}} fill="url(#veil-hatch)"{{end}}><title>{{.Label}}: {{.Share}}, {{formatNumber .Count}} characters</title></rect>{{end}}
+        </svg>
+        <ul class="veil-key">
+            {{range .Data.Veil}}
+            <li class="veil-key-item veil-key-{{.Kind}}">
+                <span class="veil-swatch veil-swatch-{{.Kind}}" aria-hidden="true"></span>
+                <span class="veil-key-name">{{.Label}}</span>
+                <span class="veil-key-share">{{.Share}}</span>
+                <span class="veil-key-count">{{formatNumber .Count}} characters</span>
+            </li>
+            {{end}}
+        </ul>
+        <p class="chart-summary">The census can read the achievements of {{.Data.Overall.PublicShare}} of characters. {{.Data.Overall.PrivateShare}} hide them, and {{.Data.Overall.UncheckedShare}} haven’t been checked yet.</p>
+        {{template "freshness" (nightly .Data.BuiltAt)}}
+        <details class="chart-data">
+            <summary>Show the numbers</summary>
+            <div class="table-scroll" role="region" aria-label="Characters by achievement privacy" tabindex="0">
+                <table class="data-table">
+                    <caption class="visually-hidden">Characters by achievement privacy, across every region</caption>
+                    <thead><tr><th scope="col">Achievements</th><th scope="col" class="text-right">Characters</th><th scope="col" class="text-right">Share</th></tr></thead>
+                    <tbody>
+                        {{range .Data.Veil}}
+                        <tr><th scope="row">{{.Label}}</th><td class="text-right">{{formatNumber .Count}}</td><td class="text-right">{{.Share}}</td></tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    </div>
+</section>
+
+<section class="panel" aria-labelledby="meaning-heading">
+    <div class="panel-header">
+        <h2 id="meaning-heading" class="panel-title">What this means</h2>
+    </div>
+    <div class="panel-body">
+        <div class="veil-notes">
+            <div class="veil-note">
+                <h3 class="veil-note-title">Hidden achievements can’t count as active</h3>
+                <p>A character is active when their latest public achievement is from the last 30 days. Someone who hides their achievements can’t count as active, however often they play, so every active-player figure is a lower bound.</p>
+            </div>
+            <div class="veil-note">
+                <h3 class="veil-note-title">Story progress is a lower bound too</h3>
+                <p>Expansion completions come from story achievements. A character who hides them never shows as finishing an expansion, so the real completion rates are higher.</p>
+            </div>
+            <div class="veil-note">
+                <h3 class="veil-note-title">Not yet checked isn’t a choice</h3>
+                <p>These characters are waiting for the census to read their achievements for the first time. Once checked, each one moves to public or private.</p>
+            </div>
+            <div class="veil-note">
+                <h3 class="veil-note-title">Everything else still counts</h3>
+                <p>Name, world, race, Grand Company and job levels come from the public profile, so these characters still count in population, races, Grand Companies and jobs.</p>
+            </div>
+        </div>
+        <p class="veil-more"><a href="/ui/methodology#achievement-privacy">How the census reads achievement privacy</a></p>
+    </div>
+</section>
+
+<section class="panel" aria-labelledby="privacy-regions-heading">
+    <div class="panel-header">
+        <h2 id="privacy-regions-heading" class="panel-title">By region</h2>
+        <p class="panel-meta">Share of each region’s characters</p>
+    </div>
+    <div class="panel-body">
+        <div class="table-scroll" role="region" aria-labelledby="privacy-regions-heading" tabindex="0">
+            <table class="data-table">
+                <caption class="visually-hidden">Achievement privacy by region</caption>
+                <thead><tr><th scope="col">Region</th><th scope="col" class="text-right">Characters</th><th scope="col" class="text-right">Public</th><th scope="col" class="text-right">Private</th><th scope="col" class="text-right">Not yet checked</th></tr></thead>
+                <tbody>
+                    {{range .Data.Regions}}
+                    <tr><th scope="row">{{.Name}}</th><td class="text-right">{{formatNumber .Total}}</td><td class="text-right">{{.PublicShare}}</td><td class="text-right">{{.PrivateShare}}</td><td class="text-right">{{.UncheckedShare}}</td></tr>
+                    {{end}}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</section>
+
+<div class="panel-grid">
+    {{template "privacy-worlds" (privacyWorldsFor "most-private" "Most private worlds" "Highest share of hidden achievements" .Data.MostPrivate)}}
+    {{template "privacy-worlds" (privacyWorldsFor "least-private" "Least private worlds" "Lowest share of hidden achievements" .Data.LeastPrivate)}}
+</div>
+{{if .Data.Excluded}}<p class="veil-footnote">{{.Data.Excluded}} {{if eq .Data.Excluded 1}}world with fewer than {{formatNumber .Data.MinimumSize}} characters is{{else}}worlds with fewer than {{formatNumber .Data.MinimumSize}} characters are{{end}} left out, so a handful of characters can’t top a list.</p>{{end}}
+{{end}}
+{{end}}
+
+{{define "privacy-worlds"}}
+<section class="panel" id="{{.ID}}" aria-labelledby="{{.ID}}-heading">
+    <div class="panel-header">
+        <h2 id="{{.ID}}-heading" class="panel-title">{{.Title}}</h2>
+        <p class="panel-meta">{{.Meta}}</p>
+    </div>
+    <div class="panel-body">
+        {{if .Rows}}
+        <ol class="privacy-worlds">
+            {{range .Rows}}
+            <li class="privacy-world">
+                <span class="privacy-world-name"><a href="{{.Href}}">{{.Name}}</a>{{if .Datacenter}} <span class="privacy-world-dc">{{.Datacenter}}</span>{{end}}</span>
+                <span class="privacy-world-share">{{.PrivateShare}}</span>
+                <svg class="privacy-world-bar" width="100%" height="6" aria-hidden="true" focusable="false"><rect class="privacy-world-track" width="100%" height="6"/><rect class="privacy-world-fill" width="{{.BarWidth}}" height="6" fill="url(#veil-hatch)"/></svg>
+                <span class="privacy-world-count">{{formatNumber .Private}} of {{formatNumber .Total}} characters</span>
+            </li>
+            {{end}}
+        </ol>
+        {{else}}
+        {{template "empty-state" (emptyState "Not enough worlds to compare yet." "Lists appear once more worlds are in the census.")}}
+        {{end}}
+    </div>
+</section>
+{{end}}
