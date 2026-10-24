@@ -10,19 +10,34 @@ import (
 // company. It is a group of its own so the shares add up to 100%.
 const GrandCompanyNone = "None"
 
-// grandCompany is one Grand Company as the Lodestone names it, with the slug
-// pages use for its colour token (--color-gc-<slug>).
-type grandCompany struct {
-	Name, Slug string
+// The Grand Companies as the Lodestone names them: the keys of the
+// grand_company groups. Every reader names a company through these.
+const (
+	GrandCompanyMaelstrom      = "Maelstrom"
+	GrandCompanyTwinAdder      = "Order of the Twin Adder"
+	GrandCompanyImmortalFlames = "Immortal Flames"
+)
+
+// GrandCompany is one Grand Company: its Lodestone Name, the Short name
+// pages use in tight spots ("Twin Adder"), and the Slug of its colour token
+// (--color-gc-<slug>).
+type GrandCompany struct {
+	Name, Short, Slug string
 }
 
 // grandCompanies lists the companies in the game's own order (Limsa Lominsa,
 // Gridania, Ul'dah), with "None" last.
-var grandCompanies = []grandCompany{
-	{Name: "Maelstrom", Slug: "maelstrom"},
-	{Name: "Order of the Twin Adder", Slug: "twin-adder"},
-	{Name: "Immortal Flames", Slug: "immortal-flames"},
-	{Name: GrandCompanyNone, Slug: "none"},
+var grandCompanies = []GrandCompany{
+	{Name: GrandCompanyMaelstrom, Short: "Maelstrom", Slug: "maelstrom"},
+	{Name: GrandCompanyTwinAdder, Short: "Twin Adder", Slug: "twin-adder"},
+	{Name: GrandCompanyImmortalFlames, Short: "Immortal Flames", Slug: "immortal-flames"},
+	{Name: GrandCompanyNone, Short: GrandCompanyNone, Slug: "none"},
+}
+
+// GrandCompanies returns the three Grand Companies in the game's order
+// ("None" left out).
+func GrandCompanies() []GrandCompany {
+	return append([]GrandCompany(nil), grandCompanies[:3]...)
 }
 
 // GrandCompanyShare is one company's figures within a selection.

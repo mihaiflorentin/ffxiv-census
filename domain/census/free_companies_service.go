@@ -26,15 +26,36 @@ type FreeCompanyBoardResult struct {
 	BuiltAt time.Time
 }
 
+// freeCompanyMissingRetry is how long a missing Free Company row is
+// remembered before the next request looks again (a new main snapshot build
+// time looks at once).
+const freeCompanyMissingRetry = time.Minute
+
 // freeCompanyCache holds the Free Company row and the boards derived from
-// it. The row is decoded only when the main snapshot names a new build time,
-// and each board is built once per row.
+// it. The row is loaded when the main snapshot names a new build time, by
+// one caller at a time while the others wait without holding the lock; a
+// missing row is remembered for freeCompanyMissingRetry. Boards are
+// memoised per row for known scopes and measures only, so request filters
+// cannot grow the map.
 type freeCompanyCache struct {
 	mu sync.Mutex
-	// builtAt is the main snapshot build time the row was loaded for.
+	// builtAt is the main snapshot build time the held outcome is for;
+	// loaded reports there is one.
 	builtAt time.Time
-	row     *contract.StatsFreeCompanies
-	boards  map[FreeCompanyQuery]FreeCompanyBoard
+	loaded  bool
+	// row is nil when the row was missing at missingAt.
+	row       *contract.StatsFreeCompanies
+	missingAt time.Time
+	boards    map[FreeCompanyQuery]FreeCompanyBoard
+	// loading is closed when the running load finishes; nil when idle.
+	loading chan struct{}
+}
+
+// memoised is how many boards the cache holds.
+func (c *freeCompanyCache) memoised() int {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return len(c.boards)
 }
 
 // FreeCompanyBoard returns the Free Company board query asks for, from the
@@ -45,26 +66,82 @@ func (s *UIStatsService) FreeCompanyBoard(ctx context.Context, snapshot *contrac
 	if s == nil || s.repo == nil || !FreeCompaniesReady(snapshot) {
 		return result, nil
 	}
-	c := &s.freeCompanies
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.row == nil || !c.builtAt.Equal(snapshot.FreeCompaniesBuiltAt) {
-		row, err := s.repo.LoadFreeCompanies(ctx)
-		if errors.Is(err, ErrUIStatsUnavailable) {
-			return result, nil
-		}
-		if err != nil {
-			return result, fmt.Errorf("load Free Company boards: %w", err)
-		}
-		c.builtAt, c.row, c.boards = snapshot.FreeCompaniesBuiltAt, row, map[FreeCompanyQuery]FreeCompanyBoard{}
+	row, err := s.freeCompanyRow(ctx, snapshot.FreeCompaniesBuiltAt)
+	if err != nil || row == nil {
+		return result, err
 	}
-	board, ok := c.boards[query]
-	if !ok {
-		board = FreeCompanyBoardFor(c.row, query)
-		c.boards[query] = board
-	}
+	board := s.freeCompanies.board(row, query)
 	result.FreeCompanyBoard = board
 	result.Rows = append([]FreeCompanyRow(nil), board.Rows...)
-	result.Ready, result.BuiltAt = true, c.row.BuiltAt
+	result.Ready, result.BuiltAt = true, row.BuiltAt
 	return result, nil
+}
+
+// freeCompanyRow returns the Free Company row for the main snapshot build
+// time builtAt, loading it when the cache holds nothing usable for it. Nil
+// with no error means the row is missing.
+func (s *UIStatsService) freeCompanyRow(ctx context.Context, builtAt time.Time) (*contract.StatsFreeCompanies, error) {
+	c := &s.freeCompanies
+	for {
+		c.mu.Lock()
+		if c.loaded && c.builtAt.Equal(builtAt) && (c.row != nil || s.now().Sub(c.missingAt) < freeCompanyMissingRetry) {
+			row := c.row
+			c.mu.Unlock()
+			return row, nil
+		}
+		if wait := c.loading; wait != nil {
+			c.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("load Free Company boards: %w", ctx.Err())
+			case <-wait:
+				continue
+			}
+		}
+		done := make(chan struct{})
+		c.loading = done
+		c.mu.Unlock()
+
+		row, err := s.repo.LoadFreeCompanies(ctx)
+		missing := errors.Is(err, ErrUIStatsUnavailable)
+		c.mu.Lock()
+		c.loading = nil
+		close(done)
+		if err == nil || missing {
+			c.builtAt, c.loaded, c.row, c.boards = builtAt, true, row, map[FreeCompanyQuery]FreeCompanyBoard{}
+			if missing {
+				c.row, c.missingAt = nil, s.now()
+			}
+		}
+		c.mu.Unlock()
+		switch {
+		case missing:
+			return nil, nil
+		case err != nil:
+			return nil, fmt.Errorf("load Free Company boards: %w", err)
+		}
+		return row, nil
+	}
+}
+
+// board returns query's board of row, memoising it while row is the cached
+// one and query is a known scope and measure.
+func (c *freeCompanyCache) board(row *contract.StatsFreeCompanies, query FreeCompanyQuery) FreeCompanyBoard {
+	c.mu.Lock()
+	board, ok := c.boards[query]
+	current := c.row == row
+	c.mu.Unlock()
+	if ok && current {
+		return board
+	}
+	board = FreeCompanyBoardFor(row, query)
+	if !KnownScope(query.Scope) || (query.Measure != FreeCompanyMembers && query.Measure != FreeCompanyActive) {
+		return board
+	}
+	c.mu.Lock()
+	if c.row == row {
+		c.boards[query] = board
+	}
+	c.mu.Unlock()
+	return board
 }

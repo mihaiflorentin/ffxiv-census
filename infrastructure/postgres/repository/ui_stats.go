@@ -212,7 +212,7 @@ func (r *UIStatsRepository) readCharacterStats(ctx context.Context, tx *sql.Tx, 
 		return fmt.Errorf("size UI statistics aggregate memory: %w", err)
 	}
 	jobs := newJobAccumulator()
-	roll, err := queryFineGrainWith(ctx, tx, jobs, `
+	roll, err := queryFineGrainWithExtraColumns(ctx, tx, jobs, `
 		SELECT `+fineGrainKeyColumns+`,
 		       COUNT(*) AS total,
 		       COUNT(*) FILTER (WHERE latest_achievement_at >= $1) AS active,
@@ -239,12 +239,12 @@ func (r *UIStatsRepository) readCharacterStats(ctx context.Context, tx *sql.Tx, 
 // queryFineGrain runs a fine-grain statistics query (the fineGrainKeyColumns
 // followed by the fineCounts columns) and rolls its rows up.
 func queryFineGrain(ctx context.Context, tx *sql.Tx, query string, args ...any) (*statsRollup, error) {
-	return queryFineGrainWith(ctx, tx, nil, query, args...)
+	return queryFineGrainWithExtraColumns(ctx, tx, nil, query, args...)
 }
 
-// queryFineGrainWith is queryFineGrain for a query whose rows carry extra
+// queryFineGrainWithExtraColumns is queryFineGrain for a query whose rows carry extra
 // columns after the fineCounts columns; extra scans and keeps them.
-func queryFineGrainWith(ctx context.Context, tx *sql.Tx, extra fineExtra, query string, args ...any) (*statsRollup, error) {
+func queryFineGrainWithExtraColumns(ctx context.Context, tx *sql.Tx, extra extraColumnScanner, query string, args ...any) (*statsRollup, error) {
 	rows, err := tx.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err

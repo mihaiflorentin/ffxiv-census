@@ -54,14 +54,14 @@ func countOf(read func(LocationCounts) int64) rankingPart {
 
 // newCharacters is a candidate's new characters in the 30-day window.
 func newCharacters(snapshot *contract.UIStatsSnapshot, level LocationLevel, c LocationCounts) (int64, int64) {
-	return NewCharactersWindow(snapshot, locationScope(level, c.Key)).Current, c.Total
+	return NewCharactersWindow(snapshot, ScopeAt(level, c.Key)).Current, c.Total
 }
 
 // companyMembers reads one Grand Company's members out of the candidate's
 // Grand Company split.
 func companyMembers(company string) rankingPart {
 	return func(snapshot *contract.UIStatsSnapshot, level LocationLevel, c LocationCounts) (int64, int64) {
-		split := GrandCompanySplitFor(snapshot, locationScope(level, c.Key))
+		split := GrandCompanySplitFor(snapshot, ScopeAt(level, c.Key))
 		for _, share := range split.Companies {
 			if share.Name == company {
 				return share.Total, split.Total
@@ -75,17 +75,6 @@ func grandCompaniesReady(snapshot *contract.UIStatsSnapshot) bool {
 	return SnapshotHasSection(snapshot, SectionGrandCompanies)
 }
 
-// locationScope is the stats scope of one location group.
-func locationScope(level LocationLevel, key string) contract.StatsScope {
-	switch level {
-	case LocationWorld:
-		return contract.StatsScope{World: key}
-	case LocationDatacenter:
-		return contract.StatsScope{Datacenter: key}
-	}
-	return contract.StatsScope{Region: key}
-}
-
 var rankingMetrics = map[RankingMetric]rankingMetric{
 	MetricPopulation:  {part: countOf(func(c LocationCounts) int64 { return c.Total })},
 	MetricActivity:    {rate: true, part: countOf(func(c LocationCounts) int64 { return c.Active })},
@@ -94,9 +83,31 @@ var rankingMetrics = map[RankingMetric]rankingMetric{
 	MetricGrowth:      {rate: true, scale: 1000, part: newCharacters},
 	MetricGrowthCount: {part: newCharacters},
 
-	MetricLeanMaelstrom:      {rate: true, ready: grandCompaniesReady, part: companyMembers("Maelstrom")},
-	MetricLeanTwinAdder:      {rate: true, ready: grandCompaniesReady, part: companyMembers("Order of the Twin Adder")},
-	MetricLeanImmortalFlames: {rate: true, ready: grandCompaniesReady, part: companyMembers("Immortal Flames")},
+	MetricLeanMaelstrom:      {rate: true, ready: grandCompaniesReady, part: companyMembers(GrandCompanyMaelstrom)},
+	MetricLeanTwinAdder:      {rate: true, ready: grandCompaniesReady, part: companyMembers(GrandCompanyTwinAdder)},
+	MetricLeanImmortalFlames: {rate: true, ready: grandCompaniesReady, part: companyMembers(GrandCompanyImmortalFlames)},
+}
+
+// leanCompanies names the Grand Company each lean metric ranks.
+var leanCompanies = map[RankingMetric]string{
+	MetricLeanMaelstrom:      GrandCompanyMaelstrom,
+	MetricLeanTwinAdder:      GrandCompanyTwinAdder,
+	MetricLeanImmortalFlames: GrandCompanyImmortalFlames,
+}
+
+// LeanCompany returns the Grand Company a lean metric ranks; false for any
+// other metric.
+func LeanCompany(metric RankingMetric) (GrandCompany, bool) {
+	name, ok := leanCompanies[metric]
+	if !ok {
+		return GrandCompany{}, false
+	}
+	for _, gc := range grandCompanies {
+		if gc.Name == name {
+			return gc, true
+		}
+	}
+	return GrandCompany{}, false
 }
 
 // RankingQuery selects one board: a metric, the level ranked (world or

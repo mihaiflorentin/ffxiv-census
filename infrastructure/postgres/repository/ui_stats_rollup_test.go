@@ -127,3 +127,46 @@ func TestUIStatsRefreshToleratesCharactersWithoutLocation(t *testing.T) {
 		t.Fatalf("incremental mode=%q total=%d, want incremental with total 3", inc.Mode, inc.Snapshot.Summary.Total)
 	}
 }
+
+// v2Equivalent is snapshot without the parts schema 3 added: the job
+// section, the Grand Company groups, and the location counts (at cap,
+// private, unchecked, in a Free Company) on groups and the summary.
+func v2Equivalent(snapshot *contract.UIStatsSnapshot) *contract.UIStatsSnapshot {
+	v2 := *snapshot
+	v2.SchemaVersion = 2
+	v2.Jobs = nil
+	v2.PrivacyBuiltAt, v2.FreeCompaniesBuiltAt = time.Time{}, time.Time{}
+	v2.Summary.Private, v2.Summary.Unchecked, v2.Summary.InFreeCompany = 0, 0, 0
+	v2.Groups = nil
+	for _, g := range snapshot.Groups {
+		if g.Dimension == "grand_company" || g.Dimension == "grand_company_race" {
+			continue
+		}
+		g.MaxLevel, g.Private, g.Unchecked, g.InFreeCompany = 0, 0, 0, 0
+		v2.Groups = append(v2.Groups, g)
+	}
+	return &v2
+}
+
+// TestUIStatsFullRefreshPayloadStaysWithinBudget is the spec's payload
+// budget: the version 3 payload is at most twice its version 2 equivalent,
+// so the snapshot every pod reloads each minute stays small.
+func TestUIStatsFullRefreshPayloadStaysWithinBudget(t *testing.T) {
+	driver := newTestDriver(t)
+	now := time.Now().UTC()
+	seedRollupFixture(t, driver, now.Add(-90*24*time.Hour), now.Add(-time.Hour), now.Add(-60*24*time.Hour))
+
+	result, err := repository.NewUIStatsRepository(driver).Refresh(context.Background(),
+		incrementalOpts(contract.UIStatsRefreshFull, now.Add(-30*24*time.Hour)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2, err := json.Marshal(v2Equivalent(result.Snapshot))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.PayloadBytes <= 0 || result.PayloadBytes > 2*int64(len(v2)) {
+		t.Fatalf("version 3 payload = %d bytes, want at most twice the version 2 equivalent (%d bytes)", result.PayloadBytes, len(v2))
+	}
+	t.Logf("payload: v3 %d bytes, v2 equivalent %d bytes (%.2fx)", result.PayloadBytes, len(v2), float64(result.PayloadBytes)/float64(len(v2)))
+}

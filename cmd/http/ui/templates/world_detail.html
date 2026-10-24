@@ -82,6 +82,7 @@
 <section class="panel" id="top-free-companies" aria-labelledby="top-fc-heading">
     <div class="panel-header">
         <h2 id="top-fc-heading" class="panel-title">Largest Free Companies</h2>
+        {{if and .Data.FreeCompanies.Ready .Data.FreeCompanies.Share}}<p class="fc-share">In a Free Company: <strong class="fc-share-value">{{.Data.FreeCompanies.Share}}</strong></p>{{end}}
         <p class="panel-meta"><a href="{{.Data.FreeCompanies.Href}}">Every Free Company on {{.Data.World}}</a></p>
     </div>
     <div class="panel-body">

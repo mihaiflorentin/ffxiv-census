@@ -293,4 +293,18 @@ func TestWorldDetailShowsTheFiveLargestFreeCompanies(t *testing.T) {
 	if !strings.Contains(flatText(byID(pending, "top-free-companies")), "Free Company figures arrive with the next refresh.") {
 		t.Error("world page waits for the boards on a version 2 snapshot")
 	}
+	if n := len(findAll(byID(pending, "top-free-companies"), byClass("fc-share"))); n != 0 {
+		t.Errorf("a version 2 world page shows %d Free Company shares, want none", n)
+	}
+}
+
+func TestWorldDetailShowsTheShareInAFreeCompany(t *testing.T) {
+	doc := parseHTML(t, serveMuxGet(t, fcRankingsMux(t, 3, fcRankingsBoards()), "/ui/worlds/Balmung").Body.String())
+	shares := findAll(byID(doc, "top-free-companies"), byClass("fc-share"))
+	if len(shares) != 1 {
+		t.Fatalf("want one Free Company share next to the top five, got %d", len(shares))
+	}
+	if got := flatText(shares[0]); got != "In a Free Company: 40.0%" {
+		t.Errorf("share = %q, want %q", got, "In a Free Company: 40.0%")
+	}
 }

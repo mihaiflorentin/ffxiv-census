@@ -78,16 +78,16 @@ func (c *UIController) Privacy(w http.ResponseWriter, r *http.Request) {
 	data := PrivacyViewData{Ready: census.PrivacyReady(snapshot)}
 	if data.Ready {
 		data.BuiltAt = snapshot.PrivacyBuiltAt
-		overall := census.PrivacyFor(snapshot, contract.StatsScope{})
+		overall := c.memo.Privacy(snapshot, contract.StatsScope{})
 		data.Total = overall.Total
 		data.Overall = newPrivacyRow(overall)
 		data.Veil = veilSegments(overall)
-		for _, region := range census.PrivacyRegions(snapshot) {
+		for _, region := range c.memo.PrivacyRegions(snapshot) {
 			row := newPrivacyRow(region)
 			row.Name = regionDisplayName(region.Key)
 			data.Regions = append(data.Regions, row)
 		}
-		board := census.PrivacyWorlds(snapshot, "", privacyBoardSize)
+		board := c.memo.PrivacyWorlds(snapshot, "", privacyBoardSize)
 		data.MinimumSize, data.Excluded = board.MinimumSize, board.Excluded
 		var top float64
 		if len(board.MostPrivate) > 0 {
@@ -115,11 +115,11 @@ func privacyNoteFor(note PrivacyNote, consequence string) PrivacyNoteLine {
 }
 
 // privacyNote builds the dashboard and Expansions privacy note.
-func privacyNote(snapshot *contract.UIStatsSnapshot) PrivacyNote {
+func (c *UIController) privacyNote(snapshot *contract.UIStatsSnapshot) PrivacyNote {
 	if !census.PrivacyReady(snapshot) {
 		return PrivacyNote{}
 	}
-	return PrivacyNote{Ready: true, Share: percentOf(census.PrivacyFor(snapshot, contract.StatsScope{}).PrivateShare)}
+	return PrivacyNote{Ready: true, Share: percentOf(c.memo.Privacy(snapshot, contract.StatsScope{}).PrivateShare)}
 }
 
 func newPrivacyRow(p census.PrivacyShare) PrivacyRow {

@@ -88,14 +88,14 @@ func (c *UIController) GrandCompanies(w http.ResponseWriter, r *http.Request) {
 		StandardHeight: standardHeight,
 	}
 	if data.Ready {
-		split := census.GrandCompanySplitFor(snapshot, place.scope())
+		split := c.memo.GrandCompanySplit(snapshot, place.scope())
 		data.Total, data.Active = split.Total, split.Active
 		if split.Total > 0 {
 			data.Companies = grandCompanyViews(split)
 			data.Leader = newGrandCompanyView(split.Leader())
 			data.NoCompany = data.Companies[len(data.Companies)-1]
 		}
-		for _, lean := range census.GrandCompanyRaceLean(snapshot) {
+		for _, lean := range c.memo.GrandCompanyRaceLean(snapshot) {
 			data.RaceLean = append(data.RaceLean, RaceLeanRow{
 				Race: lean.Race, Total: lean.Total, Leader: lean.Leader().Name, Companies: grandCompanyViews(lean.GrandCompanySplit),
 			})

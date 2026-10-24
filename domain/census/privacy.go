@@ -65,13 +65,8 @@ func SnapshotLocation(snapshot *contract.UIStatsSnapshot, scope contract.StatsSc
 	if snapshot == nil {
 		return LocationCounts{}
 	}
-	level, key := LocationRegion, scope.Region
-	switch {
-	case scope.World != "":
-		level, key = LocationWorld, scope.World
-	case scope.Datacenter != "":
-		level, key = LocationDatacenter, scope.Datacenter
-	case scope.Region == "":
+	level, key := ScopeLevel(scope)
+	if level == LocationGlobal {
 		s := snapshot.Summary
 		return LocationCounts{Total: s.Total, Active: s.Active, AtCap: s.MaxLevel, Private: s.Private, Unchecked: s.Unchecked, InFreeCompany: s.InFreeCompany}
 	}

@@ -22,15 +22,7 @@ type placeFilter struct {
 
 // scope is the statistics scope of the selection: its narrowest applied filter.
 func (p placeFilter) scope() contract.StatsScope {
-	switch {
-	case p.World != "":
-		return contract.StatsScope{World: p.World}
-	case p.Datacenter != "":
-		return contract.StatsScope{Datacenter: p.Datacenter}
-	case p.Region != "":
-		return contract.StatsScope{Region: p.Region}
-	}
-	return contract.StatsScope{}
+	return census.ScopeAt(census.ScopeLevel(contract.StatsScope{Region: p.Region, Datacenter: p.Datacenter, World: p.World}))
 }
 
 // placeFilterBar is the region / datacenter / world filter bar of a page

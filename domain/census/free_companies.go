@@ -2,7 +2,6 @@ package census
 
 import (
 	"sort"
-	"strings"
 
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
@@ -67,10 +66,10 @@ func FreeCompanyBoardFor(boards *contract.StatsFreeCompanies, query FreeCompanyQ
 		return board
 	}
 	for _, w := range boards.Worlds {
-		dc := WorldDatacenter(w.World)
-		if !worldInScope(w.World, dc, query.Scope) {
+		if !ScopeHasWorld(query.Scope, w.World) {
 			continue
 		}
+		dc := WorldDatacenter(w.World)
 		for _, c := range w.Companies {
 			row := FreeCompanyRow{ID: c.ID, Name: c.Name, World: w.World, Datacenter: dc, Members: c.Members, Active: c.Active, Value: c.Members}
 			if query.Measure == FreeCompanyActive {
@@ -90,6 +89,42 @@ func FreeCompanyBoardFor(boards *contract.StatsFreeCompanies, query FreeCompanyQ
 	return board
 }
 
+// TrimFreeCompanyWorld keeps the Free Companies of one world that make its
+// top n by members or by active members, in board order (the measure, the
+// other measure, name, id), each company once and sorted in members board
+// order. The nightly pass keeps the entries tied with the n-th on both
+// counts, since names are unknown while it runs, and trims here once they
+// are read, so a scope's merged board ranks exactly as the board does.
+func TrimFreeCompanyWorld(companies []contract.FreeCompanyCount, n int) []contract.FreeCompanyCount {
+	rows := func(measure FreeCompanyMeasure) []FreeCompanyRow {
+		out := make([]FreeCompanyRow, len(companies))
+		for i, c := range companies {
+			out[i] = FreeCompanyRow{ID: c.ID, Name: c.Name, Members: c.Members, Active: c.Active, Value: c.Members}
+			if measure == FreeCompanyActive {
+				out[i].Value = c.Active
+			}
+		}
+		sort.Slice(out, func(i, j int) bool { return freeCompanyRowLess(out[i], out[j]) })
+		return out
+	}
+	keep := map[string]bool{}
+	for _, measure := range []FreeCompanyMeasure{FreeCompanyMembers, FreeCompanyActive} {
+		for i, r := range rows(measure) {
+			if i >= n {
+				break
+			}
+			keep[r.ID] = true
+		}
+	}
+	var out []contract.FreeCompanyCount
+	for _, r := range rows(FreeCompanyMembers) {
+		if keep[r.ID] {
+			out = append(out, contract.FreeCompanyCount{ID: r.ID, Name: r.Name, Members: r.Members, Active: r.Active})
+		}
+	}
+	return out
+}
+
 // freeCompanyRowLess orders a board: the measure, then the other measure
 // (members + active - value), then name, then id.
 func freeCompanyRowLess(a, b FreeCompanyRow) bool {
@@ -106,18 +141,4 @@ func freeCompanyRowLess(a, b FreeCompanyRow) bool {
 		return len(a.ID) < len(b.ID)
 	}
 	return a.ID < b.ID
-}
-
-// worldInScope reports whether a world (in datacenter dc) is inside scope;
-// names match case-insensitively.
-func worldInScope(world, dc string, scope contract.StatsScope) bool {
-	switch {
-	case scope.World != "":
-		return strings.EqualFold(world, scope.World)
-	case scope.Datacenter != "":
-		return strings.EqualFold(dc, scope.Datacenter)
-	case scope.Region != "":
-		return strings.EqualFold(RegionForDatacenter(dc), scope.Region)
-	}
-	return true
 }

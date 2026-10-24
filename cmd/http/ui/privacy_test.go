@@ -181,8 +181,8 @@ func TestPrivacyPageOnAVersion2SnapshotWaitsForTheNextRefresh(t *testing.T) {
 func TestPrivacyNotesOnTheDashboardAndExpansions(t *testing.T) {
 	mux := privacyMux(t, privacyPageSnapshot(3))
 	for path, want := range map[string]string{
-		"/":              "15.0% of characters hide their achievements, so they can’t count as active.",
-		"/ui/expansions": "15.0% of characters hide their achievements, so these completions are a lower bound.",
+		"/":              "15.0% of characters hide their achievements, so they can’t count as active. How privacy is counted.",
+		"/ui/expansions": "15.0% of characters hide their achievements, so these completions are a lower bound. How privacy is counted.",
 	} {
 		doc := parseHTML(t, serveMuxGet(t, mux, path).Body.String())
 		notes := findAll(doc, byClass("privacy-note"))
@@ -194,6 +194,9 @@ func TestPrivacyNotesOnTheDashboardAndExpansions(t *testing.T) {
 		}
 		if !linksTo(notes[0], "/ui/privacy") {
 			t.Errorf("%s note must link to /ui/privacy", path)
+		}
+		if !linksTo(notes[0], "/ui/methodology#achievement-privacy") {
+			t.Errorf("%s note must link to the Methodology privacy section", path)
 		}
 	}
 
