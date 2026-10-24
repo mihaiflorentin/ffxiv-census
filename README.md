@@ -143,7 +143,15 @@ Builds and atomically publishes the bounded statistics snapshot consumed by all 
 
 Web requests never fall back to census-wide aggregate queries. Until the first successful refresh, aggregate routes return `503 Service Unavailable`; a failed later refresh leaves the previous complete snapshot available.
 
-### 6. `migrate` — Manual Schema Migrations
+### 6. `backfill job-masks` — Fill Job Bitmasks of Existing Characters
+
+Fills the [job bitmasks](docs/census.md#job-bitmasks) of characters stored before they existed (NULL masks), from their stored jobs. Run it once after upgrading to migration `00026`, during quiet hours. It walks keyset batches of `--batch-size` characters (default 1000), one short transaction each, pausing `--pause` (default `200ms`) between batches. Progress is stored after every batch, so it is safe to stop and rerun: it resumes from its cursor. Already-set masks are left alone, and it never runs at boot.
+
+```bash
+./bin/ffxiv-census backfill job-masks --batch-size 1000 --pause 200ms
+```
+
+### 7. `migrate` — Manual Schema Migrations
 
 Manage database schema versions manually with Goose.
 
