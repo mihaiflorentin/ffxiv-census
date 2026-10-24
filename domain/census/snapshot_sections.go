@@ -23,6 +23,10 @@ const (
 	// Free Company boards' own row, named by
 	// UIStatsSnapshot.FreeCompaniesBuiltAt.
 	SectionFreeCompanies SnapshotSection = "free_companies"
+	// SectionLevels is the level band counts of the summary and the
+	// location groups, with UIStatsSnapshot.LevelBands and LevelsBuiltAt
+	// (see LevelsReady).
+	SectionLevels SnapshotSection = "levels"
 )
 
 // sectionSince is the first snapshot schema version carrying each section.
@@ -31,6 +35,7 @@ var sectionSince = map[SnapshotSection]int{
 	SectionJobs:           3,
 	SectionPrivacy:        3,
 	SectionFreeCompanies:  3,
+	SectionLevels:         4,
 }
 
 // sectionPresent is an extra presence check for a section stored as its own
@@ -39,6 +44,7 @@ var sectionSince = map[SnapshotSection]int{
 var sectionPresent = map[SnapshotSection]func(*contract.UIStatsSnapshot) bool{
 	SectionJobs:          func(s *contract.UIStatsSnapshot) bool { return s.Jobs != nil },
 	SectionFreeCompanies: func(s *contract.UIStatsSnapshot) bool { return !s.FreeCompaniesBuiltAt.IsZero() },
+	SectionLevels:        func(s *contract.UIStatsSnapshot) bool { return !s.LevelsBuiltAt.IsZero() && len(s.LevelBands) > 0 },
 }
 
 // SnapshotHasSection reports whether snapshot carries section: its schema is

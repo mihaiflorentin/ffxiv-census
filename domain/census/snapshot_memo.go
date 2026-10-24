@@ -10,7 +10,7 @@ import (
 // SnapshotMemo keeps the boards and splits derived from the current
 // snapshot, so each is built once per snapshot rather than on every
 // request: the Rankings boards, the Armoury, the Grand Company split and
-// race lean, and the privacy figures. A snapshot is identified by its
+// race lean, the privacy figures and the level distributions. A snapshot is identified by its
 // generation time and schema version (the UI stats service hands out
 // copies, never the same pointer twice); a new identity drops everything.
 // Only known selections are remembered (KnownScope, a known metric or
@@ -39,6 +39,9 @@ type memoEntries struct {
 	worldNew       map[string]NewCharacterTotals
 	worldNewBase   NewCharacterTotals
 	worldNewHeld   bool
+	levels         map[contract.StatsScope]LevelDistribution
+	levelsByDC     map[string][]LevelDistribution
+	levelsByWorld  map[contract.StatsScope][]LevelDistribution
 }
 
 type privacyWorldsKey struct {
@@ -56,7 +59,8 @@ func (m *SnapshotMemo) size() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e := m.entries
-	n := len(e.rankings) + len(e.armoury) + len(e.split) + len(e.privacy) + len(e.privacyWorlds)
+	n := len(e.rankings) + len(e.armoury) + len(e.split) + len(e.privacy) + len(e.privacyWorlds) +
+		len(e.levels) + len(e.levelsByDC) + len(e.levelsByWorld)
 	if e.leanHeld {
 		n++
 	}
@@ -189,6 +193,36 @@ func (m *SnapshotMemo) PrivacyWorlds(snapshot *contract.UIStatsSnapshot, region 
 	board.MostPrivate = append([]PrivacyShare(nil), board.MostPrivate...)
 	board.LeastPrivate = append([]PrivacyShare(nil), board.LeastPrivate...)
 	return board
+}
+
+// Levels returns LevelsFor(snapshot, scope).
+func (m *SnapshotMemo) Levels(snapshot *contract.UIStatsSnapshot, scope contract.StatsScope) LevelDistribution {
+	return memoised(m, snapshot, KnownScope(scope), func(e *memoEntries) *map[contract.StatsScope]LevelDistribution { return &e.levels },
+		scope, func() LevelDistribution { return LevelsFor(snapshot, scope) }).clone()
+}
+
+// LevelsByDatacenter returns LevelsByDatacenter(snapshot, region).
+func (m *SnapshotMemo) LevelsByDatacenter(snapshot *contract.UIStatsSnapshot, region string) []LevelDistribution {
+	known := region == "" || RegionRank(region) > 0
+	return cloneLevelRows(memoised(m, snapshot, known, func(e *memoEntries) *map[string][]LevelDistribution { return &e.levelsByDC },
+		region, func() []LevelDistribution { return LevelsByDatacenter(snapshot, region) }))
+}
+
+// LevelsByWorld returns LevelsByWorld(snapshot, scope).
+func (m *SnapshotMemo) LevelsByWorld(snapshot *contract.UIStatsSnapshot, scope contract.StatsScope) []LevelDistribution {
+	return cloneLevelRows(memoised(m, snapshot, KnownScope(scope), func(e *memoEntries) *map[contract.StatsScope][]LevelDistribution { return &e.levelsByWorld },
+		scope, func() []LevelDistribution { return LevelsByWorld(snapshot, scope) }))
+}
+
+func cloneLevelRows(rows []LevelDistribution) []LevelDistribution {
+	if rows == nil {
+		return nil
+	}
+	out := make([]LevelDistribution, len(rows))
+	for i, r := range rows {
+		out[i] = r.clone()
+	}
+	return out
 }
 
 // WorldNewCharacters returns NewCharactersTotals(snapshot, {World: world})
