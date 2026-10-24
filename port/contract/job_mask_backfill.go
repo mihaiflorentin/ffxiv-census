@@ -9,7 +9,7 @@ type JobMaskBackfillBatch struct {
 	// Filled is how many of them had NULL job bitmasks and were filled.
 	Filled int
 	// Cursor is the stored cursor after the batch: the last character ID walked.
-	Cursor uint32
+	Cursor int64
 	// Done reports that the walk reached the last stored character.
 	Done bool
 }

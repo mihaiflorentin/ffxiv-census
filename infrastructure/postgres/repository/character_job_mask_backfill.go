@@ -49,7 +49,7 @@ func (r *CharacterRepository) BackfillJobMasksBatch(ctx context.Context, limit i
 	if len(walked) > 0 {
 		cursor = walked[len(walked)-1]
 	}
-	batch.Cursor = uint32(cursor)
+	batch.Cursor = cursor
 
 	if len(pending) > 0 {
 		filled, err := fillJobMasks(ctx, tx, pending, r.maxLevel)

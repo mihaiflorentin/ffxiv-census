@@ -110,3 +110,19 @@ func TestBackfillJobMasksOfCharacterWithoutJobsIsZero(t *testing.T) {
 		t.Fatalf("masks = %b, %b (set %v); want 0, 0", levelled, atCap, ok)
 	}
 }
+
+func TestBackfillJobMasksReportsTheCursorWithoutTruncation(t *testing.T) {
+	driver := newTestDriver(t)
+	ctx := context.Background()
+	// A cursor past the 32-bit range, as a bigint character id could leave it.
+	mustExec(t, driver, `INSERT INTO job_mask_backfill_state (singleton, last_id) VALUES (TRUE, 5000000000)
+		ON CONFLICT (singleton) DO UPDATE SET last_id = excluded.last_id`)
+
+	b, err := repository.NewCharacterRepository(driver).(contract.JobMaskBackfillRepository).BackfillJobMasksBatch(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Cursor != 5000000000 || !b.Done {
+		t.Fatalf("batch = %+v, want cursor 5000000000 and done", b)
+	}
+}

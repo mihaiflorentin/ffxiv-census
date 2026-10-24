@@ -44,7 +44,7 @@ func runBackfillJobMasks(ctx context.Context, repo contract.JobMaskBackfillRepos
 		return fmt.Errorf("--batch-size must be positive, got %d", batchSize)
 	}
 	var scanned, filled int
-	var cursor uint32
+	var cursor int64
 	for {
 		batch, err := repo.BackfillJobMasksBatch(ctx, batchSize)
 		if err != nil {
