@@ -1,5 +1,5 @@
 {
-  "schema_version": 3,
+  "schema_version": 4,
   "generated_at": "0001-01-01T00:00:00Z",
   "activity_since": "0001-01-01T00:00:00Z",
   "max_level": 100,
@@ -1210,6 +1210,7 @@
   ],
   "expansions": null,
   "new_characters": null,
+  "new_characters_window_days": 90,
   "summary": {
     "total": 8,
     "active": 4,

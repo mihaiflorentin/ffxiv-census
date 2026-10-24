@@ -223,8 +223,8 @@ func TestRacesHandler_DemographicChartsFiltered(t *testing.T) {
 }
 
 // newCharactersDaysFor builds an override daily new-character series with
-// counts keyed by day offset relative to now: offsets 1-29 fall in the
-// current 30-day window, offsets 30-59 in the previous one.
+// counts keyed by day offset relative to now: offsets 1-90 fall in the
+// current 90-day window, offsets 91-180 in the previous one.
 func newCharactersDaysFor(offsets map[int]int64) []contract.DailyCount {
 	now := time.Now().UTC()
 	days := make([]contract.DailyCount, 0, len(offsets))
@@ -256,7 +256,7 @@ func TestRacesHandler_NewCharactersCard(t *testing.T) {
 	crystalWorlds := len(WorldsForDC("Crystal"))
 	naWorlds := len(regionWorlds("NA"))
 	growthDays := func() []contract.DailyCount {
-		return newCharactersDaysFor(map[int]int64{1: 20, 5: 10, 40: 4, 50: 6})
+		return newCharactersDaysFor(map[int]int64{1: 20, 5: 10, 100: 4, 120: 6})
 	}
 	tests := []struct {
 		name          string
@@ -299,18 +299,19 @@ func TestRacesHandler_NewCharactersCard(t *testing.T) {
 			name:          "zero previous window renders absolute delta",
 			query:         "/ui/races?dc=Crystal",
 			newCharacters: newCharactersDaysFor(map[int]int64{3: 12}),
-			wantContains:  []string{fmt.Sprintf("Up +%s on the previous 30 days", formatNumber(int64(12*crystalWorlds)))},
+			wantContains:  []string{fmt.Sprintf("Up +%s on the previous 90 days", formatNumber(int64(12*crystalWorlds)))},
 		},
 		{
 			name:         "both windows zero renders fallback",
 			query:        "/ui/races",
 			wantContains: []string{"No new characters recorded"},
-			wantAbsent:   []string{"on the previous 30 days"},
+			wantAbsent:   []string{"on the previous 90 days"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rig := newTestRig(t)
+			rig.stats.everyWorld = true // the overridden series reaches every world
 			rig.ach.NewCharactersResponse = tt.newCharacters
 
 			req := httptest.NewRequest(http.MethodGet, tt.query, nil)

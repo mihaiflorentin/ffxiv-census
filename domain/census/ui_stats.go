@@ -22,6 +22,9 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 	if snapshot.GeneratedAt.IsZero() || snapshot.ActivitySince.IsZero() {
 		return errors.New("UI statistics timestamps must be set")
 	}
+	if snapshot.NewCharactersWindowDays < 0 {
+		return errors.New("UI statistics new-characters window cannot be negative")
+	}
 	if snapshot.SourceCharacters < 0 || snapshot.Summary.Total < 0 || snapshot.Summary.Active < 0 || snapshot.Summary.MaxLevel < 0 {
 		return errors.New("UI statistics summary counts cannot be negative")
 	}
@@ -36,7 +39,8 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 	for _, group := range snapshot.Groups {
 		if group.Dimension == "" || group.Total < 0 || group.Active < 0 || group.Active > group.Total ||
 			!validLocationCounts(group.Total, group.MaxLevel, group.Private, group.Unchecked) ||
-			!validSubset(group.InFreeCompany, group.Total) {
+			!validSubset(group.InFreeCompany, group.Total) ||
+			group.NewCharacters < 0 || group.NewCharactersPrevious < 0 || !nonNegative(group.NewCharactersWeekly) {
 			return errors.New("invalid UI statistics group")
 		}
 		key := scopeKey(group.Scope) + "\x00" + group.Dimension + "\x00" + group.Key
@@ -71,6 +75,16 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 		seenDays[key] = struct{}{}
 	}
 	return validateJobsSection(snapshot.Jobs)
+}
+
+// nonNegative reports whether no count is negative.
+func nonNegative(counts []int64) bool {
+	for _, c := range counts {
+		if c < 0 {
+			return false
+		}
+	}
+	return true
 }
 
 // validSubset reports whether part is a count of some of total's characters.
@@ -137,62 +151,166 @@ func scopeKey(scope contract.StatsScope) string {
 }
 
 // NewCharacterTotals holds new-character sums for the current and previous
-// 30-day windows, both ending on the last complete UTC day before the
-// snapshot's generation day. StartDay is
-// the first UTC day (YYYY-MM-DD) of the current window.
+// new-characters windows, both Days complete UTC days long and ending with
+// the last complete UTC day before the snapshot's generation day. StartDay
+// is the first UTC day (YYYY-MM-DD) of the current window.
 type NewCharacterTotals struct {
 	Current  int64
 	Previous int64
 	StartDay string
+	Days     int
 }
 
-// NewCharactersWindow sums the snapshot's daily new-character series for the
-// given stats scope across the current window (the 30 complete UTC days
-// before the generation day) and the previous window (the 30 days before
-// it). Global and world scopes read their exact-scope series rows;
-// datacenter and region scopes sum the member worlds of the world hierarchy,
-// with a datacenter selection reducing to that datacenter's world set. A
-// selection matching no known world, datacenter, or region totals zero
-// rather than falling back to global. Missing days count as zero.
-func NewCharactersWindow(snapshot *contract.UIStatsSnapshot, scope contract.StatsScope) NewCharacterTotals {
-	var totals NewCharacterTotals
-	if snapshot == nil {
-		return totals
-	}
-	// The generation day is still in progress; both windows end on the last
-	// complete UTC day.
-	end := snapshot.GeneratedAt.UTC().Truncate(24*time.Hour).AddDate(0, 0, -1)
-	currentStart := end.AddDate(0, 0, -29)
-	previousStart := end.AddDate(0, 0, -59)
-	totals.StartDay = currentStart.Format("2006-01-02")
+// legacyNewCharactersWindowDays is the fixed window of snapshots built
+// before the window was recorded (schema 3 and earlier).
+const legacyNewCharactersWindowDays = 30
 
-	global := scope == (contract.StatsScope{})
-	selected := worldSet(scope)
+// SnapshotNewCharactersWindowDays is the new-characters window a snapshot
+// was built with, in days: the recorded window, or the fixed 30 days of
+// snapshots from before it was recorded. It is 0 for a nil snapshot.
+func SnapshotNewCharactersWindowDays(snapshot *contract.UIStatsSnapshot) int {
+	if snapshot == nil {
+		return 0
+	}
+	if snapshot.NewCharactersWindowDays > 0 {
+		return snapshot.NewCharactersWindowDays
+	}
+	return legacyNewCharactersWindowDays
+}
+
+// NewCharactersTotals sums the snapshot's new characters for the given stats
+// scope across the current window (the window's complete UTC days before the
+// generation day) and the previous window (the same number of days before
+// it). The global scope reads the whole-game daily series. World, datacenter
+// and region scopes sum the window totals on the member worlds' groups of
+// the world hierarchy, with a datacenter selection reducing to that
+// datacenter's world set; snapshots from before the window was recorded sum
+// those worlds' daily series rows instead. A selection matching no known
+// world, datacenter, or region totals zero rather than falling back to
+// global. Missing days count as zero.
+func NewCharactersTotals(snapshot *contract.UIStatsSnapshot, scope contract.StatsScope) NewCharacterTotals {
+	if snapshot == nil {
+		return NewCharacterTotals{}
+	}
+	if scope != (contract.StatsScope{}) {
+		return sumWorlds(emptyNewCharacterTotals(SnapshotNewCharactersBounds(snapshot)), worldNewCharacters(snapshot), worldSet(scope))
+	}
+	bounds := SnapshotNewCharactersBounds(snapshot)
+	totals := emptyNewCharacterTotals(bounds)
 	for _, day := range snapshot.NewCharacters {
-		if global {
-			if day.Scope != (contract.StatsScope{}) {
-				continue
-			}
-		} else {
-			if day.Scope.World == "" {
-				continue
-			}
-			if _, ok := selected[day.Scope.World]; !ok {
-				continue
-			}
+		if day.Scope != (contract.StatsScope{}) {
+			continue
 		}
 		parsed, err := time.Parse("2006-01-02", day.Day)
 		if err != nil {
 			continue
 		}
 		switch {
-		case !parsed.Before(currentStart) && !parsed.After(end):
+		case bounds.InCurrent(parsed):
 			totals.Current += day.Count
-		case !parsed.Before(previousStart) && parsed.Before(currentStart):
+		case bounds.InPrevious(parsed):
 			totals.Previous += day.Count
 		}
 	}
 	return totals
+}
+
+// emptyNewCharacterTotals is a zero count over bounds' windows.
+func emptyNewCharacterTotals(bounds NewCharactersBounds) NewCharacterTotals {
+	return NewCharacterTotals{Days: bounds.Days, StartDay: bounds.CurrentStart.Format("2006-01-02")}
+}
+
+// worldNewCharacters indexes every world's new characters in the current and
+// previous window, by world name as the snapshot spells it, in one pass: the
+// world groups' window totals, or on snapshots from before the window was
+// recorded the per-world daily rows. A world without new characters is
+// missing.
+func worldNewCharacters(snapshot *contract.UIStatsSnapshot) map[string]NewCharacterTotals {
+	bounds := SnapshotNewCharactersBounds(snapshot)
+	index := make(map[string]NewCharacterTotals)
+	add := func(world string, current, previous int64) {
+		totals, ok := index[world]
+		if !ok {
+			totals = emptyNewCharacterTotals(bounds)
+		}
+		totals.Current += current
+		totals.Previous += previous
+		index[world] = totals
+	}
+	if snapshot.NewCharactersWindowDays > 0 {
+		for _, group := range snapshot.Groups {
+			if group.Scope == (contract.StatsScope{}) && group.Dimension == "world" {
+				add(group.Key, group.NewCharacters, group.NewCharactersPrevious)
+			}
+		}
+		return index
+	}
+	for _, day := range snapshot.NewCharacters {
+		if day.Scope.World == "" {
+			continue
+		}
+		parsed, err := time.Parse("2006-01-02", day.Day)
+		if err != nil {
+			continue
+		}
+		switch {
+		case bounds.InCurrent(parsed):
+			add(day.Scope.World, day.Count, 0)
+		case bounds.InPrevious(parsed):
+			add(day.Scope.World, 0, day.Count)
+		}
+	}
+	return index
+}
+
+// sumWorlds adds the indexed figures of the selected worlds to base (the
+// snapshot's empty totals).
+func sumWorlds(base NewCharacterTotals, index map[string]NewCharacterTotals, selected map[string]struct{}) NewCharacterTotals {
+	totals := base
+	for world := range selected {
+		totals.Current += index[world].Current
+		totals.Previous += index[world].Previous
+	}
+	return totals
+}
+
+// WeeklyCount is one week of a weekly new-character series: the UTC days
+// Start to End (YYYY-MM-DD, both inclusive) and the characters who earned
+// their first company chocobo in them.
+type WeeklyCount struct {
+	Start string
+	End   string
+	Count int64
+}
+
+// WorldNewCharactersWeekly is a world's weekly new-character series, oldest
+// week first (NewCharactersBounds.Weeks). A world without new characters
+// has a zero series; a snapshot from before the series (no recorded window)
+// has none.
+func WorldNewCharactersWeekly(snapshot *contract.UIStatsSnapshot, world string) []WeeklyCount {
+	if snapshot == nil || snapshot.NewCharactersWindowDays <= 0 {
+		return nil
+	}
+	world = CanonicalWorld(world)
+	var counts []int64
+	for _, group := range snapshot.Groups {
+		if group.Scope == (contract.StatsScope{}) && group.Dimension == "world" && group.Key == world {
+			counts = group.NewCharactersWeekly
+			break
+		}
+	}
+	bounds := SnapshotNewCharactersBounds(snapshot)
+	weeks := bounds.Weeks()
+	out := make([]WeeklyCount, weeks)
+	start := bounds.WeeksStart()
+	for i := range out {
+		weekStart := start.AddDate(0, 0, 7*i)
+		out[i] = WeeklyCount{Start: weekStart.Format("2006-01-02"), End: weekStart.AddDate(0, 0, 6).Format("2006-01-02")}
+		if i < len(counts) {
+			out[i].Count = counts[i]
+		}
+	}
+	return out
 }
 
 // worldSet resolves a stats scope to the set of world names whose series

@@ -19,10 +19,10 @@ const (
 	MetricVeterans RankingMetric = "veterans"
 	// MetricPrivacy is achievements private ÷ total.
 	MetricPrivacy RankingMetric = "privacy"
-	// MetricGrowth is new characters in the 30-day window (see
-	// NewCharactersWindow) per 1,000 residents.
+	// MetricGrowth is new characters in the new-characters window (see
+	// NewCharactersTotals) per 1,000 residents.
 	MetricGrowth RankingMetric = "growth"
-	// MetricGrowthCount is new characters in the 30-day window.
+	// MetricGrowthCount is new characters in the new-characters window.
 	MetricGrowthCount RankingMetric = "growth-count"
 	// MetricLeanMaelstrom, MetricLeanTwinAdder and MetricLeanImmortalFlames
 	// are one Grand Company's members over everyone (including no company).
@@ -52,9 +52,9 @@ func countOf(read func(LocationCounts) int64) rankingPart {
 	}
 }
 
-// newCharacters is a candidate's new characters in the 30-day window.
+// newCharacters is a candidate's new characters in the new-characters window.
 func newCharacters(snapshot *contract.UIStatsSnapshot, level LocationLevel, c LocationCounts) (int64, int64) {
-	return NewCharactersWindow(snapshot, ScopeAt(level, c.Key)).Current, c.Total
+	return NewCharactersTotals(snapshot, ScopeAt(level, c.Key)).Current, c.Total
 }
 
 // companyMembers reads one Grand Company's members out of the candidate's

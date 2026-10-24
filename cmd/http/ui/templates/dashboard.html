@@ -42,7 +42,7 @@
 
 <section class="stat-grid stat-grid-trio" aria-label="Key figures">
     <div class="stat-card">
-        <p class="stat-label">Active players, last 30 days</p>
+        <p class="stat-label">Active players, last {{$.ActivityWindow.Long}}</p>
         <p class="stat-value">{{formatNumber .Data.ActiveCharacters}}</p>
         <p class="stat-subtext">{{.Data.ActivePercent}} of the census</p>
         {{template "privacy-note" (privacyNoteFor .Data.PrivacyNote "they can’t count as active")}}
@@ -53,8 +53,8 @@
         <p class="stat-subtext">{{.Data.MaxLevelPercent}} of the census have a job at the level cap</p>
     </div>
     <div class="stat-card">
-        <p class="stat-label">New characters, last 30 days</p>
-        <p class="stat-value">{{formatNumber .Data.NewCharacters30d}}</p>
+        <p class="stat-label">New characters, last {{$.NewCharactersWindow.Long}}</p>
+        <p class="stat-value">{{formatNumber .Data.NewCharacters}}</p>
         {{template "trend" .Data.NewCharactersTrend}}
     </div>
 </section>
@@ -121,13 +121,13 @@
 <section class="panel" aria-labelledby="timeline-heading">
     <div class="panel-header">
         <h2 id="timeline-heading" class="panel-title">New characters per day</h2>
-        <p class="panel-meta">Last 30 days</p>
+        <p class="panel-meta">Last {{$.NewCharactersWindow.Long}}</p>
     </div>
     <div class="panel-body">
         <div class="chart-container">
-            <canvas id="newCharactersChart" role="img" aria-label="Line chart of new characters per day over the last 30 days" aria-describedby="timeline-summary"></canvas>
+            <canvas id="newCharactersChart" role="img" aria-label="Line chart of new characters per day over the last {{$.NewCharactersWindow.Long}}" aria-describedby="timeline-summary"></canvas>
         </div>
-        <p id="timeline-summary" class="chart-summary">{{formatNumber .Data.Timeline.Total}} new characters in the last 30 days{{if .Data.Timeline.PeakCount}}, peaking at {{formatNumber .Data.Timeline.PeakCount}} on {{.Data.Timeline.PeakDate}}{{end}}.</p>
+        <p id="timeline-summary" class="chart-summary">{{formatNumber .Data.Timeline.Total}} new characters in the last {{$.NewCharactersWindow.Long}}{{if .Data.Timeline.PeakCount}}, peaking at {{formatNumber .Data.Timeline.PeakCount}} on {{.Data.Timeline.PeakDate}}{{end}}.</p>
         <details class="chart-data">
             <summary>Show the numbers</summary>
             <div class="table-responsive">
@@ -160,7 +160,7 @@
                     <tr>
                         <th scope="col">Region</th>
                         <th scope="col" class="text-right">Characters</th>
-                        <th scope="col" class="text-right">Active, 30 days</th>
+                        <th scope="col" class="text-right">Active, {{$.ActivityWindow.Long}}</th>
                         <th scope="col" class="text-right">Active share</th>
                     </tr>
                 </thead>

@@ -20,6 +20,8 @@ type Service struct {
 	censusRuns     contract.CensusRunRepository
 	mu             sync.RWMutex
 	activityWindow time.Duration
+	// newCharactersWindow is how far back the new-character figures count.
+	newCharactersWindow time.Duration
 	// privateRecheckWindow is how long a private flag counts as verified.
 	privateRecheckWindow time.Duration
 	maxLevel             uint32
@@ -41,6 +43,7 @@ func NewService(
 		achievements:         achievements,
 		censusRuns:           censusRuns,
 		activityWindow:       defaultActivityWindow,
+		newCharactersWindow:  defaultNewCharactersWindow,
 		privateRecheckWindow: defaultPrivateRecheckWindow,
 		maxLevel:             100,
 		expansions:           DefaultExpansions,
@@ -224,7 +227,15 @@ func profileToJobs(char *contract.CharacterProfile) []contract.ClassJobRecord {
 	return jobs
 }
 
-const defaultActivityWindow = 30 * 24 * time.Hour
+// defaultActivityWindow is how far back a latest public achievement counts as
+// active. A full census pass takes months, so the window is wide.
+const defaultActivityWindow = 90 * 24 * time.Hour
+
+// defaultNewCharactersWindow is how far back the new-character figures
+// count (a first company chocobo earned), compared with the same length
+// before it. The census sees a new chocobo only when it revisits the
+// character, so the window is wide.
+const defaultNewCharactersWindow = DefaultNewCharactersWindowDays * 24 * time.Hour
 
 // defaultPrivateRecheckWindow is how long a character found private is left
 // alone before its achievement census runs again.
@@ -322,7 +333,7 @@ func (s *Service) PrepareMilestoneResults(ctx context.Context, charID uint32, su
 }
 
 // IsActive reports whether a latest-achievement timestamp falls within the
-// census activity window (default 30 days, overridable via SetActivityWindow).
+// census activity window (default 90 days, overridable via SetActivityWindow).
 func (s *Service) IsActive(latestAt time.Time) bool {
 	s.mu.RLock()
 	window := s.activityWindow
@@ -341,6 +352,24 @@ func (s *Service) SetActivityWindow(d time.Duration) {
 	}
 }
 
+// SetNewCharactersWindow overrides the new-characters window. Non-positive
+// durations are ignored, keeping the current window.
+func (s *Service) SetNewCharactersWindow(d time.Duration) {
+	if d > 0 {
+		s.mu.Lock()
+		s.newCharactersWindow = d
+		s.mu.Unlock()
+	}
+}
+
+// NewCharactersWindow returns how far back the new-character figures count.
+// The comparison window is the same length, just before it.
+func (s *Service) NewCharactersWindow() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.newCharactersWindow
+}
+
 // SetPrivateRecheckWindow overrides how long a character found private is left
 // alone before its achievement census runs again. Non-positive durations are
 // ignored, keeping the current window.
@@ -350,6 +379,14 @@ func (s *Service) SetPrivateRecheckWindow(d time.Duration) {
 		s.privateRecheckWindow = d
 		s.mu.Unlock()
 	}
+}
+
+// ActivityWindow returns how far back a latest public achievement counts as
+// active.
+func (s *Service) ActivityWindow() time.Duration {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.activityWindow
 }
 
 // ActivitySince returns the UTC instant marking the start of the activity
@@ -464,107 +501,6 @@ func (s *Service) CharacterDetail(ctx context.Context, id uint32) (*CharacterDet
 	}
 	detail := &CharacterDetail{Character: *rec, Jobs: jobs, Gear: gear, Milestones: milestones}
 	return detail, nil
-}
-
-// WorldDetailStats aggregates high-level census facts for a specific world.
-type WorldDetailStats struct {
-	World                 string
-	Datacenter            string
-	Region                string
-	TotalCharacters       int64
-	ActiveCharacters      int64
-	NewCharacters30d      int64
-	Races                 []contract.GroupCount
-	MSQCompletions        []contract.ExpansionCount
-	NewCharactersTimeline []contract.DailyCount
-}
-
-// WorldDetail returns full census stats for a specific world.
-func (s *Service) WorldDetail(ctx context.Context, worldName string) (*WorldDetailStats, error) {
-	filter := contract.CharacterFilter{World: worldName}
-	since := s.ActivitySince()
-	filterActive := contract.CharacterFilter{World: worldName, Since: &since}
-	now := time.Now().UTC()
-	since30d := now.Add(-30 * 24 * time.Hour)
-
-	var total, active, new30d int64
-	var races []contract.GroupCount
-	var msq []contract.ExpansionCount
-	var timeline []contract.DailyCount
-	var chars []contract.CharacterRecord
-	var totalErr, activeErr, new30dErr, racesErr, msqErr, timelineErr, listErr error
-
-	var wg sync.WaitGroup
-	wg.Add(7)
-	go func() {
-		defer wg.Done()
-		total, totalErr = s.characters.Count(ctx, filter)
-	}()
-	go func() {
-		defer wg.Done()
-		active, activeErr = s.characters.Count(ctx, filterActive)
-	}()
-	go func() {
-		defer wg.Done()
-		new30d, new30dErr = s.achievements.CountChocoboMilestones(ctx, since30d, filter)
-	}()
-	go func() {
-		defer wg.Done()
-		races, racesErr = s.characters.Breakdown(ctx, "race", since, filter)
-	}()
-	go func() {
-		defer wg.Done()
-		msq, msqErr = s.achievements.CountExpansionsFiltered(ctx, filter)
-	}()
-	go func() {
-		defer wg.Done()
-		timeline, timelineErr = s.achievements.NewCharactersPerDay(ctx, since30d, now, filter)
-	}()
-	go func() {
-		defer wg.Done()
-		chars, listErr = s.characters.List(ctx, filter, 1, 0)
-	}()
-	wg.Wait()
-
-	// Deterministic error precedence for the first six calls.
-	if totalErr != nil {
-		return nil, totalErr
-	}
-	if activeErr != nil {
-		return nil, activeErr
-	}
-	if new30dErr != nil {
-		return nil, new30dErr
-	}
-	if racesErr != nil {
-		return nil, racesErr
-	}
-	if msqErr != nil {
-		return nil, msqErr
-	}
-	if timelineErr != nil {
-		return nil, timelineErr
-	}
-
-	dc := ""
-	region := ""
-	// Metadata lookup is non-fatal.
-	if listErr == nil && len(chars) > 0 {
-		dc = chars[0].Datacenter
-		region = chars[0].Region
-	}
-
-	return &WorldDetailStats{
-		World:                 worldName,
-		Datacenter:            dc,
-		Region:                region,
-		TotalCharacters:       total,
-		ActiveCharacters:      active,
-		NewCharacters30d:      new30d,
-		Races:                 races,
-		MSQCompletions:        msq,
-		NewCharactersTimeline: timeline,
-	}, nil
 }
 
 // Breakdown groups non-deleted characters by by (race|world|datacenter|region)

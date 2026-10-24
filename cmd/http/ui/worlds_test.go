@@ -176,8 +176,8 @@ func TestWorldsHandler_NewCharactersCard(t *testing.T) {
 			days: []contract.DailyCount{
 				{Day: newCharactersDay(1), Count: 20},
 				{Day: newCharactersDay(5), Count: 10},
-				{Day: newCharactersDay(40), Count: 4},
-				{Day: newCharactersDay(50), Count: 6},
+				{Day: newCharactersDay(100), Count: 4},
+				{Day: newCharactersDay(120), Count: 6},
 			},
 			wantTrend: map[string]string{
 				"":                    "Up +20 (+200.0%)",
@@ -193,11 +193,11 @@ func TestWorldsHandler_NewCharactersCard(t *testing.T) {
 				{Day: newCharactersDay(3), Count: 12},
 			},
 			wantTrend: map[string]string{
-				"":                    "Up +12 on the previous 30 days",
-				"?dc=Chaos":           fmt.Sprintf("Up +%s on the previous 30 days", formatNumber(int64(12*chaosCount))),
-				"?region=EU&dc=Chaos": fmt.Sprintf("Up +%s on the previous 30 days", formatNumber(int64(12*chaosCount))),
-				"?region=EU":          fmt.Sprintf("Up +%s on the previous 30 days", formatNumber(int64(12*euCount))),
-				"?region=eu":          fmt.Sprintf("Up +%s on the previous 30 days", formatNumber(int64(12*euCount))),
+				"":                    "Up +12 on the previous 90 days",
+				"?dc=Chaos":           fmt.Sprintf("Up +%s on the previous 90 days", formatNumber(int64(12*chaosCount))),
+				"?region=EU&dc=Chaos": fmt.Sprintf("Up +%s on the previous 90 days", formatNumber(int64(12*chaosCount))),
+				"?region=EU":          fmt.Sprintf("Up +%s on the previous 90 days", formatNumber(int64(12*euCount))),
+				"?region=eu":          fmt.Sprintf("Up +%s on the previous 90 days", formatNumber(int64(12*euCount))),
 			},
 		},
 		{
@@ -217,6 +217,7 @@ func TestWorldsHandler_NewCharactersCard(t *testing.T) {
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			rig := newTestRig(t)
+			rig.stats.everyWorld = true // the overridden series reaches every world
 			rig.ach.NewCharactersResponse = scenario.days
 			seedWorldsCharacters(t, rig)
 
@@ -232,7 +233,7 @@ func TestWorldsHandler_NewCharactersCard(t *testing.T) {
 				if !strings.Contains(body, want) {
 					t.Errorf("%s: expected card subtext %q in body:\n%s", query, want, body)
 				}
-				if scenario.denyTrend && strings.Contains(body, "on the previous 30 days") {
+				if scenario.denyTrend && strings.Contains(body, "on the previous 90 days") {
 					t.Errorf("%s: expected no trend subtext, got:\n%s", query, body)
 				}
 			}
@@ -256,8 +257,8 @@ func TestWorldsWorldRankings_NewColumn(t *testing.T) {
 	}
 
 	body := rec.Body.String()
-	if !strings.Contains(body, `>New, 30 days</th>`) {
-		t.Errorf("expected New, 30 days table header in body:\n%s", body)
+	if !strings.Contains(body, `>New, 90 days</th>`) {
+		t.Errorf("expected New, 90 days table header in body:\n%s", body)
 	}
 
 	row := rankingsRowFor(body, "Cerberus")
@@ -265,6 +266,6 @@ func TestWorldsWorldRankings_NewColumn(t *testing.T) {
 		t.Fatal("expected a rankings row for Cerberus")
 	}
 	if !strings.Contains(row, "77,000</td>") {
-		t.Errorf("expected Cerberus row 'New (30d)' cell '77,000', got row:\n%s", row)
+		t.Errorf("expected Cerberus row 'New, 90 days' cell '77,000', got row:\n%s", row)
 	}
 }

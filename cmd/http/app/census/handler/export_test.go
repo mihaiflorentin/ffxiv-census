@@ -62,6 +62,40 @@ func TestCensusController_Export_CSV(t *testing.T) {
 	}
 }
 
+func TestCensusController_Export_ActiveFlagUsesActivityWindow(t *testing.T) {
+	now := time.Now().UTC()
+	sixtyDaysAgo := now.Add(-60 * 24 * time.Hour)
+	tests := []struct {
+		name       string
+		windowDays int
+		wantActive bool
+	}{
+		{name: "default 90-day window", windowDays: 0, wantActive: true},
+		{name: "configured 30-day window", windowDays: 30, wantActive: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rig := newRig(t)
+			if tt.windowDays > 0 {
+				rig.svc.SetActivityWindow(time.Duration(tt.windowDays) * 24 * time.Hour)
+			}
+			_ = rig.chars.Upsert(t.Context(), contract.CharacterRecord{
+				ID: 1, Name: "Tataru Taru", World: "Ultros", FirstSeenAt: now,
+				LatestAchievementAt: &sixtyDaysAgo,
+			}, nil)
+
+			rec := doGET(t, rig.c.Export, "/api/v1/census/export?format=json")
+			var items []response.CharacterListItem
+			if err := json.Unmarshal(rec.Body.Bytes(), &items); err != nil {
+				t.Fatalf("json Unmarshal: %v (body: %s)", err, rec.Body.String())
+			}
+			if len(items) != 1 || items[0].IsActive != tt.wantActive {
+				t.Fatalf("items = %+v, want one item with IsActive %v", items, tt.wantActive)
+			}
+		})
+	}
+}
+
 func TestCensusController_Export_JSON(t *testing.T) {
 	rig := newRig(t)
 	now := time.Now().UTC().Truncate(time.Second)

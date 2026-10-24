@@ -44,7 +44,7 @@ func GrandCompanies() []GrandCompany {
 type GrandCompanyShare struct {
 	Name string
 	Slug string
-	// Total and Active count the company's members (active: last 30 days).
+	// Total and Active count the company's members (active: inside the activity window).
 	Total, Active int64
 	// Share is Total over the selection's total.
 	Share float64

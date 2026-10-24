@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"sort"
@@ -14,7 +15,7 @@ import (
 type WorldsViewData struct {
 	TotalCharacters    int64
 	ActiveCharacters   int64
-	NewCharacters30d   int64
+	NewCharacters      int64
 	NewCharactersTrend Trend
 	SelectedRegion     string
 	SelectedDC         string
@@ -37,13 +38,13 @@ const (
 
 // WorldDetailRow represents one row in the global worlds table.
 type WorldDetailRow struct {
-	World            string
-	Datacenter       string
-	Region           string
-	Total            int64
-	Active           int64
-	ActiveRatio      string
-	NewCharacters30d int64
+	World         string
+	Datacenter    string
+	Region        string
+	Total         int64
+	Active        int64
+	ActiveRatio   string
+	NewCharacters int64
 }
 
 // Worlds handles GET /ui/worlds.
@@ -73,13 +74,13 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 		dcSet[wDC] = true
 
 		allWorlds = append(allWorlds, WorldDetailRow{
-			World:            wName,
-			Datacenter:       wDC,
-			Region:           wReg,
-			Total:            row.Total,
-			Active:           row.Active,
-			ActiveRatio:      formatPercent(row.Active, row.Total),
-			NewCharacters30d: census.NewCharactersWindow(snapshot, contract.StatsScope{World: wName}).Current,
+			World:         wName,
+			Datacenter:    wDC,
+			Region:        wReg,
+			Total:         row.Total,
+			Active:        row.Active,
+			ActiveRatio:   formatPercent(row.Active, row.Total),
+			NewCharacters: c.memo.WorldNewCharacters(snapshot, wName).Current,
 		})
 	}
 
@@ -128,13 +129,13 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 		sort.Strings(dcList)
 	}
 
-	newWindow := census.NewCharactersWindow(snapshot, contract.StatsScope{Region: selectedRegion, Datacenter: selectedDC})
+	newWindow := census.NewCharactersTotals(snapshot, contract.StatsScope{Region: selectedRegion, Datacenter: selectedDC})
 
-	data := statsPageData("Worlds Census", "worlds", "/ui/worlds", "Final Fantasy XIV world rankings: total and active character counts for every world and datacenter, with region filters and 30-day activity ratios.", state, WorldsViewData{
+	data := statsPageData("Worlds Census", "worlds", "/ui/worlds", fmt.Sprintf("Final Fantasy XIV world rankings: total characters and players active in the last %s for every world and datacenter, with region filters.", Window{Days: state.ActivityWindowDays}.Long()), state, WorldsViewData{
 		TotalCharacters:    totalChars,
 		ActiveCharacters:   activeChars,
-		NewCharacters30d:   newWindow.Current,
-		NewCharactersTrend: newTrend(newWindow.Current, newWindow.Previous),
+		NewCharacters:      newWindow.Current,
+		NewCharactersTrend: newTrend(newWindow),
 		Scope:              placeScope(selectedRegion, selectedDC, ""),
 		SelectedRegion:     selectedRegion,
 		SelectedDC:         selectedDC,

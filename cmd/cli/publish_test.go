@@ -559,6 +559,40 @@ func TestPublishFillGapsIDSweep_WrapsAtMaxID(t *testing.T) {
 	}
 }
 
+func TestPublishFillGapsIDSweep_WrapsWhenNoGapsRemainAfterCursor(t *testing.T) {
+	repo := seedGapCharacters(t)
+	q := &errorQueue{}
+	var logs bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logs, nil))
+
+	// Cursor 14 sits past the last gap ([9,14]) but below MaxID (15): no gaps
+	// remain after it, so the run wraps to 0 and publishes the lowest gaps.
+	if err := repo.AdvanceFillGapsCursor(context.Background(), 0, 14); err != nil {
+		t.Fatal(err)
+	}
+	if err := publishFillGapsIDSweep(context.Background(), repo, q, logger, 2, 2, "auto", 0); err != nil {
+		t.Fatalf("publishFillGapsIDSweep: %v", err)
+	}
+
+	got := decodeIDSweepRanges(t, q.jobs)
+	want := [][2]uint32{{1, 2}, {5, 6}}
+	if len(got) != len(want) {
+		t.Fatalf("jobs = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("job[%d] = %v, want %v", i, got[i], want[i])
+		}
+	}
+	cursor, _ := repo.FillGapsCursor(context.Background())
+	if cursor != 6 {
+		t.Fatalf("cursor = %d, want 6 (end of last published job after wrap)", cursor)
+	}
+	if !strings.Contains(logs.String(), "wrapped=true") {
+		t.Errorf("log does not record the wrap: %s", logs.String())
+	}
+}
+
 func TestPublishFillGapsIDSweep_ManualMinID_DoesNotTouchCursor(t *testing.T) {
 	repo := seedGapCharacters(t)
 	q := &errorQueue{}
@@ -618,6 +652,49 @@ func TestPublishFillGapsIDSweep_NoGaps(t *testing.T) {
 	cursor, _ := repo.FillGapsCursor(context.Background())
 	if cursor != 0 {
 		t.Fatalf("cursor = %d, want 0 (nothing to publish)", cursor)
+	}
+}
+
+func TestPublishFillGapsIDSweep_ManualMinIDPastLastGap_DoesNotWrap(t *testing.T) {
+	repo := seedGapCharacters(t)
+	q := &errorQueue{}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	if err := publishFillGapsIDSweep(context.Background(), repo, q, logger, 10, 2, "auto", 14); err != nil {
+		t.Fatalf("publishFillGapsIDSweep: %v", err)
+	}
+	if len(q.jobs) != 0 {
+		t.Fatalf("jobs = %v, want none (manual mode never wraps)", decodeIDSweepRanges(t, q.jobs))
+	}
+	cursor, _ := repo.FillGapsCursor(context.Background())
+	if cursor != 0 {
+		t.Fatalf("cursor = %d, want 0 (manual mode must not touch it)", cursor)
+	}
+}
+
+func TestPublishFillGapsIDSweep_NoGapsWithCursorAboveZero_WrapsAndPublishesNothing(t *testing.T) {
+	repo := mockrepo.NewCharacterFake()
+	now := time.Now().UTC()
+	for _, id := range []uint32{1, 2, 3} {
+		if err := repo.Upsert(context.Background(), contract.CharacterRecord{ID: id, Name: "C", World: "W", Race: "Hyur", FirstSeenAt: now}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repo.AdvanceFillGapsCursor(context.Background(), 0, 2); err != nil {
+		t.Fatal(err)
+	}
+	q := &errorQueue{}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	if err := publishFillGapsIDSweep(context.Background(), repo, q, logger, 5, 2, "auto", 0); err != nil {
+		t.Fatalf("publishFillGapsIDSweep: %v", err)
+	}
+	if len(q.jobs) != 0 {
+		t.Fatalf("jobs = %v, want none", decodeIDSweepRanges(t, q.jobs))
+	}
+	cursor, _ := repo.FillGapsCursor(context.Background())
+	if cursor != 0 {
+		t.Fatalf("cursor = %d, want 0 (wrapped, nothing to publish)", cursor)
 	}
 }
 

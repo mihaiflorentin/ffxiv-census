@@ -103,6 +103,31 @@ func TestUIStatsServiceCachesAndDefensivelyCopies(t *testing.T) {
 	}
 }
 
+func TestUIStatsServiceStateCarriesSnapshotActivityWindow(t *testing.T) {
+	snapshot := validUIStatsSnapshot()
+	snapshot.ActivitySince = snapshot.GeneratedAt.Add(-45 * 24 * time.Hour)
+	svc := NewUIStatsService(&statsRepoStub{snapshot: snapshot}, time.Minute, 12*time.Hour)
+
+	_, state, err := svc.Current(context.Background())
+	if err != nil || state.ActivityWindowDays != 45 {
+		t.Fatalf("Current() state = %#v, err %v; want ActivityWindowDays 45", state, err)
+	}
+	if cached, ok := svc.Cached(); !ok || cached.ActivityWindowDays != 45 {
+		t.Fatalf("Cached() = %#v, %v; want ActivityWindowDays 45", cached, ok)
+	}
+}
+
+func TestUIStatsServiceStateCarriesSnapshotNewCharactersWindow(t *testing.T) {
+	snapshot := validUIStatsSnapshot()
+	snapshot.NewCharactersWindowDays = 60
+	svc := NewUIStatsService(&statsRepoStub{snapshot: snapshot}, time.Minute, 12*time.Hour)
+
+	_, state, err := svc.Current(context.Background())
+	if err != nil || state.NewCharactersWindowDays != 60 {
+		t.Fatalf("Current() state = %#v, err %v; want NewCharactersWindowDays 60", state, err)
+	}
+}
+
 func TestUIStatsServiceSingleflightsExpiredReload(t *testing.T) {
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	repo := &statsRepoStub{snapshot: validUIStatsSnapshot()}

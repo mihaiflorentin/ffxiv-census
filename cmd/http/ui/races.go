@@ -31,7 +31,7 @@ type RacesViewData struct {
 	TotalCharacters    int64
 	ActiveCharacters   int64
 	ActivePercent      string
-	NewCharacters30d   int64
+	NewCharacters      int64
 	NewCharactersTrend Trend
 	SelectedRegion     string
 	SelectedDC         string
@@ -67,11 +67,11 @@ func (c *UIController) Races(w http.ResponseWriter, r *http.Request) {
 	scope := place.scope()
 	scopeText := placeScope(selectedRegion, selectedDC, selectedWorld)
 
-	newWindow := census.NewCharactersWindow(snapshot, scope)
+	newWindow := census.NewCharactersTotals(snapshot, scope)
 
 	data := RacesViewData{
-		NewCharacters30d:   newWindow.Current,
-		NewCharactersTrend: newTrend(newWindow.Current, newWindow.Previous),
+		NewCharacters:      newWindow.Current,
+		NewCharactersTrend: newTrend(newWindow),
 		SelectedRegion:     selectedRegion,
 		SelectedDC:         selectedDC,
 		SelectedWorld:      selectedWorld,

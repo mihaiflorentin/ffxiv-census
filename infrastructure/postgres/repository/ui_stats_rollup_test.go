@@ -128,13 +128,15 @@ func TestUIStatsRefreshToleratesCharactersWithoutLocation(t *testing.T) {
 	}
 }
 
-// v2Equivalent is snapshot without the parts schema 3 added: the job
-// section, the Grand Company groups, and the location counts (at cap,
-// private, unchecked, in a Free Company) on groups and the summary.
+// v2Equivalent is snapshot without the parts schemas 3 and 4 added: the job
+// section, the Grand Company groups, the location counts (at cap, private,
+// unchecked, in a Free Company) on groups and the summary, and the
+// new-characters window with its per-world totals and weekly series.
 func v2Equivalent(snapshot *contract.UIStatsSnapshot) *contract.UIStatsSnapshot {
 	v2 := *snapshot
 	v2.SchemaVersion = 2
 	v2.Jobs = nil
+	v2.NewCharactersWindowDays = 0
 	v2.PrivacyBuiltAt, v2.FreeCompaniesBuiltAt = time.Time{}, time.Time{}
 	v2.Summary.Private, v2.Summary.Unchecked, v2.Summary.InFreeCompany = 0, 0, 0
 	v2.Groups = nil
@@ -143,6 +145,7 @@ func v2Equivalent(snapshot *contract.UIStatsSnapshot) *contract.UIStatsSnapshot 
 			continue
 		}
 		g.MaxLevel, g.Private, g.Unchecked, g.InFreeCompany = 0, 0, 0, 0
+		g.NewCharacters, g.NewCharactersPrevious, g.NewCharactersWeekly = 0, 0, nil
 		v2.Groups = append(v2.Groups, g)
 	}
 	return &v2

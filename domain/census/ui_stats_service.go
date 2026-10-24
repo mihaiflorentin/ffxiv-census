@@ -13,6 +13,11 @@ type UIStatsState struct {
 	GeneratedAt time.Time
 	Age         time.Duration
 	Stale       bool
+	// ActivityWindowDays is the activity window the snapshot was built with.
+	ActivityWindowDays int
+	// NewCharactersWindowDays is the new-characters window the snapshot was
+	// built with (see SnapshotNewCharactersWindowDays).
+	NewCharactersWindowDays int
 }
 
 const uiStatsReloadTimeout = 30 * time.Second
@@ -237,6 +242,9 @@ func (s *UIStatsService) state(snapshot *contract.UIStatsSnapshot, now time.Time
 		GeneratedAt: snapshot.GeneratedAt,
 		Age:         age,
 		Stale:       reloadFailed || age >= s.staleWarning,
+
+		ActivityWindowDays:      SnapshotActivityWindowDays(snapshot),
+		NewCharactersWindowDays: SnapshotNewCharactersWindowDays(snapshot),
 	}
 }
 

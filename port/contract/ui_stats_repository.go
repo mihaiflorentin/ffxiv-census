@@ -9,8 +9,12 @@ import (
 // UIStatsMinSchemaVersion is the oldest stored schema readers still accept:
 // a v2 snapshot keeps the existing pages working until the next refresh,
 // while the sections added in v3 report as missing (census.SnapshotHasSection).
+// Schema 4 records the new-characters window: the daily series covers two
+// windows at whole-game scope only, and the world groups carry their window
+// totals. Readers treat a snapshot without a window as the fixed 30-day
+// window of schema 3 and earlier (census.SnapshotNewCharactersWindowDays).
 const (
-	UIStatsSchemaVersion    = 3
+	UIStatsSchemaVersion    = 4
 	UIStatsMinSchemaVersion = 2
 )
 
@@ -49,6 +53,16 @@ type ScopedGroupCount struct {
 	Private       int64 `json:"private,omitempty"`
 	Unchecked     int64 `json:"unchecked,omitempty"`
 	InFreeCompany int64 `json:"in_free_company,omitempty"`
+	// NewCharacters and NewCharactersPrevious are set on the global-scope
+	// world groups only (schema 4): characters who earned their first company
+	// chocobo in the current and the previous new-characters window.
+	NewCharacters         int64 `json:"new_characters,omitempty"`
+	NewCharactersPrevious int64 `json:"new_characters_previous,omitempty"`
+	// NewCharactersWeekly is the world's new characters per 7-day week,
+	// oldest first, the weeks ending with the last complete UTC day and
+	// covering the current window (census.NewCharactersBounds.Weeks). Set on
+	// the global-scope world groups only (schema 4).
+	NewCharactersWeekly []int64 `json:"new_characters_weekly,omitempty"`
 }
 
 type ScopedExpansionCount struct {
@@ -74,8 +88,14 @@ type UIStatsSnapshot struct {
 	RefreshDuration  time.Duration          `json:"refresh_duration"`
 	Groups           []ScopedGroupCount     `json:"groups"`
 	Expansions       []ScopedExpansionCount `json:"expansions"`
-	NewCharacters    []ScopedDailyCount     `json:"new_characters"`
-	Summary          StatsSummary           `json:"summary"`
+	// NewCharacters is the daily new-character series. From schema 4 it
+	// covers two new-characters windows (current and previous) at whole-game
+	// scope only; older snapshots also carry per-world rows.
+	NewCharacters []ScopedDailyCount `json:"new_characters"`
+	// NewCharactersWindowDays is the new-characters window the snapshot was
+	// built with (schema 4); 0 on older snapshots.
+	NewCharactersWindowDays int          `json:"new_characters_window_days,omitempty"`
+	Summary                 StatsSummary `json:"summary"`
 	// Jobs is the job section (schema 3); nil on snapshots built before it.
 	Jobs *StatsJobsSection `json:"jobs,omitempty"`
 	// PrivacyBuiltAt is when the full rebuild that produced the private and
@@ -103,8 +123,11 @@ const (
 
 type UIStatsRefreshOptions struct {
 	ActivitySince time.Time
-	MaxLevel      uint32
-	Timeout       time.Duration
+	// NewCharactersWindowDays is the new-characters window, required (the
+	// census service holds the default).
+	NewCharactersWindowDays int
+	MaxLevel                uint32
+	Timeout                 time.Duration
 	// Mode defaults to UIStatsRefreshFull. An incremental request falls back
 	// to a full rebuild when there is no usable previous snapshot or the
 	// incremental result fails validation.

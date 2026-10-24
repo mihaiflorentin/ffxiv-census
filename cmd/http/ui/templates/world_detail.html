@@ -8,7 +8,7 @@
         </ol>
     </nav>
     <h1 class="page-title">{{.Data.World}}</h1>
-    <p class="page-desc">How many characters live on {{.Data.World}}, how many played in the last 30 days, which races they chose and how far they have taken the main scenario.</p>
+    <p class="page-desc">How many characters live on {{.Data.World}}, how many played in the last {{$.ActivityWindow.Long}}, how many are new in the last {{$.NewCharactersWindow.Long}}, which races they chose and how far they have taken the main scenario.</p>
 </header>
 
 <section class="stat-grid stat-grid-trio" aria-label="Key figures">
@@ -18,13 +18,13 @@
         <p class="stat-subtext">In the census on {{.Data.World}}</p>
     </div>
     <div class="stat-card">
-        <p class="stat-label">Active players, last 30 days</p>
+        <p class="stat-label">Active players, last {{$.ActivityWindow.Long}}</p>
         <p class="stat-value">{{formatNumber .Data.ActiveCharacters}}</p>
         <p class="stat-subtext">{{.Data.ActiveRatio}} of these characters</p>
     </div>
     <div class="stat-card">
-        <p class="stat-label">New characters, last 30 days</p>
-        <p class="stat-value">{{formatNumber .Data.NewCharacters30d}}</p>
+        <p class="stat-label">New characters, last {{$.NewCharactersWindow.Long}}</p>
+        <p class="stat-value">{{formatNumber .Data.NewCharacters}}</p>
         {{template "trend" .Data.NewCharactersTrend}}
     </div>
 </section>
@@ -116,7 +116,7 @@
                 <div class="table-scroll" role="region" aria-label="Characters by race on {{.Data.World}}" tabindex="0">
                     <table class="data-table">
                         <caption class="visually-hidden">Characters by race on {{.Data.World}}</caption>
-                        <thead><tr><th scope="col">Race</th><th scope="col" class="text-right">Characters</th><th scope="col" class="text-right">Share</th><th scope="col" class="text-right">Active, 30 days</th></tr></thead>
+                        <thead><tr><th scope="col">Race</th><th scope="col" class="text-right">Characters</th><th scope="col" class="text-right">Share</th><th scope="col" class="text-right">Active, {{$.ActivityWindow.Long}}</th></tr></thead>
                         <tbody>
                             {{range .Data.Races}}
                             <tr><th scope="row">{{.Race}}</th><td class="text-right">{{formatNumber .Total}}</td><td class="text-right">{{.ShareOfTotal}}</td><td class="text-right">{{formatNumber .Active}}</td></tr>
@@ -157,26 +157,27 @@
     </section>
 </div>
 
-<section class="panel" aria-labelledby="timeline-heading">
+{{if .Data.Weekly.Counts}}
+<section class="panel" aria-labelledby="weekly-heading">
     <div class="panel-header">
-        <h2 id="timeline-heading" class="panel-title">New characters per day</h2>
-        <p class="panel-meta">Last 30 days on {{.Data.World}}</p>
+        <h2 id="weekly-heading" class="panel-title">New characters per week</h2>
+        <p class="panel-meta">Last {{.Data.Weekly.Weeks}} weeks on {{.Data.World}}</p>
     </div>
     <div class="panel-body">
         <div class="chart-container">
-            <canvas id="newCharactersChart" role="img" aria-label="Line chart of new characters per day on {{.Data.World}} over the last 30 days" aria-describedby="timeline-summary"></canvas>
+            <canvas id="weeklyNewCharactersChart" role="img" aria-label="Bar chart of new characters per week on {{.Data.World}} over the last {{.Data.Weekly.Weeks}} weeks" aria-describedby="weekly-summary"></canvas>
         </div>
-        <p id="timeline-summary" class="chart-summary">{{formatNumber .Data.Timeline.Total}} new characters on {{.Data.World}} in the last 30 days{{if .Data.Timeline.PeakCount}}, peaking at {{formatNumber .Data.Timeline.PeakCount}} on {{.Data.Timeline.PeakDate}}{{end}}.</p>
+        <p id="weekly-summary" class="chart-summary">{{formatNumber .Data.Weekly.Total}} new characters on {{.Data.World}} in the last {{.Data.Weekly.Weeks}} weeks{{if .Data.Weekly.PeakCount}}, peaking at {{formatNumber .Data.Weekly.PeakCount}} in the week of {{.Data.Weekly.PeakLabel}}{{end}}.</p>
         <details class="chart-data">
             <summary>Show the numbers</summary>
-            <div class="table-scroll" role="region" aria-label="New characters per day on {{.Data.World}}" tabindex="0">
+            <div class="table-scroll" role="region" aria-label="New characters per week on {{.Data.World}}" tabindex="0">
                 <table class="data-table">
-                    <caption class="visually-hidden">New characters per day on {{.Data.World}}</caption>
-                    <thead><tr><th scope="col">Date</th><th scope="col" class="text-right">New characters</th></tr></thead>
+                    <caption class="visually-hidden">New characters per week on {{.Data.World}}</caption>
+                    <thead><tr><th scope="col">Week</th><th scope="col" class="text-right">New characters</th></tr></thead>
                     <tbody>
-                        {{$counts := .Data.Timeline.Counts}}{{$labels := .Data.Timeline.Labels}}
-                        {{range $i, $day := .Data.Timeline.Dates}}
-                        <tr><th scope="row"><time datetime="{{$day}}">{{index $labels $i}}</time></th><td class="text-right">{{formatNumber (index $counts $i)}}</td></tr>
+                        {{$counts := .Data.Weekly.Counts}}{{$ranges := .Data.Weekly.Ranges}}
+                        {{range $i, $start := .Data.Weekly.Starts}}
+                        <tr><th scope="row"><time datetime="{{$start}}">{{index $ranges $i}}</time></th><td class="text-right">{{formatNumber (index $counts $i)}}</td></tr>
                         {{end}}
                     </tbody>
                 </table>
@@ -184,6 +185,7 @@
         </details>
     </div>
 </section>
+{{end}}
 
 <script>
 document.addEventListener("DOMContentLoaded", function () {
@@ -220,32 +222,35 @@ document.addEventListener("DOMContentLoaded", function () {
         });
     }
 
-    var lineCanvas = document.getElementById("newCharactersChart");
-    if (lineCanvas) {
-        var dates = {{jsonSafe .Data.Timeline.Dates}};
-        var primary = theme.primary();
-        new Chart(lineCanvas, {
-            type: "line",
+    var weeklyCanvas = document.getElementById("weeklyNewCharactersChart");
+    if (weeklyCanvas) {
+        var weekStarts = {{jsonSafe .Data.Weekly.Starts}};
+        var weekEnds = {{jsonSafe .Data.Weekly.Ends}};
+        var weeklyColour = theme.primary();
+        new Chart(weeklyCanvas, {
+            type: "bar",
             data: {
-                labels: {{jsonSafe .Data.Timeline.Labels}},
+                labels: {{jsonSafe .Data.Weekly.Labels}},
                 datasets: [{
                     label: "New characters",
-                    data: {{jsonSafe .Data.Timeline.Counts}},
-                    borderColor: primary,
-                    backgroundColor: theme.wash(primary),
-                    pointBackgroundColor: primary,
-                    pointBorderColor: theme.surface(),
-                    fill: true
+                    data: {{jsonSafe .Data.Weekly.Counts}},
+                    backgroundColor: weeklyColour,
+                    hoverBackgroundColor: weeklyColour,
+                    borderRadius: 3,
+                    maxBarThickness: 40
                 }]
             },
             options: {
                 interaction: { mode: "index", intersect: false },
                 plugins: {
                     legend: { display: false },
-                    censusCrosshair: { enabled: true },
                     tooltip: {
                         callbacks: {
-                            title: function (items) { return items.length ? theme.formatDate(dates[items[0].dataIndex]) : ""; },
+                            title: function (items) {
+                                if (!items.length) { return ""; }
+                                var i = items[0].dataIndex;
+                                return "Week of " + theme.formatDate(weekStarts[i]) + " to " + theme.formatDate(weekEnds[i]);
+                            },
                             label: function (ctx) { return theme.format(ctx.parsed.y) + " new characters"; }
                         }
                     }

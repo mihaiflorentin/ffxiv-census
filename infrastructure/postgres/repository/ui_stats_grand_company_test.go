@@ -64,8 +64,8 @@ func TestUIStatsFullRefreshGrandCompanyGroups(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Snapshot.SchemaVersion != 3 || loaded.SchemaVersion != 3 {
-		t.Fatalf("schema version refreshed=%d loaded=%d, want 3", result.Snapshot.SchemaVersion, loaded.SchemaVersion)
+	if result.Snapshot.SchemaVersion != contract.UIStatsSchemaVersion || loaded.SchemaVersion != contract.UIStatsSchemaVersion {
+		t.Fatalf("schema version refreshed=%d loaded=%d, want %d", result.Snapshot.SchemaVersion, loaded.SchemaVersion, contract.UIStatsSchemaVersion)
 	}
 
 	assertCounts(t, "global grand companies", groupCounts(loaded, "grand_company", contract.StatsScope{}), map[string][2]int64{
@@ -147,8 +147,8 @@ func TestUIStatsIncrementalAfterV2SnapshotRebuildsFully(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Mode != contract.UIStatsRefreshFull || r.Snapshot.SchemaVersion != 3 {
-		t.Fatalf("mode=%q schema=%d, want a full v3 rebuild", r.Mode, r.Snapshot.SchemaVersion)
+	if r.Mode != contract.UIStatsRefreshFull || r.Snapshot.SchemaVersion != contract.UIStatsSchemaVersion {
+		t.Fatalf("mode=%q schema=%d, want a full rebuild at the current schema", r.Mode, r.Snapshot.SchemaVersion)
 	}
 	assertCounts(t, "global grand companies", groupCounts(r.Snapshot, "grand_company", contract.StatsScope{}), map[string][2]int64{
 		"Maelstrom": {1, 0},

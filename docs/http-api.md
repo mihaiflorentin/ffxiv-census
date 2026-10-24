@@ -44,12 +44,25 @@ Times are RFC 3339 UTC (Go `time.Time` marshaling). The exception is `NewCharact
 
 ```toml
 [census]
-activity_window_days = 30
+activity_window_days = 90
 ```
 
 Environment override uses the same rule as `[postgres]` (dots become underscores, section name is the prefix): `CENSUS_ACTIVITY_WINDOW_DAYS=45`.
 
-The window drives `active_characters`/`active_ratio` on `GET /api/v1/census/latest` and the `active` count on `GET /api/v1/stats/breakdown`.
+The default is 90 days because a full census pass takes months: a character's latest achievement is only as recent as the census's last visit, so a short window undercounts active players.
+
+The window drives `active_characters`/`active_ratio` on `GET /api/v1/census/latest` (which also reports it as `activity_window_days`, the window the snapshot was built with), the `active` count on `GET /api/v1/stats/breakdown`, the `is_active` flag on `GET /api/v1/census/characters` and `GET /api/v1/census/characters/{id}`, and the `is_active` column of `GET /api/v1/census/export` and the `export` CLI command. A changed window applies to the snapshot figures from the next refresh.
+
+### New-characters window
+
+A new character is one that earned the Chocobo milestone (achievement 590). The new-character figures count the new-characters window, compared with the window of the same length just before it:
+
+```toml
+[census]
+new_characters_window_days = 90
+```
+
+Environment override: `CENSUS_NEW_CHARACTERS_WINDOW_DAYS=60`. Both windows are whole UTC days and end with the last complete day before the snapshot's generation day. The default is 90 days for the same reason as the activity window: the census sees a new chocobo only when it next visits the character, so recent days are undercounted. The window drives `GET /api/v1/stats/new-characters` (its default range, and the oldest day it serves) and every new-character figure in the UI. A changed window applies from the next refresh: an incremental refresh on a snapshot built with another window rebuilds in full.
 
 ### Aggregate snapshot
 
@@ -65,7 +78,7 @@ The window drives `active_characters`/`active_ratio` on `GET /api/v1/census/late
 | GET | `/api/v1/census/characters/{id}` | `id` (path, uint32 Lodestone character id) | `CharacterDetail` | 400 (invalid id), 404 (not found), 500 |
 | GET | `/api/v1/census/export` | Streaming data export (CSV/JSON/NDJSON, optional Gzip) | query: `format`, `gzip`, `world`, `datacenter`, `region`, `race`, `name` | |
 | GET | `/api/v1/stats/breakdown` | `by` (required, `race`\|`world`\|`datacenter`\|`region`) | `[BreakdownGroup]` | 400 (missing/unknown `by`), 500, 503 |
-| GET | `/api/v1/stats/new-characters` | `since` (required, `YYYY-MM-DD`), `until` (optional, `YYYY-MM-DD`, default now) | `[NewCharactersDay]` | 400 (invalid or outside snapshot window), 500, 503 |
+| GET | `/api/v1/stats/new-characters` | `since` (optional, `YYYY-MM-DD`, default the start of the new-characters window), `until` (optional, `YYYY-MM-DD`, default the snapshot day) | `[NewCharactersDay]` | 400 (invalid or outside the snapshot's two windows), 500, 503 |
 | GET | `/api/v1/stats/expansion` | `name` (optional, exact match) | `[ExpansionStat]` | 500, 503 |
 | GET | `/sitemap.xml` | — | Sitemap-protocol XML document (`application/xml`) | — (degrades to static URLs, never 503) |
 
@@ -79,14 +92,15 @@ Liveness probe.
 
 ### GET /api/v1/census/latest
 
-Total, active, and max-level character counts plus the active ratio (`active / total`; `0` when `total` is `0`).
+Total, active, and max-level character counts plus the active ratio (`active / total`; `0` when `total` is `0`). `activity_window_days` is the [activity window](#activity-window) behind `active_characters`, in days, as the snapshot was built.
 
 ```json
 {
   "total_characters": 1234,
   "active_characters": 900,
   "active_ratio": 0.7293,
-  "max_level_characters": 450
+  "max_level_characters": 450,
+  "activity_window_days": 90
 }
 ```
 
@@ -171,9 +185,9 @@ Population per group, sorted by `total` descending. `by` is required; a missing 
 
 `active` counts characters whose `latest_achievement_at` is within the activity window (see [Activity window](#activity-window)).
 
-### GET /api/v1/stats/new-characters?since=YYYY-MM-DD[&until=YYYY-MM-DD]
+### GET /api/v1/stats/new-characters[?since=YYYY-MM-DD&until=YYYY-MM-DD]
 
-Characters who earned the Chocobo milestone (achievement 590) per UTC day in `[since, until)`, ordered ascending by day. `since` is required and must parse as a date; `until` is optional and defaults to now (UTC). The requested range must fit within the snapshot's activity window and generation date; malformed or out-of-window ranges are 400s. This keeps response work bounded.
+Characters who earned the Chocobo milestone (achievement 590) per UTC day in `[since, until)`, ordered ascending by day, for the whole game. Without parameters it serves the [new-characters window](#new-characters-window): its complete UTC days before the snapshot's generation day. Without `until` the range ends with the last complete UTC day (before the generation day, or before today when the server has no snapshot store). `since` and `until` must parse as dates. The snapshot keeps two windows (current and previous), so `since` may reach back to the start of the previous window (on a snapshot from before schema 4, to the first of the 60 days ending with its generation day), and `until` at most to the day after the generation day; malformed or out-of-range requests are 400s. This keeps response work bounded.
 
 ```json
 [

@@ -31,7 +31,7 @@
         <p class="rankings-scope">{{.Data.Scope}}</p>
         {{with .Data.Membership}}<p class="rankings-membership">{{.}}</p>{{end}}
         {{if .Data.Active}}
-        <p class="rankings-explain">Members who earned a public achievement in the last 30 days. Members who hide their achievements can’t count as active, so read these counts as a lower bound.</p>
+        <p class="rankings-explain">Members who earned a public achievement in the last {{.Data.ActivityWindow.Long}}. Members who hide their achievements can’t count as active, so read these counts as a lower bound.</p>
         {{else}}
         <p class="rankings-explain">Members seen by the census: the characters it has found in each company, not the official roster.</p>
         {{end}}

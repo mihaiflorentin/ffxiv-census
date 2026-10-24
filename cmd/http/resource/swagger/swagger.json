@@ -462,7 +462,7 @@
     "/api/v1/stats/new-characters": {
       "get": {
         "summary": "New characters per day",
-        "description": "Daily counts of characters who earned the Chocobo milestone (achievement 590) within the bounded statistics snapshot window.",
+        "description": "Daily counts of characters who earned the Chocobo milestone (achievement 590). Defaults to the new-characters window (census.new_characters_window_days, 90 by default): its complete UTC days before the snapshot day. A range must stay inside the snapshot's current and previous windows.",
         "produces": [
           "application/json"
         ],
@@ -470,15 +470,15 @@
           {
             "name": "since",
             "in": "query",
-            "description": "Inclusive start date (YYYY-MM-DD, UTC).",
-            "required": true,
+            "description": "Inclusive start date (YYYY-MM-DD, UTC); defaults to the start of the new-characters window.",
+            "required": false,
             "type": "string",
             "format": "date"
           },
           {
             "name": "until",
             "in": "query",
-            "description": "Exclusive end date (YYYY-MM-DD, UTC); defaults to now.",
+            "description": "Exclusive end date (YYYY-MM-DD, UTC); defaults to the snapshot day (the end of the window).",
             "required": false,
             "type": "string",
             "format": "date"
@@ -613,6 +613,10 @@
         "max_level_characters": {
           "type": "integer",
           "format": "int64"
+        },
+        "activity_window_days": {
+          "type": "integer",
+          "description": "Activity window behind active_characters, in days: a character is active when its latest public achievement is this recent."
         }
       }
     },

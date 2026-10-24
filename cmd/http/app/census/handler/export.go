@@ -101,7 +101,7 @@ func (c *CensusController) Export(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	cutoff := time.Now().UTC().Add(-30 * 24 * time.Hour)
+	activeSince := c.svc.ActivitySince()
 
 	switch format {
 	case "csv":
@@ -117,7 +117,7 @@ func (c *CensusController) Export(w http.ResponseWriter, r *http.Request) {
 		csvWriter.Flush()
 
 		_ = c.svc.StreamCharacters(r.Context(), f, func(rec contract.CharacterRecord) error {
-			item := toCharacterListItem(&rec)
+			item := toCharacterListItem(&rec, activeSince)
 			fcID := ""
 			if item.FreeCompanyID != nil {
 				fcID = *item.FreeCompanyID
@@ -165,7 +165,7 @@ func (c *CensusController) Export(w http.ResponseWriter, r *http.Request) {
 		}
 		first := true
 		_ = c.svc.StreamCharacters(r.Context(), f, func(rec contract.CharacterRecord) error {
-			item := toCharacterListItem(&rec)
+			item := toCharacterListItem(&rec, activeSince)
 			if !first {
 				if _, err := io.WriteString(out, ",\n"); err != nil {
 					return err
@@ -187,7 +187,7 @@ func (c *CensusController) Export(w http.ResponseWriter, r *http.Request) {
 
 	case "ndjson":
 		_ = c.svc.StreamCharacters(r.Context(), f, func(rec contract.CharacterRecord) error {
-			item := toCharacterListItem(&rec)
+			item := toCharacterListItem(&rec, activeSince)
 			data, err := json.Marshal(item)
 			if err != nil {
 				return err
@@ -209,5 +209,4 @@ func (c *CensusController) Export(w http.ResponseWriter, r *http.Request) {
 	if flusher != nil {
 		flusher.Flush()
 	}
-	_ = cutoff
 }

@@ -28,7 +28,7 @@ type rankingMetricView struct {
 	// title is the board heading for a noun ("worlds" or "datacenters").
 	title func(noun string) string
 	// explain is the one-line explanation for a place ("world").
-	explain func(place string, maxLevel int) string
+	explain func(place string, facts rankingFacts) string
 	// rung formats a row's value, unit and detail line.
 	rung func(row census.RankingRow, maxLevel int) (value, unit, detail string)
 	// pending names the figures a snapshot without them is waiting for.
@@ -67,7 +67,7 @@ func companyLean(metric census.RankingMetric) rankingMetricView {
 		tone:   gc.Slug,
 		metric: metric, group: "grand-companies", variant: gc.Short,
 		title: func(string) string { return "Strongest " + gc.Short + " lean" },
-		explain: func(place string, _ int) string {
+		explain: func(place string, _ rankingFacts) string {
 			return fmt.Sprintf("Share of the %s’s characters enlisted in the %s, out of everyone including those in no Grand Company.", place, gc.Name)
 		},
 		rung:    rateRung("in the " + gc.Name),
@@ -75,12 +75,19 @@ func companyLean(metric census.RankingMetric) rankingMetricView {
 	}
 }
 
+// rankingFacts are the snapshot facts a metric's explanation may quote.
+type rankingFacts struct {
+	MaxLevel            int
+	ActivityWindow      Window
+	NewCharactersWindow Window
+}
+
 var rankingMetricViews = []rankingMetricView{
 	{
 		metric: census.MetricGrowth, group: "growth", variant: "Per 1,000 residents",
 		title: func(noun string) string { return "Fastest-growing " + noun },
-		explain: func(place string, _ int) string {
-			return fmt.Sprintf("New characters in the last 30 days for every 1,000 characters on the %s.", place)
+		explain: func(place string, facts rankingFacts) string {
+			return fmt.Sprintf("New characters in the last %s for every 1,000 characters on the %s.", facts.NewCharactersWindow.Long(), place)
 		},
 		rung: func(row census.RankingRow, _ int) (string, string, string) {
 			return fmt.Sprintf("%.1f", row.Value), "per 1,000", fmt.Sprintf("%s new of %s characters", formatNumber(row.Part), formatNumber(row.Total))
@@ -89,8 +96,8 @@ var rankingMetricViews = []rankingMetricView{
 	{
 		metric: census.MetricGrowthCount, group: "growth", variant: "New characters",
 		title: func(string) string { return "Most new characters" },
-		explain: func(string, int) string {
-			return "Characters who earned their first company chocobo in the last 30 days, the census’s count of new characters."
+		explain: func(_ string, facts rankingFacts) string {
+			return fmt.Sprintf("Characters who earned their first company chocobo in the last %s, the census’s count of new characters.", facts.NewCharactersWindow.Long())
 		},
 		rung: func(row census.RankingRow, _ int) (string, string, string) {
 			return formatNumber(row.Part), "new", fmt.Sprintf("Of %s characters", formatNumber(row.Total))
@@ -99,16 +106,16 @@ var rankingMetricViews = []rankingMetricView{
 	{
 		metric: census.MetricActivity, group: "activity",
 		title: func(noun string) string { return "Most active " + noun },
-		explain: func(string, int) string {
-			return "Share of characters who earned a public achievement in the last 30 days."
+		explain: func(_ string, facts rankingFacts) string {
+			return fmt.Sprintf("Share of characters who earned a public achievement in the last %s.", facts.ActivityWindow.Long())
 		},
 		rung: rateRung("active"),
 	},
 	{
 		metric: census.MetricVeterans, group: "veterans",
 		title: func(string) string { return "Most veterans" },
-		explain: func(_ string, maxLevel int) string {
-			return fmt.Sprintf("Share of characters with a job at the level cap, level %d.", maxLevel)
+		explain: func(_ string, facts rankingFacts) string {
+			return fmt.Sprintf("Share of characters with a job at the level cap, level %d.", facts.MaxLevel)
 		},
 		rung: func(row census.RankingRow, maxLevel int) (string, string, string) {
 			return rateRung(fmt.Sprintf("at level %d", maxLevel))(row, maxLevel)
@@ -118,7 +125,7 @@ var rankingMetricViews = []rankingMetricView{
 	{
 		metric: census.MetricPopulation, group: "population",
 		title: func(noun string) string { return "Largest " + noun },
-		explain: func(place string, _ int) string {
+		explain: func(place string, _ rankingFacts) string {
 			return fmt.Sprintf("Characters the census has found on the %s.", place)
 		},
 		rung: func(row census.RankingRow, _ int) (string, string, string) {
@@ -128,7 +135,7 @@ var rankingMetricViews = []rankingMetricView{
 	{
 		metric: census.MetricPrivacy, group: "privacy",
 		title: func(noun string) string { return "Most private " + noun },
-		explain: func(string, int) string {
+		explain: func(string, rankingFacts) string {
 			return "Share of characters who hide their achievements from the Lodestone."
 		},
 		rung:    rateRung("private"),
@@ -214,7 +221,7 @@ func (c *UIController) Rankings(w http.ResponseWriter, r *http.Request) {
 		Tabs:           rankingsTabs("worlds"),
 		Title:          title,
 		Scope:          scope,
-		Explanation:    view.explain(place, int(snapshot.MaxLevel)),
+		Explanation:    view.explain(place, rankingFacts{MaxLevel: int(snapshot.MaxLevel), ActivityWindow: Window{Days: state.ActivityWindowDays}, NewCharactersWindow: Window{Days: state.NewCharactersWindowDays}}),
 		Announce:       title + ", " + announceScope,
 		MetricSwitch:   rankingsMetricSwitch(query),
 		VariantSwitch:  rankingsVariantSwitch(query, view.group),

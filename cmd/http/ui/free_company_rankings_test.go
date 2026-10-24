@@ -227,6 +227,18 @@ func TestFreeCompanyRankingsHTMXSwapRendersOnlyTheBoard(t *testing.T) {
 	}
 }
 
+// The boards are rebuilt nightly, so the active members copy states the
+// window the boards were built with, not the main snapshot's.
+func TestFreeCompanyActiveCopyUsesTheBoardsActivityWindow(t *testing.T) {
+	boards := fcRankingsBoards()
+	boards.ActivitySince = fcBuiltAt.Add(-75 * 24 * time.Hour)
+	mux := fcRankingsMux(t, 3, boards)
+	body := serveMuxGet(t, mux, "/ui/rankings/free-companies?measure=active").Body.String()
+	if !strings.Contains(body, "public achievement in the last 75 days") {
+		t.Errorf("active members copy must read the boards' 75-day window; body:\n%s", body)
+	}
+}
+
 func TestFreeCompanyRankingsWaitForTheNextRefresh(t *testing.T) {
 	for name, mux := range map[string]*http.ServeMux{
 		"version 2 snapshot": fcRankingsMux(t, 2, fcRankingsBoards()),

@@ -57,6 +57,9 @@ func TestValidateUIStatsSnapshot(t *testing.T) {
 			s.Groups[0].Private, s.Groups[0].Unchecked, s.Groups[0].MaxLevel = 1, 1, 2
 		}},
 		{name: "bad day", mutate: func(s *contract.UIStatsSnapshot) { s.NewCharacters[0].Day = "08/23/2026" }},
+		{name: "negative new-characters window", mutate: func(s *contract.UIStatsSnapshot) { s.NewCharactersWindowDays = -1 }},
+		{name: "group new characters negative", mutate: func(s *contract.UIStatsSnapshot) { s.Groups[0].NewCharacters = -1 }},
+		{name: "group previous new characters negative", mutate: func(s *contract.UIStatsSnapshot) { s.Groups[0].NewCharactersPrevious = -1 }},
 	}
 
 	for _, tt := range tests {
