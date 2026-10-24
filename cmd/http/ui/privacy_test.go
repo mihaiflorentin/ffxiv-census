@@ -225,3 +225,22 @@ func TestMethodologyExplainsAchievementPrivacy(t *testing.T) {
 		t.Error("methodology links to the Private achievements page")
 	}
 }
+
+// TestLevelCapTileSaysJobLevelsAreNotHidden tells readers that, unlike
+// achievements, job levels cannot be hidden on a readable profile, so the
+// level-cap figure is not a privacy lower bound.
+func TestLevelCapTileSaysJobLevelsAreNotHidden(t *testing.T) {
+	mux := privacyMux(t, privacyPageSnapshot(3))
+	doc := parseHTML(t, serveMuxGet(t, mux, "/").Body.String())
+	notes := findAll(doc, byClass("job-privacy-note"))
+	if len(notes) != 1 {
+		t.Fatalf("want one job privacy note on the dashboard, got %d", len(notes))
+	}
+	want := "Job levels can’t be hidden on a public profile, so privacy doesn’t lower this figure. How jobs are counted."
+	if got := flatText(notes[0]); got != want {
+		t.Errorf("note = %q, want %q", got, want)
+	}
+	if !linksTo(notes[0], "/ui/methodology#jobs") {
+		t.Error("note must link to the Methodology jobs section")
+	}
+}
