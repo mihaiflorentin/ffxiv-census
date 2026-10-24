@@ -131,3 +131,27 @@ func TestGrandCompanyRaceLean(t *testing.T) {
 		t.Fatalf("Roegadyn companies = %+v", roe.Companies)
 	}
 }
+
+func TestGrandCompaniesListsTheThreeCompaniesInGameOrder(t *testing.T) {
+	want := []GrandCompany{
+		{Name: "Maelstrom", Short: "Maelstrom", Slug: "maelstrom"},
+		{Name: "Order of the Twin Adder", Short: "Twin Adder", Slug: "twin-adder"},
+		{Name: "Immortal Flames", Short: "Immortal Flames", Slug: "immortal-flames"},
+	}
+	got := GrandCompanies()
+	if len(got) != len(want) {
+		t.Fatalf("GrandCompanies() = %+v, want %+v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("GrandCompanies()[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	if GrandCompanyMaelstrom != want[0].Name || GrandCompanyTwinAdder != want[1].Name || GrandCompanyImmortalFlames != want[2].Name {
+		t.Error("the company name constants disagree with the table")
+	}
+	got[0].Name = "changed"
+	if GrandCompanies()[0].Name != "Maelstrom" {
+		t.Error("GrandCompanies() exposes its backing table")
+	}
+}

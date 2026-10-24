@@ -256,3 +256,19 @@ func TestRankingsMemoBuildsEachBoardOncePerSnapshot(t *testing.T) {
 		t.Fatalf("leader after a new snapshot = %q, want Ragnarok", got)
 	}
 }
+
+func TestLeanCompanyNamesEachGrandCompanyMetricsCompany(t *testing.T) {
+	for metric, want := range map[RankingMetric]string{
+		MetricLeanMaelstrom:      "Maelstrom",
+		MetricLeanTwinAdder:      "Order of the Twin Adder",
+		MetricLeanImmortalFlames: "Immortal Flames",
+	} {
+		gc, ok := LeanCompany(metric)
+		if !ok || gc.Name != want {
+			t.Errorf("LeanCompany(%s) = %+v, %v; want %s", metric, gc, ok, want)
+		}
+	}
+	if _, ok := LeanCompany(MetricPopulation); ok {
+		t.Error("LeanCompany(population): want no company")
+	}
+}

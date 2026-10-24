@@ -59,24 +59,20 @@ func rateRung(what string) func(census.RankingRow, int) (string, string, string)
 	}
 }
 
-func companyLean(metric census.RankingMetric, name, article, slug string) rankingMetricView {
+// companyLean is the view of one Grand Company's lean metric, named from
+// the domain's Grand Company table.
+func companyLean(metric census.RankingMetric) rankingMetricView {
+	gc, _ := census.LeanCompany(metric)
 	return rankingMetricView{
-		tone:   slug,
-		metric: metric, group: "grand-companies", variant: name,
-		title: func(string) string { return "Strongest " + name + " lean" },
+		tone:   gc.Slug,
+		metric: metric, group: "grand-companies", variant: gc.Short,
+		title: func(string) string { return "Strongest " + gc.Short + " lean" },
 		explain: func(place string, _ int) string {
-			return fmt.Sprintf("Share of the %s’s characters enlisted in %s%s, out of everyone including those in no Grand Company.", place, article, fullCompanyName(name))
+			return fmt.Sprintf("Share of the %s’s characters enlisted in the %s, out of everyone including those in no Grand Company.", place, gc.Name)
 		},
-		rung:    rateRung("in " + article + fullCompanyName(name)),
+		rung:    rateRung("in the " + gc.Name),
 		pending: "Grand Company figures",
 	}
-}
-
-func fullCompanyName(short string) string {
-	if short == "Twin Adder" {
-		return "Order of the Twin Adder"
-	}
-	return short
 }
 
 var rankingMetricViews = []rankingMetricView{
@@ -139,9 +135,9 @@ var rankingMetricViews = []rankingMetricView{
 		pending: "Privacy figures",
 		nightly: true,
 	},
-	companyLean(census.MetricLeanMaelstrom, "Maelstrom", "the ", "maelstrom"),
-	companyLean(census.MetricLeanTwinAdder, "Twin Adder", "the ", "twin-adder"),
-	companyLean(census.MetricLeanImmortalFlames, "Immortal Flames", "the ", "immortal-flames"),
+	companyLean(census.MetricLeanMaelstrom),
+	companyLean(census.MetricLeanTwinAdder),
+	companyLean(census.MetricLeanImmortalFlames),
 }
 
 func rankingMetricViewFor(metric census.RankingMetric) rankingMetricView {

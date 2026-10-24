@@ -83,9 +83,31 @@ var rankingMetrics = map[RankingMetric]rankingMetric{
 	MetricGrowth:      {rate: true, scale: 1000, part: newCharacters},
 	MetricGrowthCount: {part: newCharacters},
 
-	MetricLeanMaelstrom:      {rate: true, ready: grandCompaniesReady, part: companyMembers("Maelstrom")},
-	MetricLeanTwinAdder:      {rate: true, ready: grandCompaniesReady, part: companyMembers("Order of the Twin Adder")},
-	MetricLeanImmortalFlames: {rate: true, ready: grandCompaniesReady, part: companyMembers("Immortal Flames")},
+	MetricLeanMaelstrom:      {rate: true, ready: grandCompaniesReady, part: companyMembers(GrandCompanyMaelstrom)},
+	MetricLeanTwinAdder:      {rate: true, ready: grandCompaniesReady, part: companyMembers(GrandCompanyTwinAdder)},
+	MetricLeanImmortalFlames: {rate: true, ready: grandCompaniesReady, part: companyMembers(GrandCompanyImmortalFlames)},
+}
+
+// leanCompanies names the Grand Company each lean metric ranks.
+var leanCompanies = map[RankingMetric]string{
+	MetricLeanMaelstrom:      GrandCompanyMaelstrom,
+	MetricLeanTwinAdder:      GrandCompanyTwinAdder,
+	MetricLeanImmortalFlames: GrandCompanyImmortalFlames,
+}
+
+// LeanCompany returns the Grand Company a lean metric ranks; false for any
+// other metric.
+func LeanCompany(metric RankingMetric) (GrandCompany, bool) {
+	name, ok := leanCompanies[metric]
+	if !ok {
+		return GrandCompany{}, false
+	}
+	for _, gc := range grandCompanies {
+		if gc.Name == name {
+			return gc, true
+		}
+	}
+	return GrandCompany{}, false
 }
 
 // RankingQuery selects one board: a metric, the level ranked (world or
