@@ -211,7 +211,12 @@
         if (!window.Chart) {
             return;
         }
-        window.Chart.defaults.animation = reducedMotion.matches ? false : { duration: 400, easing: "easeOutQuart" };
+        // Mutate the default animation instead of replacing it: a fresh object
+        // drops Chart.js's resolver wiring, and the tooltip's own animations
+        // then fail ("this._fn is not a function"), so no tooltip ever draws.
+        var animation = window.Chart.defaults.animation;
+        animation.duration = reducedMotion.matches ? 0 : 400;
+        animation.easing = "easeOutQuart";
         window.Chart.defaults.transitions.active.animation.duration = reducedMotion.matches ? 0 : 150;
     }
 
