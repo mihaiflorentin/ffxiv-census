@@ -18,7 +18,7 @@
 | `/ui/dashboard` | `GET` | Overview, top to bottom: the realm tally (total population over a band split by region), stat tiles (active players, characters at the level cap, new characters in the last 30 days with a worded, signed trend), race distribution bar chart and main-scenario completion meters side by side, the 30-day new-character line chart, and the region table with world drill-down. All aggregate data comes from the cached statistics snapshot. |
 | `/ui/partials/world-breakdown` | `GET` | HTMX partial returning world and datacenter rows for a requested region (`?region=NA`), including each world's New (30d) count |
 | `/ui/races` | `GET` | Playable race demographics with cascading region/DC/world filters, a new-characters (30d) card that follows the active filters, global percentage shares, active ratios, and demographic charts. Filtering selects precomputed snapshot groups and performs no aggregate database query. |
-| `/ui/worlds` | `GET` | Global server rankings table (including a per-world New (30d) column) with interactive region/datacenter filters and a filter-scoped new-characters (30d) card |
+| `/ui/worlds` | `GET` | Global server rankings table (including a per-world New (30d) column) with interactive region/datacenter filters, a filter-scoped new-characters (30d) card and a "Characters / Active players" ranking switch (`?sort=active`; an HTMX request targeting `world-rankings` gets just that region) |
 | `/ui/worlds/{world}` | `GET` | World detail page (an unknown world answers the styled `404`): node breadcrumbs (region › datacenter › world, linking to the filtered Worlds page), stat tiles (characters, active players (30d), new characters from chocobo milestone 590 with a worded trend vs the previous 30 days), race distribution bar chart, main-scenario completion meters and the 30-day new-character line chart, each chart with a text alternative |
 | `/ui/expansions` | `GET` | Main scenario progression from A Realm Reborn to Dawntrail as stepped, connected nodes: each step shows completions, share of all characters and retention from the previous expansion |
 | `/ui/methodology` | `GET` | How the census works: data collection, the active-player signal, the new-character (chocobo) milestone and the capstone achievement of each expansion. Renders without a snapshot. |
@@ -73,7 +73,7 @@ stale_warning   = "12h"
 refresh_timeout = "2h"
 ```
 
-Aggregate HTML and HTMX responses include a query-aware `ETag`, `Cache-Control`, and `Vary: HX-Request, Accept-Encoding`. The page shell displays the snapshot generation time and shows the stale notice when the snapshot is stale (see section 5, Error, stale and empty states, for exactly when). This response contract is suitable for a future reverse proxy such as Varnish without making it a runtime dependency.
+Aggregate HTML and HTMX responses include a query-aware `ETag`, `Cache-Control`, and `Vary: HX-Request, HX-Target, HX-History-Restore-Request, Accept-Encoding` (the ETag hashes the same headers, so a switch fragment and its full page never share a cache entry). The page shell displays the snapshot generation time and shows the stale notice when the snapshot is stale (see section 5, Error, stale and empty states, for exactly when). This response contract is suitable for a future reverse proxy such as Varnish without making it a runtime dependency.
 
 Operational checks:
 
@@ -92,19 +92,23 @@ Investigate `ui_stats_refresh_total{result="error"}`, a growing `ui_stats_snapsh
 cmd/http/ui/
 ├── assets/
 │   ├── chart.umd.min.js    # Vendored Chart.js v4.4.7 UMD bundle
-│   ├── chart-theme.js      # Shared Chart.js theme + window.CensusCharts (palette, race colours, formatting)
+│   ├── chart-theme.js      # Shared Chart.js theme + window.CensusCharts (palette, race, role and Grand Company colours, formatting)
+│   ├── census.js           # Deferred site script: nav current-into-view, switch focus + announcement, entrance settle
 │   ├── htmx.min.js         # Vendored HTMX v2.0.4 library
 │   ├── favicon.png         # Site icon served at /favicon.ico
 │   ├── fonts/
 │   │   ├── manrope-latin-var.woff2 # Vendored Manrope variable font (Latin subset, tnum kept)
-│   │   └── OFL.txt         # SIL Open Font License for Manrope
+│   │   ├── OFL.txt         # SIL Open Font License for Manrope
+│   │   ├── saira-latin-var.woff2   # Vendored Saira variable font, weight 400-800 x width 75-100% (figures face)
+│   │   └── OFL-Saira.txt   # SIL Open Font License for Saira
 │   └── styles.css          # Design tokens, shell and component styles (see section 5)
 ├── templates/
 │   ├── layout.html         # Page shell (skip link, brand, primary nav, stale notice, footer, font preload)
 │   ├── not_found.html      # Styled 404 page (unknown world or /ui/ route)
 │   ├── unavailable.html    # Styled 503 "Statistics are being prepared" page
 │   ├── components/
-│   │   ├── states.html     # Shared "empty-state" and "state-mark" template components
+│   │   ├── states.html     # Shared "empty-state", "freshness", "next-refresh" and "state-mark" components
+│   │   ├── switch.html     # Shared "switch": segmented link pair swapping a region via HTMX
 │   │   ├── filters.html    # Shared "filter-bar" (labelled selects, region pills, removable chips)
 │   │   └── figures.html    # Shared "trend" line for new-character tiles
 │   ├── dashboard.html      # Realm tally, stat tiles, race and MSQ panels, 30-day chart, region table
@@ -121,6 +125,9 @@ cmd/http/ui/
 │       └── search_results.html  # HTMX partial for live character search
 ├── routes.go               # ServeMux route registration and embedded asset handler (font headers)
 ├── controller.go           # Core UI controller & template renderer
+├── nav.go                  # Primary navigation entries (spec order; each new page adds its own)
+├── sections.go             # Freshness and NextRefresh view models (nightly, nextRefresh helpers)
+├── switch.go               # Switch view model, wantsSwitchRegion and renderRegion (HTMX region fragments)
 ├── dashboard.go            # Controller for /ui/dashboard & /ui/partials/world-breakdown
 ├── realm_tally.go          # Realm-tally view model (region shares, band geometry)
 ├── taxonomy.go             # Census taxonomy for the UI: colour slots, #census-taxonomy data, race rows, scope sentence
@@ -141,11 +148,14 @@ cmd/http/ui/
 
 The design system lives in `assets/styles.css`. Its concept is **the aetheryte network**: a blue night
 base drawn from the game's skies, flat surfaces separated by tone, and the two colours of FFXIV crystals
-(Aether and Crystal) reserved for data and focus. It is dark-only. The full direction is in spec #49.
+(Aether and Crystal) reserved for data and focus. It is dark-only. The full direction is in spec #49;
+design v2 (spec #56, ticket #58) adds the Saira figures face, the role and Grand Company palettes, the lit
+panel rim, the scrolling nav bar and the shared freshness, next-refresh and switch components.
 
 **Principles:** no emoji in the UI, no inline `style` attributes, no ALL-CAPS labels, no glow, blur or
-gradient decoration, no decorative motion (only chart transitions, tooltip fades and the nav toggle, all
-disabled under `prefers-reduced-motion`), icons are inline SVG. Hand-written CSS, no framework, no build step.
+gradient decoration, no decorative motion (only chart transitions, tooltip fades and one entrance per
+page, all disabled under `prefers-reduced-motion`), icons are inline SVG. Hand-written CSS, no framework, no
+build step.
 
 ### Design tokens
 
@@ -157,13 +167,31 @@ Every value is a CSS custom property on `:root`, defined once and reused:
 | `--color-surface` | `#151C2E` | Panels and tiles |
 | `--color-raised` | `#1D2640` | Hover, selected rows, open menus, realm-tally band track |
 | `--color-line` | `#28324D` | Hairline separators and table rules only (panels use tone, not borders) |
+| `--color-rim` | `#2F3B5C` | The lit 1px top edge of panels, tiles and the filter bar (`--rim`, an inset line, not a shadow), after the game's window frames |
 | `--color-aether` | `#5FD4F4` | Primary accent: links, primary chart series, focus ring, active nav |
 | `--color-crystal` | `#9D8CFF` | Secondary accent: comparison series, brand facet. Never text links |
 | `--color-ink` / `--color-ink-muted` | `#E8ECF5` / `#98A2BC` | Text and secondary text |
 | `--color-active` / `--color-warning` / `--color-negative` | `#4CC38A` / `#E8B04A` / `#EF7A72` | Status |
 | `--color-chart-1` … `--color-chart-8` | `#00A4C5` `#917EF4` `#D24C49` `#B334AD` `#4194F9` `#27AF57` `#DD61A2` `#DD7303` | Categorical chart palette, fixed order (see Charts) |
 | `--color-chart-other` | `#7C869E` | Neutral for categories without a slot |
-| `--color-role-*` | tank `#5B8DEF`, healer `#4CC38A`, melee `#EF7A72`, phys-ranged `#F0975A`, magic-ranged `#B58CFF`, crafter `#3CC4B4`, gatherer `#E8C14A` | Job-role colours (`.role-*` classes) |
+| `--color-role-*` | tank `#5B8DEF`, healer `#4CC38A`, melee `#EF7A72`, phys-ranged `#F0975A`, magic-ranged `#B58CFF`, crafter `#3CC4B4`, gatherer `#E8C14A` | Job-role text colours (`.role-*` classes, AA on every surface) |
+| `--color-mark-tank` / `-healer` / `-dps` | `#427FD8` / `#03AF73` / `#D2393A` | Role marks (bars, tiles, rules); never text |
+| `--color-gc-maelstrom` / `-twin-adder` / `-immortal-flames` | `#D1364C` / `#C38616` / `#6896D1` | Grand Company marks; "no company" is an outline, not a hue |
+
+**Semantic mark palettes.** Taken from the game for meaning, not decoration. They colour marks only;
+labels stay in Ink and the name is always printed beside the mark, so colour is never the only cue. Both
+sets were generated in OKLCH and checked with the dataviz palette validator (dark mode, all pairs) against
+Surface and Raised, and every check passes:
+
+```
+roles  #427FD8,#D2393A,#03AF73   band PASS  chroma PASS  CVD worst ΔE 9.1 (deutan)  normal worst ΔE 23.6  contrast >= 3:1 on both
+GCs    #D1364C,#C38616,#6896D1   band PASS  chroma PASS  CVD worst ΔE 10.4 (deutan) normal worst ΔE 18.7  contrast >= 3:1 on both
+```
+
+The roles also differ in lightness (OKLab L: DPS 0.575, tank 0.60, healer 0.665), as far as the chart
+band and the 3:1 floor on Raised allow. Immortal Flames is a pale steel because the in-game black would
+vanish on Night. `design_v2_test.go` pins each colour's hue family, its 3:1 contrast on Surface and
+Raised and the role lightness separation.
 
 Every text token meets WCAG 2.2 AA (4.5:1) on Night, Surface and Raised, and Night text on an Aether fill
 does too; `tokens_test.go` enforces this against the served stylesheet. The focus ring
@@ -171,21 +199,41 @@ does too; `tokens_test.go` enforces this against the served stylesheet. The focu
 
 - **Type scale:** `--step--2` … `--step-6`, a 1.25 modular ratio on a 16px body (`--step-0`), line
   height `--leading-body` 1.55, `--leading-tight` 1.15 for headings, `--measure` 70ch for long-form text.
-  Weights: `--weight-body` 400, `--weight-medium` 500, `--weight-heading` 600, `--weight-display` 800
-  (headline figures and page titles, with `--tracking-display` -0.02em).
+  Weights: `--weight-body` 400, `--weight-medium` 500, `--weight-heading` 600, `--weight-display` 800.
+  `--font-figures` (Saira) with `--width-semi-condensed` (87.5%) or `--width-condensed` (80%) via
+  `font-stretch` sets large figures, rank numerals, page titles and the wordmark.
 - **Space:** `--space-1` … `--space-8` on a 4px base (4, 8, 12, 16, 24, 32, 48, 64px).
 - **Shape:** pages and sections square; `--radius-panel` 12px (panels, tiles); `--radius-control` 8px
   (buttons, selects, nav items); `--radius-pill` for chips and badges. No resting shadows;
   `--shadow-overlay` is only for open menus and tooltips.
 - **Layout:** `--content-max` 1280px, `--gutter` 16px on phones and 24px from 768px.
+- **Motion:** `--duration-fast` 120ms and `--duration-base` 200ms for state changes;
+  `--duration-entrance` 360ms with `--ease-out` for the one entrance per page.
 - **Legacy aliases:** a few old names (`--bg-card`, `--border-color`, `--text`, `--text-dim`, `--gold`,
   `--gold-light`, `--cyan`) remain only for the inline styles of the disabled character and free company
   templates; gold resolves to Ink. Every indexable page uses the tokens directly. Delete the aliases when
   those templates are restyled.
 
-### Font
+### Fonts
 
-One family, **Manrope** (variable, weight axis 200–800, SIL OFL 1.1), vendored as
+Two families. **Manrope** carries text and labels; **Saira** carries figures.
+
+**Saira** (variable, SIL OFL 1.1, from google/fonts `ofl/saira/Saira[wdth,wght].ttf`) is the figures
+face: the semi-condensed, HUD-like numeric voice of the game's own interface. It sets the realm-tally
+figure, stat values, progression figures, rank numerals, page and state titles and the wordmark. It is
+vendored as `assets/fonts/saira-latin-var.woff2` (~60KB): the axes limited to weight 400–800 and width
+75–100%, then subset to the same Latin range as Manrope with `tnum`, `pnum`, `case` and `liga` kept. Its
+`@font-face` declares `font-stretch: 75% 100%`, so `font-stretch: 87.5%` selects semi-condensed. The
+licence is `assets/fonts/OFL-Saira.txt`; the shell preloads it. To regenerate:
+
+```bash
+fonttools varLib.instancer 'Saira[wdth,wght].ttf' wdth=75:100 wght=400:800 -o Saira-lim.ttf
+pyftsubset Saira-lim.ttf --flavor=woff2 --layout-features='kern,liga,tnum,lnum,pnum,case,calt,ccmp,locl,mark,mkmk' \
+  --unicodes='U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+2074,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD' \
+  --output-file=saira-latin-var.woff2
+```
+
+**Manrope** (variable, weight axis 200–800, SIL OFL 1.1) is vendored as
 `assets/fonts/manrope-latin-var.woff2`: a ~24KB subset of the google/fonts `Manrope[wght].ttf` covering
 Latin + Latin-1 plus common punctuation (curly apostrophes, dashes, `›`), with all OpenType layout
 features retained, including `tnum`. The licence is alongside it in `assets/fonts/OFL.txt`. The page shell
@@ -210,9 +258,15 @@ Ship a changed font under a new file name: the asset route serves `.woff2` files
 - A "Skip to content" link (first focusable element) targeting `<main id="main">`.
 - A header with the brand: an original faceted-crystal SVG glyph (Aether and Crystal facets) and the
   "FFXIV Census" wordmark, linking to `/`.
-- Primary navigation (`<nav aria-label="Primary">`: Dashboard `/`, Races, Worlds, Expansions,
-  Methodology) with `aria-current="page"` on the active item. Below 768px it collapses behind a "Menu"
-  toggle that is a native checkbox and label, so it opens and closes without JavaScript.
+- Primary navigation (`<nav aria-label="Primary" data-current-into-view>`) with `aria-current="page"`
+  on the active item, rendered from `primaryNav` in `nav.go`. The spec order is Dashboard, Worlds,
+  Rankings, Races, Grand Companies, Jobs, Expansions, Methodology; a page is linked only once it exists,
+  so each new page adds its own `NavItem` in its place (and its `ActiveNav` key). There is no menu toggle:
+  below 900px the nav takes its own row under the brand and scrolls sideways, with faded edges hinting at
+  more, and `census.js` scrolls the current item into view (only the bar moves, never the page). Focus
+  rings sit inside the bar so the scroller never clips them.
+- A polite live region (`#census-announcer`, visually hidden) that the switch component announces through.
+- The deferred site script `assets/census.js`; every page works without it.
 - A stale-snapshot notice at the top of `main` when the snapshot is stale (see Error, stale and empty
   states below).
 - A footer with snapshot freshness ("Statistics updated …"), a Methodology link and a link to
@@ -224,7 +278,7 @@ host in `src`, `href` or CSS `url(...)` apart from canonical/OG URLs and the ffx
 
 ### Components
 
-Shell: `.skip-link`, `.site-header`, `.brand`, `.primary-nav`, `.nav-toggle`, `.site-footer`,
+Shell: `.skip-link`, `.site-header`, `.brand`, `.primary-nav`, `.site-footer`,
 `.notice` / `.notice-stale` (with optional `.notice-icon` and `.notice-title`), `.empty-state`, `.state-page`.
 Page components (restyled onto the tokens; page templates move onto them as
 they are redesigned): `.page-header` / `.page-title` / `.page-desc`, `.stat-grid` / `.stat-card`,
@@ -239,12 +293,44 @@ set `--slot-color` for SVG marks and swatches.
 
 Shared figure and filter components live in `templates/components/` and are parsed into every page and
 partial: `filter-bar` (see Cascading Filters), `trend` (the arrow + word + signed delta line for a
-`Trend` from `newTrend`, used by the new-characters tiles on the dashboard, Races and Worlds) and
-`empty-state`. Page grids: `.panel-grid` pairs chart panels (two columns from 720px). A stat-tile row
+`Trend` from `newTrend`, used by the new-characters tiles on the dashboard, Races and Worlds),
+`empty-state`, and the three v2 components below. Page grids: `.panel-grid` pairs chart panels (two columns from 720px). A stat-tile row
 names its layout: `.stat-grid-trio` (three tiles: the first spans the row over the other two on phones,
 then one row of three from 600px) and `.stat-grid-quad` (four tiles: 2 × 2 on phones and tablets, one row
 of four from 1024px); neither stacks into one tall column. On phones the paired tiles tighten their
 padding and value size so a seven-figure value fits. `.chart-container-tall` sizes bar charts with many categories.
+
+### Shared components for new pages (design v2)
+
+Later dashboards (Rankings, Free Companies, Grand Companies, Jobs, Privacy) use these rather than
+inventing their own. Each is covered by tests in `design_v2_test.go` and `switch_test.go`.
+
+- **`freshness`**: "Rebuilt nightly, last on 24 October 2026" with a `<time datetime>`, for a snapshot
+  section only the nightly full refresh rebuilds. `{{template "freshness" (nightly .Data.BuiltAt)}}`; a
+  zero time renders nothing.
+- **`next-refresh`**: the state for a page or section whose data the stored snapshot predates (a
+  version 2 snapshot): a lit crystal on a dashed orbit, "<Subject> arrive with the next refresh." and
+  a line saying the rest of the page is current.
+  `{{template "next-refresh" (nextRefresh "Grand Company figures")}}`.
+- **`switch`**: a segmented link pair choosing one view of a region (`Switch` / `SwitchOption` in
+  `switch.go`). Every option is a plain link (`href`), so without JavaScript it loads the full page; the
+  same link carries `hx-get`, `hx-target="#<region>"`, `hx-swap="outerHTML"` and `hx-push-url="true"`.
+  The current option has `aria-current="true"` and sits lifted on the track with an Aether rule. The
+  pattern for the region: a page template block whose root has the region `id` and a
+  `data-switch-announce` sentence, containing the switch itself and one heading with
+  `data-switch-heading tabindex="-1"`. The controller renders just that block when
+  `wantsSwitchRegion(r, id)` (HTMX request whose `HX-Target` is the region, never a history-restore
+  request) via `c.renderRegion(w, page, block, data)`, and the full page otherwise. After the swap,
+  `census.js` focuses the heading and writes the announcement into `#census-announcer`. Unknown values
+  fall back to the default view. First used by the Worlds rankings ("Characters / Active players").
+- **Entrance**: mark the page's one signature element with `data-entrance` (unfurls from the left),
+  `data-entrance="rise"` (grows up from the baseline) or `data-entrance="fade"`. It runs once, in 360ms,
+  on a full page load only: `census.js` adds `.census-settled` to the root after 400ms, which switches
+  entrances off for anything HTMX swaps in later, and reduced motion switches them off entirely. One per
+  page (`TestOneEntrancePerPage`); the dashboard's is the realm band.
+- **Semantic colours in charts**: `CensusCharts.role("tank" | "healer" | "dps")` and
+  `CensusCharts.grandCompany("maelstrom" | "twin-adder" | "immortal-flames")`; in CSS the
+  `--color-mark-*` and `--color-gc-*` tokens.
 
 ### Page layouts
 
@@ -317,7 +403,8 @@ EU → Europe, JP → Japan, OCE → Oceania), a link to `/ui/worlds?region=<cod
 
 The markup is a `<section aria-labelledby>` whose heading is the page `h1` ("Characters in the census"):
 
-- the total as an oversized Manrope 800 figure in Aether (`<data value>`), with proportional figures;
+- the total as an oversized Saira semi-condensed 600 figure in Aether (`<data value>`), with
+  proportional figures;
 - an inline SVG band (`role="group"`, "Population by region") on the Raised track. Each segment is an SVG
   `<a>` with an `aria-label` ("Europe: 10,138 characters, 25.3% of the census") and a `<title>`, so it is
   in the tab order and works without JavaScript. Widths are SVG `x`/`width` attributes, not inline
@@ -350,6 +437,7 @@ scripts); they use `window.CensusCharts`:
 | `slot(n)` | Categorical slot 1-8; anything else is `--color-chart-other` |
 | `raceColor(name)` / `raceColors(labels)` | The fixed race colour |
 | `regionColor(code)` | The fixed region colour (NA, EU, JP, OCE) |
+| `role(key)` / `grandCompany(key)` | Role mark colour (`tank`, `healer`, `dps`); Grand Company mark colour (`maelstrom`, `twin-adder`, `immortal-flames`); unknown keys get the neutral colour |
 | `sortRaces(labels, values)` | Labels and values in fixed race order, for doughnuts |
 | `wash(colour)` / `surface()` | 10% area fill for a line; Surface for rings and gaps |
 | `format(n)` / `compact(n)` / `formatDate(iso)` | `1,234`; `1.2K` axis ticks; `Sat, 24 Oct 2026` tooltip titles |
@@ -472,7 +560,10 @@ all options are shown. The most specific filter scopes the figures (world, then 
 ### Worlds Page (`/ui/worlds`)
 
 Region is chosen with the pills (a pill link drops any datacenter); the Datacenter select lists only
-the DCs of the selected region, or every DC with worlds when no region is selected.
+the DCs of the selected region, or every DC with worlds when no region is selected. The World rankings
+panel carries a "Rank worlds by: Characters / Active players" switch (`?sort=active`, default by
+characters; ties fall back to characters, then name). It keeps the filters, swaps only the rankings
+region over HTMX and marks the ranked column with `aria-sort="descending"`.
 
 ### Implementation
 

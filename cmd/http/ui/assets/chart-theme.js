@@ -15,6 +15,9 @@
  *   CensusCharts.sortRaces(labels, values) labels/values in fixed race order
  *                                 (use for doughnuts so neighbours are the
  *                                 validated adjacent pairs)
+ *   CensusCharts.role(key)        role mark colour: "tank", "healer", "dps"
+ *   CensusCharts.grandCompany(key) Grand Company mark colour: "maelstrom",
+ *                                 "twin-adder", "immortal-flames"
  *   CensusCharts.primary()        Aether: a single or primary series
  *   CensusCharts.comparison()     Crystal: a comparison series
  *   CensusCharts.wash(colour)     the ~10% area fill for a line's colour
@@ -67,6 +70,23 @@
     })();
     var RACE_ORDER = taxonomy.races || [];
     var REGION_ORDER = taxonomy.regions || [];
+
+    // Semantic mark palettes: a role or Grand Company keeps its game colour on
+    // every chart. Unknown keys fall back to the neutral "other" colour.
+    var ROLES = {
+        tank: "--color-mark-tank",
+        healer: "--color-mark-healer",
+        dps: "--color-mark-dps"
+    };
+    var GRAND_COMPANIES = {
+        "maelstrom": "--color-gc-maelstrom",
+        "twin-adder": "--color-gc-twin-adder",
+        "immortal-flames": "--color-gc-immortal-flames"
+    };
+
+    function semantic(map, key) {
+        return token(map[key] || "--color-chart-other");
+    }
 
     function slot(n) {
         if (n >= 1 && n <= SLOTS.length) {
@@ -285,6 +305,8 @@
         raceColors: raceColors,
         regionColor: regionColor,
         sortRaces: sortRaces,
+        role: function (key) { return semantic(ROLES, key); },
+        grandCompany: function (key) { return semantic(GRAND_COMPANIES, key); },
         primary: function () { return token("--color-aether"); },
         comparison: function () { return token("--color-crystal"); },
         surface: function () { return token("--color-surface"); },

@@ -103,9 +103,9 @@ func (c *UIController) currentStats(w http.ResponseWriter, r *http.Request) (*co
 	}
 
 	w.Header().Set("Cache-Control", "public, max-age=60, stale-while-revalidate=300")
-	w.Header().Set("Vary", "HX-Request, Accept-Encoding")
+	w.Header().Set("Vary", "HX-Request, HX-Target, HX-History-Restore-Request, Accept-Encoding")
 	h := fnv.New64a()
-	_, _ = fmt.Fprintf(h, "%d|%s|%s|%s", snapshot.GeneratedAt.UnixNano(), r.URL.Path, r.URL.Query().Encode(), strings.ToLower(r.Header.Get("HX-Request")))
+	_, _ = fmt.Fprintf(h, "%d|%s|%s|%s|%s|%s", snapshot.GeneratedAt.UnixNano(), r.URL.Path, r.URL.Query().Encode(), strings.ToLower(r.Header.Get("HX-Request")), r.Header.Get("HX-Target"), strings.ToLower(r.Header.Get("HX-History-Restore-Request")))
 	etag := fmt.Sprintf(`"ui-%x"`, h.Sum64())
 	w.Header().Set("ETag", etag)
 	if r.Header.Get("If-None-Match") == etag {
