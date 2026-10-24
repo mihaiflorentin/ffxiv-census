@@ -36,6 +36,9 @@ type FreeCompanyRankingsViewData struct {
 	Filtered bool
 	Ladder   Ladder
 	BuiltAt  time.Time
+	// ActivityWindow is the window the boards' active counts used: they are
+	// rebuilt nightly, so it can differ from the page's activity window.
+	ActivityWindow Window
 	// Membership reads "40.0% of characters on Balmung belong to a Free
 	// Company."; empty without characters.
 	Membership string
@@ -67,6 +70,8 @@ func (c *UIController) FreeCompanyRankings(w http.ResponseWriter, r *http.Reques
 		Switch:   fcMeasureSwitch(place, measure),
 		Filters:  fcFilterBar(place, measure),
 		Filtered: place != (placeFilter{}),
+		// Until there are boards, the copy states the snapshot's window.
+		ActivityWindow: Window{Days: state.ActivityWindowDays},
 	}
 	result, err := c.stats.FreeCompanyBoard(r.Context(), snapshot, census.FreeCompanyQuery{Measure: measure, Scope: place.scope()})
 	if err != nil {
@@ -76,6 +81,7 @@ func (c *UIController) FreeCompanyRankings(w http.ResponseWriter, r *http.Reques
 	if data.Ready {
 		data.Membership = fcMembershipLine(census.SnapshotLocation(snapshot, place.scope()), fcPlacePhrase(place))
 		data.BuiltAt = result.BuiltAt
+		data.ActivityWindow = Window{Days: result.ActivityWindowDays}
 		data.Ladder = fcLadder(result.Rows, measure)
 		data.Ladder.Caption = data.Announce
 		data.Ladder.ValueHeading = "Members seen"

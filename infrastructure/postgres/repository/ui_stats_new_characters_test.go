@@ -161,3 +161,44 @@ func TestUIStatsRefreshRequiresTheNewCharactersWindow(t *testing.T) {
 		t.Fatal("Refresh without a new-characters window succeeded, want an error")
 	}
 }
+
+// The Free Company boards' active counts keep the activity window of the
+// full rebuild that made them: an incremental refresh asking for a
+// different activity window rebuilds in full, boards included.
+func TestUIStatsIncrementalRebuildsOnChangedActivityWindow(t *testing.T) {
+	driver := newTestDriver(t)
+	stats := repository.NewUIStatsRepository(driver)
+	ctx := context.Background()
+	today := time.Now().UTC().Truncate(24 * time.Hour)
+	seedChocobos(t, driver, today, []chocoboSeed{{1, "Balmung", "Crystal", "NA", 3}})
+
+	if _, err := stats.Refresh(ctx, windowOpts(contract.UIStatsRefreshFull, 10)); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(20 * time.Millisecond)
+	same, err := stats.Refresh(ctx, windowOpts(contract.UIStatsRefreshIncremental, 10))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if same.Mode != contract.UIStatsRefreshIncremental {
+		t.Fatalf("same activity window: mode %q, want incremental", same.Mode)
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	opts := windowOpts(contract.UIStatsRefreshIncremental, 10)
+	opts.ActivitySince = time.Now().UTC().Add(-30 * 24 * time.Hour)
+	changed, err := stats.Refresh(ctx, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if changed.Mode != contract.UIStatsRefreshFull {
+		t.Fatalf("changed activity window: mode %q, want a full rebuild", changed.Mode)
+	}
+	boards, err := stats.LoadFreeCompanies(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := boards.BuiltAt.Sub(boards.ActivitySince).Round(24 * time.Hour); got != 30*24*time.Hour {
+		t.Fatalf("boards activity window = %s, want 30 days", got)
+	}
+}

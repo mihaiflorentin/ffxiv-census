@@ -24,6 +24,10 @@ type FreeCompanyBoardResult struct {
 	Ready bool
 	// BuiltAt is the nightly rebuild that produced the boards.
 	BuiltAt time.Time
+	// ActivityWindowDays is the activity window the boards' active counts
+	// used, in whole days (BuiltAt minus their activity cutoff). The boards
+	// are rebuilt nightly, so it can differ from the main snapshot's.
+	ActivityWindowDays int
 }
 
 // freeCompanyMissingRetry is how long a missing Free Company row is
@@ -74,6 +78,7 @@ func (s *UIStatsService) FreeCompanyBoard(ctx context.Context, snapshot *contrac
 	result.FreeCompanyBoard = board
 	result.Rows = append([]FreeCompanyRow(nil), board.Rows...)
 	result.Ready, result.BuiltAt = true, row.BuiltAt
+	result.ActivityWindowDays = WindowDays(row.BuiltAt.Sub(row.ActivitySince))
 	return result, nil
 }
 

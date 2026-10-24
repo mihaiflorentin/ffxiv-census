@@ -317,6 +317,11 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 	if prev.NewCharactersWindowDays != snapshot.NewCharactersWindowDays {
 		return false, nil
 	}
+	// Likewise a changed activity window: the Free Company boards' active
+	// counts only move on a full rebuild.
+	if census.SnapshotActivityWindowDays(&prev) != census.SnapshotActivityWindowDays(snapshot) {
+		return false, nil
+	}
 	// The privacy counts can only be carried forward from a snapshot that has
 	// them (one written before they existed has no build time).
 	if prev.PrivacyBuiltAt.IsZero() {
