@@ -3071,7 +3071,8 @@ input[type="search"] {
 
 /* The world page's share of characters in a Free Company, beside the top five. */
 .fc-share {
-    margin: 0;
+    /* Sits beside the panel title; the link keeps the far edge. */
+    margin: 0 auto 0 0;
     font-size: var(--step--1);
     color: var(--color-ink-muted);
 }
