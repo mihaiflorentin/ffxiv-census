@@ -139,6 +139,17 @@ func (r *UIStatsRepository) Refresh(ctx context.Context, opts contract.UIStatsRe
 	if err := r.readMilestoneStats(ctx, tx, snapshot); err != nil {
 		return nil, err
 	}
+	var freeCompanies *contract.StatsFreeCompanies
+	var freeCompaniesDuration time.Duration
+	if usedMode == contract.UIStatsRefreshFull {
+		passStarted := time.Now()
+		freeCompanies, err = readFreeCompanyBoards(ctx, tx, snapshot.ActivitySince, snapshot.GeneratedAt)
+		if err != nil {
+			return nil, err
+		}
+		freeCompaniesDuration = time.Since(passStarted)
+		snapshot.FreeCompaniesBuiltAt = snapshot.GeneratedAt
+	}
 	if err := tx.Commit(); err != nil {
 		return nil, fmt.Errorf("commit UI statistics read snapshot: %w", err)
 	}
@@ -151,7 +162,14 @@ func (r *UIStatsRepository) Refresh(ctx context.Context, opts contract.UIStatsRe
 	if err != nil {
 		return nil, fmt.Errorf("encode UI statistics snapshot: %w", err)
 	}
-	if _, err := conn.ExecContext(ctx, `
+	// The full refresh publishes the main snapshot and the Free Company
+	// boards together; the incremental refresh leaves the boards' row alone.
+	publish, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("begin UI statistics publish: %w", err)
+	}
+	defer func() { _ = publish.Rollback() }()
+	if _, err := publish.ExecContext(ctx, `
 		INSERT INTO ui_stats_snapshots (
 			snapshot_key, schema_version, generated_at, activity_since, max_level,
 			source_character_count, refresh_duration_ms, payload, watermark_at
@@ -168,6 +186,14 @@ func (r *UIStatsRepository) Refresh(ctx context.Context, opts contract.UIStatsRe
 		snapshot.SchemaVersion, snapshot.GeneratedAt, snapshot.ActivitySince, snapshot.MaxLevel,
 		snapshot.SourceCharacters, snapshot.RefreshDuration.Milliseconds(), payload, watermark); err != nil {
 		return nil, fmt.Errorf("publish UI statistics snapshot: %w", err)
+	}
+	if freeCompanies != nil {
+		if err := publishFreeCompanyBoards(ctx, publish, snapshot, freeCompanies, freeCompaniesDuration); err != nil {
+			return nil, err
+		}
+	}
+	if err := publish.Commit(); err != nil {
+		return nil, fmt.Errorf("commit UI statistics publish: %w", err)
 	}
 	return &contract.UIStatsRefreshResult{
 		Snapshot:     snapshot,
@@ -192,6 +218,7 @@ func (r *UIStatsRepository) readCharacterStats(ctx context.Context, tx *sql.Tx, 
 		       COUNT(*) FILTER (WHERE latest_achievement_at >= $1) AS active,
 		       COUNT(*) FILTER (WHERE max_job_level >= $2) AS max_level,
 		       `+privacyCountColumns+`,
+		       `+inFreeCompanyColumn+`,
 		       `+jobFineColumns+`
 		FROM characters
 		WHERE deleted_at IS NULL
@@ -228,7 +255,7 @@ func queryFineGrainWith(ctx context.Context, tx *sql.Tx, extra fineExtra, query 
 		var key fineKey
 		var counts fineCounts
 		dest := []any{&key.Region, &key.Datacenter, &key.World, &key.Race, &key.Tribe, &key.Gender, &key.GrandCompany,
-			&counts.Total, &counts.Active, &counts.MaxLevel, &counts.Private, &counts.Unchecked}
+			&counts.Total, &counts.Active, &counts.MaxLevel, &counts.Private, &counts.Unchecked, &counts.InFreeCompany}
 		if extra != nil {
 			dest = append(dest, extra.dest()...)
 		}
@@ -296,12 +323,20 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 		return false, nil
 	}
 	snapshot.Jobs = prev.Jobs
+	// The Free Company boards (their own row) and the in a Free Company
+	// counts wait for the nightly rebuild; a previous snapshot without them
+	// needs a full rebuild.
+	if prev.FreeCompaniesBuiltAt.IsZero() {
+		return false, nil
+	}
+	snapshot.FreeCompaniesBuiltAt = prev.FreeCompaniesBuiltAt
 
 	// carried holds the figures that move by the delta: every group's total
-	// and the location groups' privacy counts.
+	// and the location groups' privacy counts. The in a Free Company counts
+	// ride along unchanged (the delta adds none).
 	carried := make(map[groupKey]fineCounts, len(prev.Groups))
 	for _, g := range prev.Groups {
-		carried[groupKey{Scope: g.Scope, Dimension: g.Dimension, Key: g.Key}] = fineCounts{Total: g.Total, Private: g.Private, Unchecked: g.Unchecked}
+		carried[groupKey{Scope: g.Scope, Dimension: g.Dimension, Key: g.Key}] = fineCounts{Total: g.Total, Private: g.Private, Unchecked: g.Unchecked, InFreeCompany: g.InFreeCompany}
 	}
 
 	delta, err := queryFineGrain(ctx, tx, `
@@ -319,7 +354,8 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 		SELECT `+fineGrainKeyColumns+`,
 		       SUM(sign) AS total, 0 AS active, 0 AS max_level,
 		       COALESCE(SUM(sign) FILTER (WHERE achievements_private = 1), 0) AS private,
-		       COALESCE(SUM(sign) FILTER (WHERE achievements_private = 0 AND latest_achievement_at IS NULL), 0) AS unchecked
+		       COALESCE(SUM(sign) FILTER (WHERE achievements_private = 0 AND latest_achievement_at IS NULL), 0) AS unchecked,
+		       0 AS in_free_company
 		FROM delta
 		GROUP BY `+fineGrainGroupBy, prevWatermark.Time, watermark)
 	if err != nil {
@@ -328,14 +364,14 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 	for key, counts := range delta.groups {
 		carried[key] = carried[key].plus(counts)
 	}
-	summary := fineCounts{Total: prev.Summary.Total, Private: prev.Summary.Private, Unchecked: prev.Summary.Unchecked}.plus(delta.summary)
+	summary := fineCounts{Total: prev.Summary.Total, Private: prev.Summary.Private, Unchecked: prev.Summary.Unchecked, InFreeCompany: prev.Summary.InFreeCompany}.plus(delta.summary)
 
 	live, err := queryFineGrain(ctx, tx, `
 		SELECT `+fineGrainKeyColumns+`,
 		       COUNT(*) AS total,
 		       COUNT(*) FILTER (WHERE latest_achievement_at >= $1) AS active,
 		       COUNT(*) FILTER (WHERE max_job_level >= $2) AS max_level,
-		       0 AS private, 0 AS unchecked
+		       0 AS private, 0 AS unchecked, 0 AS in_free_company
 		FROM characters
 		WHERE deleted_at IS NULL
 		  AND (latest_achievement_at >= $1 OR max_job_level >= $2)

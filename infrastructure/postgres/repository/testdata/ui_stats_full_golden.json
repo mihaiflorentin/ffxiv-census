@@ -1631,5 +1631,6 @@
       }
     ]
   },
-  "privacy_built_at": "0001-01-01T00:00:00Z"
+  "privacy_built_at": "0001-01-01T00:00:00Z",
+  "free_companies_built_at": "0001-01-01T00:00:00Z"
 }

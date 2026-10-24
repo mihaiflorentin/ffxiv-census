@@ -28,13 +28,15 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 	if snapshot.Summary.Active > snapshot.Summary.Total || snapshot.Summary.MaxLevel > snapshot.Summary.Total {
 		return errors.New("UI statistics summary subset exceeds total")
 	}
-	if !validLocationCounts(snapshot.Summary.Total, snapshot.Summary.MaxLevel, snapshot.Summary.Private, snapshot.Summary.Unchecked) {
+	if !validLocationCounts(snapshot.Summary.Total, snapshot.Summary.MaxLevel, snapshot.Summary.Private, snapshot.Summary.Unchecked) ||
+		!validSubset(snapshot.Summary.InFreeCompany, snapshot.Summary.Total) {
 		return errors.New("invalid UI statistics summary privacy counts")
 	}
 	seenGroups := make(map[string]struct{}, len(snapshot.Groups))
 	for _, group := range snapshot.Groups {
 		if group.Dimension == "" || group.Total < 0 || group.Active < 0 || group.Active > group.Total ||
-			!validLocationCounts(group.Total, group.MaxLevel, group.Private, group.Unchecked) {
+			!validLocationCounts(group.Total, group.MaxLevel, group.Private, group.Unchecked) ||
+			!validSubset(group.InFreeCompany, group.Total) {
 			return errors.New("invalid UI statistics group")
 		}
 		key := scopeKey(group.Scope) + "\x00" + group.Dimension + "\x00" + group.Key
@@ -69,6 +71,11 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 		seenDays[key] = struct{}{}
 	}
 	return validateJobsSection(snapshot.Jobs)
+}
+
+// validSubset reports whether part is a count of some of total's characters.
+func validSubset(part, total int64) bool {
+	return part >= 0 && part <= total
 }
 
 // validLocationCounts reports whether the at cap and privacy counts fit

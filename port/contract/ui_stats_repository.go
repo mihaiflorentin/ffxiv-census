@@ -31,6 +31,9 @@ type StatsSummary struct {
 	// yet. They are rebuilt nightly; see UIStatsSnapshot.PrivacyBuiltAt.
 	Private   int64 `json:"private,omitempty"`
 	Unchecked int64 `json:"unchecked,omitempty"`
+	// InFreeCompany is the characters in any Free Company. Rebuilt nightly
+	// with the Free Company boards; see UIStatsSnapshot.FreeCompaniesBuiltAt.
+	InFreeCompany int64 `json:"in_free_company,omitempty"`
 }
 
 type ScopedGroupCount struct {
@@ -42,9 +45,10 @@ type ScopedGroupCount struct {
 	// MaxLevel (highest job level at the configured maximum), Private and
 	// Unchecked are set on the location groups only: the global-scope
 	// region, datacenter and world groups (schema 3). See StatsSummary.
-	MaxLevel  int64 `json:"max_level,omitempty"`
-	Private   int64 `json:"private,omitempty"`
-	Unchecked int64 `json:"unchecked,omitempty"`
+	MaxLevel      int64 `json:"max_level,omitempty"`
+	Private       int64 `json:"private,omitempty"`
+	Unchecked     int64 `json:"unchecked,omitempty"`
+	InFreeCompany int64 `json:"in_free_company,omitempty"`
 }
 
 type ScopedExpansionCount struct {
@@ -78,6 +82,11 @@ type UIStatsSnapshot struct {
 	// unchecked counts ran. The incremental refresh carries it forward with
 	// the counts; zero means the snapshot has no privacy figures.
 	PrivacyBuiltAt time.Time `json:"privacy_built_at"`
+	// FreeCompaniesBuiltAt is when the full rebuild that produced the Free
+	// Company boards (their own row, see StatsFreeCompanies) and the in a Free
+	// Company counts ran. The incremental refresh carries it forward; zero
+	// means there are no Free Company figures yet.
+	FreeCompaniesBuiltAt time.Time `json:"free_companies_built_at"`
 }
 
 // UIStatsRefreshMode selects how a refresh builds the snapshot.
@@ -114,6 +123,9 @@ type UIStatsRefreshResult struct {
 type UIStatsRepository interface {
 	LoadCurrent(ctx context.Context) (*UIStatsSnapshot, error)
 	Refresh(ctx context.Context, opts UIStatsRefreshOptions) (*UIStatsRefreshResult, error)
+	// LoadFreeCompanies reads the Free Company boards the last full refresh
+	// wrote; census.ErrUIStatsUnavailable when there are none yet.
+	LoadFreeCompanies(ctx context.Context) (*StatsFreeCompanies, error)
 }
 
 // UIStatsObserver receives bounded-label cache and refresh measurements.
