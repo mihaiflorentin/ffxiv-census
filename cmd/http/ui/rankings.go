@@ -225,7 +225,7 @@ func (c *UIController) Rankings(w http.ResponseWriter, r *http.Request) {
 		NounOne:        place,
 		AllRegionsHref: rankingsHref(census.RankingQuery{Metric: query.Metric, By: query.By}),
 	}
-	board := c.rankings.Board(snapshot, query)
+	board := c.memo.Rankings(snapshot, query)
 	data.Ready = board.Ready
 	if board.Ready {
 		data.Excluded, data.MinimumSize = board.Excluded, board.MinimumSize

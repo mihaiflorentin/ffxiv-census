@@ -237,22 +237,22 @@ func TestRankingsWaitForTheFiguresTheyNeed(t *testing.T) {
 	}
 }
 
-func TestRankingsMemoBuildsEachBoardOncePerSnapshot(t *testing.T) {
-	memo := NewRankingsMemo()
+func TestSnapshotMemoBuildsEachRankingsBoardOncePerSnapshot(t *testing.T) {
+	memo := NewSnapshotMemo()
 	snapshot := rankingSnapshot()
 	query := RankingQuery{Metric: MetricPopulation, By: LocationWorld}
-	first := memo.Board(snapshot, query)
+	first := memo.Rankings(snapshot, query)
 	first.Rows[0].Key = "Scribbled"
 
 	// The same snapshot (by generation time) serves the memoised board, even
 	// if a caller changed its copy.
 	snapshot.Groups[8].Total = 1 // Balmung shrinks, unseen until a new snapshot
-	if got := memo.Board(snapshot, query).Rows[0].Key; got != "Balmung" {
+	if got := memo.Rankings(snapshot, query).Rows[0].Key; got != "Balmung" {
 		t.Fatalf("memoised leader = %q, want Balmung", got)
 	}
 
 	snapshot.GeneratedAt = snapshot.GeneratedAt.Add(time.Hour)
-	if got := memo.Board(snapshot, query).Rows[0].Key; got != "Ragnarok" {
+	if got := memo.Rankings(snapshot, query).Rows[0].Key; got != "Ragnarok" {
 		t.Fatalf("leader after a new snapshot = %q, want Ragnarok", got)
 	}
 }

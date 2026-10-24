@@ -106,9 +106,9 @@ func (c *UIController) WorldDetail(w http.ResponseWriter, r *http.Request) {
 		RaceData:           raceData,
 		MSQCompletions:     msq,
 		Timeline:           newCharactersTimeline(snapshot, scope),
-		GrandCompanies: grandCompanyBand(census.GrandCompanySplitFor(snapshot, scope),
+		GrandCompanies: grandCompanyBand(c.memo.GrandCompanySplit(snapshot, scope),
 			census.SnapshotHasSection(snapshot, census.SectionGrandCompanies), worldName),
-		TopJobs: topJobsBlock(census.ArmouryFor(snapshot, scope),
+		TopJobs: topJobsBlock(c.memo.Armoury(snapshot, scope),
 			census.SnapshotHasSection(snapshot, census.SectionJobs), worldName),
 		FreeCompanies: topFreeCompaniesBlock(worldName, census.SnapshotLocation(snapshot, scope), fcBoard, fcErr),
 	}))

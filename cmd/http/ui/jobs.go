@@ -124,7 +124,7 @@ func (c *UIController) Jobs(w http.ResponseWriter, r *http.Request) {
 		data.MeasurePhrase = "at the level cap"
 	}
 	if data.Ready {
-		armoury := census.ArmouryFor(snapshot, place.scope())
+		armoury := c.memo.Armoury(snapshot, place.scope())
 		data.BuiltAt = armoury.BuiltAt
 		data.Characters, data.Covered = armoury.Characters, armoury.Covered
 		data.Partial = !armoury.FullyCovered()
