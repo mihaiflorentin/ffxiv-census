@@ -22,6 +22,7 @@ var shellPages = []struct {
 	{"Races", "/ui/races", "/ui/races"},
 	{"Grand Companies", "/ui/grand-companies", "/ui/grand-companies"},
 	{"Jobs", "/ui/jobs", "/ui/jobs"},
+	{"Levels", "/ui/levels", "/ui/levels"},
 	{"Worlds", "/ui/worlds", "/ui/worlds"},
 	{"World Detail", "/ui/worlds/Adamantoise", "/ui/worlds"},
 	{"Expansions", "/ui/expansions", "/ui/expansions"},
@@ -167,7 +168,7 @@ func TestPageShellLandmarks(t *testing.T) {
 			// The spec's order is Dashboard, Worlds, Rankings, Races, Grand
 			// Companies, Jobs, Expansions, Methodology; a page is linked only
 			// once it exists.
-			if want := []string{"/", "/ui/worlds", "/ui/rankings", "/ui/races", "/ui/grand-companies", "/ui/jobs", "/ui/expansions", "/ui/methodology"}; strings.Join(navOrder, " ") != strings.Join(want, " ") {
+			if want := []string{"/", "/ui/worlds", "/ui/rankings", "/ui/races", "/ui/grand-companies", "/ui/jobs", "/ui/levels", "/ui/expansions", "/ui/methodology"}; strings.Join(navOrder, " ") != strings.Join(want, " ") {
 				t.Errorf("primary nav links %v, want %v in that order", navOrder, want)
 			}
 			if len(current) != 1 || current[0] != tc.currentNav {

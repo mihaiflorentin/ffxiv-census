@@ -81,6 +81,23 @@
     --color-gc-immortal-flames: #6896D1;
 
     /*
+     * Colour: the level band ramp, an ordinal one-hue ramp in the Aether
+     * hue (OKLCH h 220): the higher the band, the brighter and more
+     * saturated, like an attuned aetheryte. Step 1 is A Realm Reborn, step 7
+     * the level cap (see levelStep in levels.go). Validated with the dataviz
+     * validator (--ordinal, dark): lightness monotone, adjacent dL >= 0.06,
+     * single hue (7 deg spread), step 1 at 2.42:1 on Surface and 2.13:1 on
+     * Raised. Marks only; every band is named beside its mark.
+     */
+    --color-level-1: #325F6D;
+    --color-level-2: #3A7486;
+    --color-level-3: #41899F;
+    --color-level-4: #499FB8;
+    --color-level-5: #51B5D3;
+    --color-level-6: #59CCEE;
+    --color-level-7: #61E4FF;
+
+    /*
      * Colour: categorical chart palette. Eight slots in a fixed order, never
      * cycled; slot 1 is the Aether hue and slot 2 the Crystal hue, stepped
      * down to the top of the dark-mode chart band (OKLCH L 0.48-0.67; the
@@ -2266,7 +2283,8 @@ input[type="search"] {
  * not yet unlocked in game. The hairline along each tile's foot is its share
  * of characters, read like the experience bar under a job's level.
  */
-.jobs-status {
+.jobs-status,
+.levels-status {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
@@ -2659,6 +2677,264 @@ input[type="search"] {
         grid-column: 1 / -1;
         grid-row: 2;
     }
+}
+
+/* ---------- Levels ---------- */
+
+.level-step-1 { --slot-color: var(--color-level-1); }
+.level-step-2 { --slot-color: var(--color-level-2); }
+.level-step-3 { --slot-color: var(--color-level-3); }
+.level-step-4 { --slot-color: var(--color-level-4); }
+.level-step-5 { --slot-color: var(--color-level-5); }
+.level-step-6 { --slot-color: var(--color-level-6); }
+.level-step-7 { --slot-color: var(--color-level-7); }
+
+.levels-lede {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2) var(--space-4);
+    max-width: var(--measure);
+    margin-bottom: var(--space-6);
+}
+
+.levels-lede-figure {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-weight: var(--weight-display);
+    font-size: var(--step-6);
+    line-height: 1;
+    letter-spacing: var(--tracking-display);
+    color: var(--color-ink);
+}
+
+.levels-lede-text {
+    flex: 1 1 18rem;
+    font-size: var(--step-1);
+    line-height: var(--leading-tight);
+    color: var(--color-ink);
+}
+
+.levels-lede-aside {
+    display: block;
+    margin-top: var(--space-1);
+    font-size: var(--step-0);
+    color: var(--color-ink-muted);
+}
+
+/* The band chart: one row per band, the expansions climbing down the page
+   and the bar brightening as the levels rise. */
+.level-bands {
+    list-style: none;
+    display: grid;
+    gap: var(--space-1);
+    margin-bottom: var(--space-4);
+}
+
+.level-band-row {
+    display: grid;
+    grid-template-columns: 9.5rem 3.5rem minmax(0, 1fr) 9rem;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-2) var(--space-3);
+    margin: 0 calc(-1 * var(--space-3));
+    border-radius: var(--radius-control);
+    transition: background-color var(--duration-fast) ease;
+}
+
+.level-band-row:hover,
+.level-band-row:focus-visible {
+    background: var(--color-raised);
+}
+
+.level-band-name {
+    font-weight: var(--weight-medium);
+    color: var(--color-ink);
+}
+
+.level-band-range {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+    text-align: right;
+}
+
+.level-band-bar {
+    display: block;
+    width: 100%;
+    height: 1.25rem;
+}
+
+.level-band-track {
+    fill: var(--color-raised);
+}
+
+.level-band-row:hover .level-band-track,
+.level-band-row:focus-visible .level-band-track {
+    fill: var(--color-line);
+}
+
+.level-band-fill {
+    fill: var(--slot-color);
+}
+
+.level-band-figures {
+    display: flex;
+    justify-content: flex-end;
+    align-items: baseline;
+    gap: var(--space-3);
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-variant-numeric: tabular-nums;
+}
+
+.level-band-count {
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.level-band-share {
+    min-width: 3.5rem;
+    font-size: var(--step-1);
+    font-weight: 600;
+    color: var(--color-ink);
+    text-align: right;
+}
+
+@media (max-width: 599px) {
+    .level-band-row {
+        grid-template-columns: minmax(0, 1fr) auto;
+        gap: var(--space-1) var(--space-3);
+    }
+
+    .level-band-range {
+        text-align: left;
+        grid-row: 2;
+    }
+
+    .level-band-bar {
+        grid-column: 1 / -1;
+        grid-row: 3;
+        height: 0.875rem;
+    }
+
+    .level-band-figures {
+        grid-column: 2;
+        grid-row: 1 / span 2;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0;
+    }
+}
+
+/* Stacked rows (per datacenter and per world) reuse the party balance
+   layout; the right column is the share at the level cap. */
+.level-row-name a {
+    color: var(--color-ink);
+    text-decoration-color: var(--color-line);
+}
+
+.level-row-name a:hover {
+    color: var(--color-aether);
+}
+
+.level-segment {
+    fill: var(--slot-color);
+    stroke: var(--color-surface);
+    stroke-width: 2px;
+    vector-effect: non-scaling-stroke;
+}
+
+.level-row-current .level-segment {
+    stroke: var(--color-raised);
+}
+
+.level-row-cap {
+    min-width: 3.5rem;
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-variant-numeric: tabular-nums;
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+    text-align: right;
+}
+
+.level-row-current .level-row-cap {
+    color: var(--color-ink);
+}
+
+.level-world-prompt {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-3) var(--space-5);
+}
+
+.level-world-prompt-text {
+    color: var(--color-ink-muted);
+}
+
+.level-world-regions {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+}
+
+.level-world-region {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: 0 var(--space-4);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-pill);
+    color: var(--color-ink);
+    text-decoration: none;
+}
+
+.level-world-region:hover {
+    background: var(--color-raised);
+    color: var(--color-ink);
+}
+
+/* World detail: the compact level band. */
+.level-strip-lede {
+    max-width: var(--measure);
+    margin-bottom: var(--space-4);
+    color: var(--color-ink);
+}
+
+.level-strip-figure {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-weight: 700;
+    font-size: var(--step-2);
+}
+
+.level-strip {
+    display: block;
+    width: 100%;
+    height: 14px;
+    border-radius: var(--radius-pill);
+    background: var(--color-raised);
+}
+
+.level-strip-key {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-5);
+    margin: var(--space-3) 0 0;
+    padding: 0;
+    list-style: none;
+    font-size: var(--step--1);
+}
+
+.level-strip-share {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-weight: 600;
+    color: var(--color-ink);
 }
 
 /* ---------- World detail: most levelled jobs ---------- */
@@ -3584,6 +3860,7 @@ input[type="search"] {
 
 /* Marks that take focus for their tip: a ring that suits each shape. */
 .balance-segment:focus-visible,
+.level-segment:focus-visible,
 .veil-segment:focus-visible,
 .gc-band-segment:focus-visible {
     outline: none;

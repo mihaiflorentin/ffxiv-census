@@ -44,6 +44,7 @@ func NewUIController(svc *census.Service, q contract.Queue, stats *census.UIStat
 		"templates/races.html",
 		"templates/grand_companies.html",
 		"templates/jobs.html",
+		"templates/levels.html",
 		"templates/worlds.html",
 		"templates/world_detail.html",
 		"templates/expansions.html",
@@ -255,6 +256,8 @@ func (c *UIController) renderPartial(w http.ResponseWriter, partialTemplate stri
 // MethodologyViewData holds metadata for /ui/methodology.
 type MethodologyViewData struct {
 	Expansions []census.ExpansionConfig
+	// LevelBands are the configured level bands, for the Levels section.
+	LevelBands []LevelBandKey
 }
 
 // Methodology handles GET /ui/methodology.
@@ -266,6 +269,10 @@ func (c *UIController) Methodology(w http.ResponseWriter, r *http.Request) {
 	if len(expansions) == 0 {
 		expansions = census.DefaultExpansions
 	}
+	maxLevel := uint32(100)
+	if c.svc != nil {
+		maxLevel = c.svc.MaxLevel()
+	}
 
 	data := PageData{
 		Title:         "Methodology",
@@ -274,6 +281,7 @@ func (c *UIController) Methodology(w http.ResponseWriter, r *http.Request) {
 		Description:   "How the FFXIV Census builds its statistics: public Lodestone achievements as the activity signal, snapshot refreshes, data sources, and known limitations.",
 		Data: MethodologyViewData{
 			Expansions: expansions,
+			LevelBands: levelKey(census.LevelBands(expansions, maxLevel)),
 		},
 	}
 	// The footer shows snapshot freshness on every page. Methodology does not

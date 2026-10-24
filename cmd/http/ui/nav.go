@@ -9,7 +9,8 @@ type NavItem struct {
 }
 
 // primaryNav lists the primary navigation in the spec's order: Dashboard,
-// Worlds, Rankings, Races, Grand Companies, Jobs, Expansions, Methodology.
+// Worlds, Rankings, Races, Grand Companies, Jobs, Levels, Expansions,
+// Methodology.
 // A page is linked only once it exists, so each new page adds its own entry
 // in its place in that order.
 var primaryNav = []NavItem{
@@ -19,6 +20,7 @@ var primaryNav = []NavItem{
 	{Key: "races", Label: "Races", Href: "/ui/races"},
 	{Key: "grand-companies", Label: "Grand Companies", Href: "/ui/grand-companies"},
 	{Key: "jobs", Label: "Jobs", Href: "/ui/jobs"},
+	{Key: "levels", Label: "Levels", Href: "/ui/levels"},
 	{Key: "expansions", Label: "Expansions", Href: "/ui/expansions"},
 	{Key: "methodology", Label: "Methodology", Href: "/ui/methodology"},
 }

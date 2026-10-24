@@ -25,7 +25,7 @@ type sitemapURL struct {
 }
 
 // sitemapStaticPaths lists the indexable UI pages without per-entity routes.
-var sitemapStaticPaths = []string{"/", "/ui/races", "/ui/grand-companies", "/ui/jobs", "/ui/worlds", "/ui/expansions", "/ui/methodology", "/ui/privacy", "/ui/rankings", "/ui/rankings/free-companies"}
+var sitemapStaticPaths = []string{"/", "/ui/races", "/ui/grand-companies", "/ui/jobs", "/ui/levels", "/ui/worlds", "/ui/expansions", "/ui/methodology", "/ui/privacy", "/ui/rankings", "/ui/rankings/free-companies"}
 
 // Sitemap handles GET /sitemap.xml. It renders the sitemap-protocol document
 // for every indexable page from the statistics snapshot. A sitemap must never
@@ -62,7 +62,7 @@ func (c *UIController) Sitemap(w http.ResponseWriter, r *http.Request) {
 
 // sitemapLastMods returns, per sitemap path, when that page's figures last
 // changed, so Search Console can trust lastmod. Pages fed by every refresh
-// use the snapshot time; Jobs, Free Company rankings and Private
+// use the snapshot time; Jobs, Levels, Free Company rankings and Private
 // Achievements use their nightly section's build time; Methodology shows no
 // snapshot data and gets none. A nil snapshot gives no lastmod at all.
 func sitemapLastMods(snapshot *contract.UIStatsSnapshot) func(path string) time.Time {
@@ -78,6 +78,8 @@ func sitemapLastMods(snapshot *contract.UIStatsSnapshot) func(path string) time.
 				return time.Time{}
 			}
 			return snapshot.Jobs.BuiltAt
+		case "/ui/levels":
+			return snapshot.LevelsBuiltAt
 		case "/ui/privacy":
 			return snapshot.PrivacyBuiltAt
 		case "/ui/rankings/free-companies":

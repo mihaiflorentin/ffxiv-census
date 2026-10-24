@@ -48,6 +48,8 @@ func TestIndexablePagesHeadMetadata(t *testing.T) {
 		{"Grand Companies Filtered", "/ui/grand-companies?region=EU&dc=Chaos", "/ui/grand-companies"},
 		{"Jobs", "/ui/jobs", "/ui/jobs"},
 		{"Jobs Filtered", "/ui/jobs?world=Balmung&measure=at-cap", "/ui/jobs"},
+		{"Levels", "/ui/levels", "/ui/levels"},
+		{"Levels Filtered", "/ui/levels?region=EU&dc=Chaos", "/ui/levels"},
 		{"Worlds", "/ui/worlds", "/ui/worlds"},
 		{"World Detail", "/ui/worlds/Adamantoise", "/ui/worlds/Adamantoise"},
 		{"Expansions", "/ui/expansions", "/ui/expansions"},
