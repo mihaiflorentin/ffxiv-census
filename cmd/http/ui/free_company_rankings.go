@@ -240,12 +240,18 @@ type TopFreeCompaniesBlock struct {
 	Ladder     Ladder
 	Href       string
 	Membership string
+	// Share is the world's characters in any Free Company ("40.0%"), shown
+	// as "In a Free Company" beside the top five; empty for an empty world.
+	Share string
 }
 
 // topFreeCompaniesBlock builds a world page's five largest Free Companies.
 func topFreeCompaniesBlock(world string, counts census.LocationCounts, result census.FreeCompanyBoardResult, err error) TopFreeCompaniesBlock {
 	block := TopFreeCompaniesBlock{Href: fcHref(placeFilter{World: world}, census.FreeCompanyMembers)}
 	block.Membership = fcMembershipLine(counts, " on "+world)
+	if counts.Total > 0 {
+		block.Share = percentOf(float64(counts.InFreeCompany) / float64(counts.Total))
+	}
 	if err != nil {
 		logging.Error("ui.world_free_companies", err.Error())
 		return block

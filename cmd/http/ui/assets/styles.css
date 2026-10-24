@@ -3069,6 +3069,22 @@ input[type="search"] {
     font-variant-numeric: tabular-nums;
 }
 
+/* The world page's share of characters in a Free Company, beside the top five. */
+.fc-share {
+    margin: 0;
+    font-size: var(--step--1);
+    color: var(--color-ink-muted);
+}
+
+.fc-share-value {
+    font-family: var(--font-figures);
+    font-stretch: var(--width-semi-condensed);
+    font-size: var(--step-1);
+    font-weight: 600;
+    color: var(--color-ink);
+    font-variant-numeric: tabular-nums;
+}
+
 .rankings-explain {
     margin-top: var(--space-2);
     max-width: var(--measure);
