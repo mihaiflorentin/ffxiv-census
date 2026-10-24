@@ -17,8 +17,15 @@ const LevelCapBand = "Level cap"
 // level and above. Expansions whose band would start at or past the maximum
 // are left out, so an announced expansion with no released levels adds no
 // band. A new expansion in the configuration adds its band with no code
-// change.
+// change. No expansions means DefaultExpansions and a zero maximum
+// DefaultMaxLevel.
 func LevelBands(expansions []ExpansionConfig, maxLevel uint32) []contract.StatsLevelBand {
+	if len(expansions) == 0 {
+		expansions = DefaultExpansions
+	}
+	if maxLevel == 0 {
+		maxLevel = DefaultMaxLevel
+	}
 	sorted := append([]ExpansionConfig(nil), expansions...)
 	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].LevelCap < sorted[j].LevelCap })
 	var bands []contract.StatsLevelBand
@@ -176,12 +183,7 @@ func LevelsByDatacenter(snapshot *contract.UIStatsSnapshot, region string) []Lev
 		d.Region, d.Datacenter = s.region, dc
 		out = append(out, d)
 	}
-	sort.Slice(out, func(i, j int) bool {
-		if ri, rj := RegionRank(out[i].Region), RegionRank(out[j].Region); ri != rj {
-			return ri < rj
-		}
-		return out[i].Key < out[j].Key
-	})
+	sortLevelRows(out)
 	return out
 }
 
@@ -200,8 +202,15 @@ func LevelsByWorld(snapshot *contract.UIStatsSnapshot, scope contract.StatsScope
 		d.Region, d.Datacenter = w.region, w.datacenter
 		out = append(out, d)
 	}
-	sort.Slice(out, func(i, j int) bool {
-		a, b := out[i], out[j]
+	sortLevelRows(out)
+	return out
+}
+
+// sortLevelRows orders datacenter or world rows by region (census order),
+// datacenter, then name (a datacenter row's name is its datacenter).
+func sortLevelRows(rows []LevelDistribution) {
+	sort.Slice(rows, func(i, j int) bool {
+		a, b := rows[i], rows[j]
 		if ra, rb := RegionRank(a.Region), RegionRank(b.Region); ra != rb {
 			return ra < rb
 		}
@@ -210,16 +219,4 @@ func LevelsByWorld(snapshot *contract.UIStatsSnapshot, scope contract.StatsScope
 		}
 		return a.Key < b.Key
 	})
-	return out
-}
-
-// LevelBandIndex is the index of the band holding level, or -1 for a level
-// below every band (a character with no job levels).
-func LevelBandIndex(bands []contract.StatsLevelBand, level uint32) int {
-	for i, b := range bands {
-		if level >= b.Min && (b.Max == 0 || level <= b.Max) {
-			return i
-		}
-	}
-	return -1
 }

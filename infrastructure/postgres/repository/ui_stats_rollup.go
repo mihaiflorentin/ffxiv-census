@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -68,18 +69,6 @@ func (c fineCounts) plus(o fineCounts) fineCounts {
 	}
 }
 
-// levelsAtLeastZero raises negative level band counts to zero. The
-// incremental delta takes a deleted character from the band of its current
-// level, which may not be the band that counted it (it levelled since the
-// nightly rebuild); the band stays at zero until that rebuild.
-func (c fineCounts) levelsAtLeastZero() fineCounts {
-	c.NoLevels = max(c.NoLevels, 0)
-	for i, v := range c.Levels {
-		c.Levels[i] = max(v, 0)
-	}
-	return c
-}
-
 // addLevels adds two runs of level band counts into a new slice.
 func addLevels(a, b []int64) []int64 {
 	if len(a) == 0 && len(b) == 0 {
@@ -109,10 +98,14 @@ const inFreeCompanyColumn = `COUNT(*) FILTER (WHERE fc_id IS NOT NULL) AS in_fre
 
 // levelCountColumns are the level band counts of a fine-grain query:
 // no_levels (highest job level below the first band) then one count per
-// band, each measure FILTERed by max_job_level against bounds bound as
-// parameters $first, $first+1, ... (returned as args, in order). measure is
-// the aggregate counted ("COUNT(*)", or "SUM(sign)" over a delta).
-func levelCountColumns(measure string, bands []contract.StatsLevelBand, first int) (string, []any) {
+// band, each a COUNT FILTERed by max_job_level against bounds bound as
+// parameters $first, $first+1, ... (returned as args, in order). Only the
+// full rebuild counts them: the incremental refresh carries them forward.
+// No bands is an error: no_levels is bounded by the first band.
+func levelCountColumns(bands []contract.StatsLevelBand, first int) (string, []any, error) {
+	if len(bands) == 0 {
+		return "", nil, errors.New("level count columns: no level bands")
+	}
 	var cols []string
 	var args []any
 	param := func(v uint32) string {
@@ -120,18 +113,18 @@ func levelCountColumns(measure string, bands []contract.StatsLevelBand, first in
 		return fmt.Sprintf("$%d", first+len(args)-1)
 	}
 	count := func(cond, name string) {
-		cols = append(cols, fmt.Sprintf("COALESCE(%s FILTER (WHERE %s), 0) AS %s", measure, cond, name))
+		cols = append(cols, fmt.Sprintf("COUNT(*) FILTER (WHERE %s) AS %s", cond, name))
 	}
 	count("max_job_level < "+param(bands[0].Min), "no_levels")
 	for i, b := range bands {
 		name := fmt.Sprintf("level_band_%d", i)
-		if b.Max == 0 {
+		if b.Open() {
 			count("max_job_level >= "+param(b.Min), name)
 		} else {
 			count(fmt.Sprintf("max_job_level BETWEEN %s AND %s", param(b.Min), param(b.Max)), name)
 		}
 	}
-	return strings.Join(cols, ",\n\t\t       "), args
+	return strings.Join(cols, ",\n\t\t       "), args, nil
 }
 
 // zeroLevelColumns are levelCountColumns' columns as zeros, for a

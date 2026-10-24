@@ -272,9 +272,34 @@ func TestLevelsInNavSitemapAndMethodology(t *testing.T) {
 		t.Fatal("Methodology needs a Levels section")
 	}
 	main := renderedMain(t, method)
-	for _, text := range []string{"Heavensward", "50–59", "No job levels yet", "nightly"} {
+	for _, text := range []string{"Heavensward", "50–59", "No job levels yet", "nightly", "after their first census"} {
 		if !strings.Contains(main, text) {
 			t.Errorf("Methodology Levels section must explain %q", text)
 		}
+	}
+	// The bands are nightly only: nothing moves them between rebuilds.
+	if strings.Contains(main, "join their band") {
+		t.Error("Methodology must not say characters join their band between rebuilds")
+	}
+}
+
+func TestLevelsNumbersTableHasNoRangeForCharactersWithoutJobLevels(t *testing.T) {
+	doc := levelsDoc(t, levelsMux(t, levelsPageSnapshot(true)), "/ui/levels")
+	var cells []string
+	for _, tr := range findAll(doc, byAtom(atom.Tr)) {
+		if th := findAll(tr, byAtom(atom.Th)); len(th) > 0 && strings.TrimSpace(textOf(th[0])) == "No job levels yet" {
+			for _, td := range findAll(tr, byAtom(atom.Td)) {
+				cells = append(cells, strings.TrimSpace(textOf(td)))
+			}
+		}
+	}
+	if len(cells) < 2 {
+		t.Fatalf("no 'No job levels yet' row with a range and a count, cells = %q", cells)
+	}
+	if cells[0] != "–" {
+		t.Errorf("'No job levels yet' level range = %q, want –", cells[0])
+	}
+	if cells[1] != "200" {
+		t.Errorf("'No job levels yet' count = %q, want 200", cells[1])
 	}
 }

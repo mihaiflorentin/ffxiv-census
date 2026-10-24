@@ -96,7 +96,7 @@ func TestUIStatsFullRefreshCountsLevelBandsPerLocation(t *testing.T) {
 	}
 }
 
-func TestUIStatsIncrementalCarriesLevelBandsForwardByDelta(t *testing.T) {
+func TestUIStatsIncrementalCarriesLevelBandsForwardUnchanged(t *testing.T) {
 	driver := newTestDriver(t)
 	stats := repository.NewUIStatsRepository(driver)
 	ctx := context.Background()
@@ -118,6 +118,9 @@ func TestUIStatsIncrementalCarriesLevelBandsForwardByDelta(t *testing.T) {
 	after := time.Now().UTC()
 	seedStatsCharacter(t, driver, 4, "Balmung", "Crystal", "NA", "Hyur", 1, after, nil, 95)
 	seedStatsCharacter(t, driver, 5, "Balmung", "Crystal", "NA", "Hyur", 1, after, nil, 0)
+	// A first character on a world the rebuild never saw: its group has no
+	// band counts until the nightly rebuild, and that is still valid.
+	seedStatsCharacter(t, driver, 6, "Zalera", "Crystal", "NA", "Hyur", 1, after, nil, 90)
 	mustExec(t, driver, `UPDATE characters SET deleted_at = NOW() WHERE id = 2`)
 	mustExec(t, driver, `UPDATE characters SET max_job_level = 60 WHERE id = 1`)
 
@@ -128,9 +131,12 @@ func TestUIStatsIncrementalCarriesLevelBandsForwardByDelta(t *testing.T) {
 	if inc.Mode != contract.UIStatsRefreshIncremental {
 		t.Fatalf("mode = %q, want incremental", inc.Mode)
 	}
-	// New and deleted characters move the bands; character 1's level-up
-	// waits for the nightly rebuild.
-	want := levelCounts{1, 1, 0, 0, 1, 0, 1, 0}
+	// The level bands are nightly only: new, deleted and levelled
+	// characters all wait for the nightly rebuild, while the total moves.
+	want := levelCounts{0, 1, 0, 0, 1, 0, 0, 1}
+	if inc.Snapshot.Summary.Total != 5 {
+		t.Errorf("incremental summary total = %d, want 5 (the total still moves by the delta)", inc.Snapshot.Summary.Total)
+	}
 	if got := levelsOf(inc.Snapshot.Summary.NoLevels, inc.Snapshot.Summary.Levels); got != want {
 		t.Errorf("incremental summary levels = %v, want %v", got, want)
 	}
@@ -138,6 +144,9 @@ func TestUIStatsIncrementalCarriesLevelBandsForwardByDelta(t *testing.T) {
 		if got := locationLevels(t, inc.Snapshot, g[0], g[1]); got != want {
 			t.Errorf("incremental %s %s levels = %v, want %v", g[0], g[1], got, want)
 		}
+	}
+	if got := locationLevels(t, inc.Snapshot, "world", "Zalera"); got != (levelCounts{}) {
+		t.Errorf("new world Zalera levels = %v, want none until the nightly rebuild", got)
 	}
 	if !inc.Snapshot.LevelsBuiltAt.Equal(full.Snapshot.GeneratedAt) {
 		t.Errorf("incremental levels built at %v, want the full rebuild's %v", inc.Snapshot.LevelsBuiltAt, full.Snapshot.GeneratedAt)
@@ -147,7 +156,7 @@ func TestUIStatsIncrementalCarriesLevelBandsForwardByDelta(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := levelsOf(rebuilt.Snapshot.Summary.NoLevels, rebuilt.Snapshot.Summary.Levels), (levelCounts{1, 0, 0, 1, 1, 0, 1, 0}); got != want {
+	if got, want := levelsOf(rebuilt.Snapshot.Summary.NoLevels, rebuilt.Snapshot.Summary.Levels), (levelCounts{1, 0, 0, 1, 1, 0, 2, 0}); got != want {
 		t.Errorf("nightly rebuild summary levels = %v, want %v (the drift corrected)", got, want)
 	}
 }
@@ -200,7 +209,7 @@ func TestUIStatsIncrementalWithChangedLevelBandsRebuildsFully(t *testing.T) {
 	}
 }
 
-func TestUIStatsIncrementalKeepsLevelBandsAtZeroWhenTheDeltaOvershoots(t *testing.T) {
+func TestUIStatsIncrementalLevelledThenDeletedCharacterLeavesBandsIntact(t *testing.T) {
 	driver := newTestDriver(t)
 	stats := repository.NewUIStatsRepository(driver)
 	ctx := context.Background()
@@ -211,8 +220,8 @@ func TestUIStatsIncrementalKeepsLevelBandsAtZeroWhenTheDeltaOvershoots(t *testin
 	if _, err := stats.Refresh(ctx, levelOpts(contract.UIStatsRefreshFull, since)); err != nil {
 		t.Fatal(err)
 	}
-	// Counted at level 40, then levelled to the cap and deleted: the delta
-	// takes it from the cap band, which never counted it.
+	// Counted at level 40, then levelled to the cap and deleted: the bands
+	// keep the nightly rebuild's counts until the next one.
 	time.Sleep(20 * time.Millisecond)
 	mustExec(t, driver, `UPDATE characters SET max_job_level = 100, deleted_at = NOW() WHERE id = 1`)
 

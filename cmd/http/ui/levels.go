@@ -23,7 +23,7 @@ func levelStep(i, n int) int {
 
 // levelRange prints a band's levels: "1–49", or "100" for the open cap band.
 func levelRange(b contract.StatsLevelBand) string {
-	if b.Max == 0 {
+	if b.Open() {
 		return fmt.Sprintf("%d", b.Min)
 	}
 	return fmt.Sprintf("%d–%d", b.Min, b.Max)
@@ -33,8 +33,9 @@ func levelRange(b contract.StatsLevelBand) string {
 type LevelBandKey struct {
 	Step        int
 	Name, Range string
-	// Top is the band's highest level ("49"; the cap band's own level).
-	Top string
+	// HighestLevel is the band's highest level ("49"; the cap band's own
+	// level).
+	HighestLevel string
 }
 
 // LevelBandView is one band of a location: a row of the band chart, the
@@ -65,9 +66,9 @@ type LevelRowView struct {
 	NoLevels           int64
 	Segments           []LevelSegment
 	Bands              []LevelBandView
-	// First and Cap are the lowest and the level cap band, for the summary
-	// sentences and the row's cap share.
-	First, Cap LevelBandView
+	// LowestBand and CapBand are the first band and the level cap band,
+	// for the summary sentences and the row's cap share.
+	LowestBand, CapBand LevelBandView
 	// Lede is the summary sentence about the largest band.
 	Lede LevelLede
 }
@@ -87,16 +88,16 @@ func levelLede(row LevelRowView) LevelLede {
 			lead = i
 		}
 	}
-	never := "never took a job past level " + row.First.Top
+	never := "never took a job past level " + row.LowestBand.HighestLevel
 	atCap := "have a job at the level cap"
 	b := row.Bands[lead]
 	switch lead {
 	case 0:
-		return LevelLede{Share: b.Share, Text: never, Aside: row.Cap.Share + " " + atCap + "."}
+		return LevelLede{Share: b.Share, Text: never, Aside: row.CapBand.Share + " " + atCap + "."}
 	case len(row.Bands) - 1:
-		return LevelLede{Share: b.Share, Text: atCap, Aside: row.First.Share + " " + never + "."}
+		return LevelLede{Share: b.Share, Text: atCap, Aside: row.LowestBand.Share + " " + never + "."}
 	}
-	return LevelLede{Share: b.Share, Text: "peaked in " + b.Name + ", levels " + b.Range, Aside: row.Cap.Share + " " + atCap + "."}
+	return LevelLede{Share: b.Share, Text: "peaked in " + b.Name + ", levels " + b.Range, Aside: row.CapBand.Share + " " + atCap + "."}
 }
 
 // RegionLink is a link that narrows a page to one region.
@@ -178,8 +179,8 @@ func (c *UIController) Levels(w http.ResponseWriter, r *http.Request) {
 			data.WorldArea = "worlds in " + regionDisplayName(region)
 		}
 		if worldScope == (contract.StatsScope{}) {
-			for _, r := range census.Regions() {
-				data.WorldPrompt = append(data.WorldPrompt, RegionLink{Name: r.Name, Href: "/ui/levels?region=" + r.Code + "#level-worlds"})
+			for _, reg := range census.Regions() {
+				data.WorldPrompt = append(data.WorldPrompt, RegionLink{Name: reg.Name, Href: "/ui/levels?region=" + reg.Code + "#level-worlds"})
 			}
 		} else {
 			for _, d := range c.memo.LevelsByWorld(snapshot, worldScope) {
@@ -205,11 +206,7 @@ func (c *UIController) Levels(w http.ResponseWriter, r *http.Request) {
 }
 
 func newLevelBandKey(i, n int, b contract.StatsLevelBand) LevelBandKey {
-	top := b.Max
-	if top == 0 {
-		top = b.Min
-	}
-	return LevelBandKey{Step: levelStep(i, n), Name: b.Name, Range: levelRange(b), Top: fmt.Sprintf("%d", top)}
+	return LevelBandKey{Step: levelStep(i, n), Name: b.Name, Range: levelRange(b), HighestLevel: fmt.Sprintf("%d", b.Top())}
 }
 
 // levelKey is the key of the level charts, in band order.
@@ -244,7 +241,7 @@ func newLevelRow(d census.LevelDistribution, name, region string, current bool) 
 		x += b.Share
 	}
 	if n := len(row.Bands); n > 0 {
-		row.First, row.Cap = row.Bands[0], row.Bands[n-1]
+		row.LowestBand, row.CapBand = row.Bands[0], row.Bands[n-1]
 		row.Lede = levelLede(row)
 	}
 	return row

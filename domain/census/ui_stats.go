@@ -96,7 +96,8 @@ func validSubset(part, total int64) bool {
 
 // validLevelCounts reports whether level band counts are none negative and,
 // when present, one per level band of the snapshot. Their sum is not held to
-// the total: the incremental refresh lets it drift until the nightly rebuild.
+// the total: the incremental refresh moves the totals but carries the
+// nightly level bands forward unchanged.
 func validLevelCounts(snapshot *contract.UIStatsSnapshot, noLevels int64, levels []int64) bool {
 	if noLevels < 0 || !nonNegative(levels) {
 		return false

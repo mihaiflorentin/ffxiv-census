@@ -83,6 +83,19 @@ type StatsLevelBand struct {
 	Max  uint32 `json:"max,omitempty"`
 }
 
+// Open reports whether the band has no upper bound: the level-cap band,
+// stored with Max 0.
+func (b StatsLevelBand) Open() bool { return b.Max == 0 }
+
+// Top is the band's highest named level: Max, or Min for the open
+// level-cap band.
+func (b StatsLevelBand) Top() uint32 {
+	if b.Open() {
+		return b.Min
+	}
+	return b.Max
+}
+
 type ScopedExpansionCount struct {
 	Scope     StatsScope `json:"scope"`
 	Expansion string     `json:"expansion"`

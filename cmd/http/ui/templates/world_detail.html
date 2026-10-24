@@ -91,7 +91,7 @@
         {{with .Data.Levels.Row}}
         <p class="level-strip-lede"><strong class="level-strip-figure">{{.Lede.Share}}</strong> of characters on {{.Name}} with job levels {{.Lede.Text}}. {{.Lede.Aside}}</p>
         <svg class="level-strip" viewBox="0 0 100 10" preserveAspectRatio="none" role="group" aria-label="Characters on {{.Name}} by highest job level">
-            {{range .Segments}}<rect class="level-segment level-step-{{.Step}}" x="{{.X}}" y="0" width="{{.Width}}" height="10" tabindex="0" role="img" aria-label="{{.Name}}, level {{.Range}}: {{formatNumber .Count}} characters, {{.Share}}" data-tip="{{.Name}}, level {{.Range}}" data-tip-value="{{formatNumber .Count}} characters, {{.Share}}" data-tip-swatch="swatch level-swatch level-step-{{.Step}}"/>{{end}}
+            {{template "level-segments" .}}
         </svg>
         <ul class="level-strip-key">
             {{range .Bands}}<li><span class="swatch level-swatch level-step-{{.Step}}" aria-hidden="true"></span><span class="level-strip-name">{{.Name}}</span> <span class="level-strip-share">{{.Share}}</span></li>{{end}}

@@ -24,30 +24,6 @@ func TestLevelBandsRunFromOneExpansionCapToJustBelowTheNext(t *testing.T) {
 	}
 }
 
-func TestLevelBandOfALevelHonoursTheBoundaries(t *testing.T) {
-	bands := LevelBands(DefaultExpansions, 100)
-	for _, tc := range []struct {
-		level uint32
-		want  string
-	}{
-		{0, ""},
-		{1, "A Realm Reborn"},
-		{49, "A Realm Reborn"},
-		{50, "Heavensward"},
-		{99, "Dawntrail"},
-		{100, LevelCapBand},
-	} {
-		i := LevelBandIndex(bands, tc.level)
-		got := ""
-		if i >= 0 {
-			got = bands[i].Name
-		}
-		if got != tc.want {
-			t.Errorf("level %d is in band %q, want %q", tc.level, got, tc.want)
-		}
-	}
-}
-
 func TestLevelBandsExtendWithAFutureExpansion(t *testing.T) {
 	expansions := append(append([]ExpansionConfig(nil), DefaultExpansions...), ExpansionConfig{Name: "Next", LevelCap: 110})
 	bands := LevelBands(expansions, 110)
@@ -194,5 +170,21 @@ func TestLevelBandsStopAtTheConfiguredMaximum(t *testing.T) {
 	}
 	if got := bands[len(bands)-1]; got != (contract.StatsLevelBand{Name: LevelCapBand, Min: 90}) {
 		t.Errorf("cap band = %v, want level cap from 90", got)
+	}
+}
+
+func TestLevelBandsWithoutExpansionsUseTheDefaults(t *testing.T) {
+	want := LevelBands(DefaultExpansions, 100)
+	for _, expansions := range [][]ExpansionConfig{nil, {}} {
+		if got := LevelBands(expansions, 100); !reflect.DeepEqual(got, want) {
+			t.Errorf("LevelBands(%v, 100) =\n%v\nwant the default expansions' bands\n%v", expansions, got, want)
+		}
+	}
+}
+
+func TestLevelBandsWithoutAMaximumUseTheDefaultMaximum(t *testing.T) {
+	want := LevelBands(DefaultExpansions, DefaultMaxLevel)
+	if got := LevelBands(DefaultExpansions, 0); !reflect.DeepEqual(got, want) {
+		t.Errorf("LevelBands(defaults, 0) =\n%v\nwant\n%v", got, want)
 	}
 }

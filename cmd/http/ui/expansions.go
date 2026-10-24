@@ -45,13 +45,7 @@ func (c *UIController) Expansions(w http.ResponseWriter, r *http.Request) {
 		countMap[completion.Expansion] = completion.Count
 	}
 
-	var expansionList []census.ExpansionConfig
-	if c.svc != nil {
-		expansionList = c.svc.Expansions()
-	}
-	if len(expansionList) == 0 {
-		expansionList = census.DefaultExpansions
-	}
+	expansionList := c.expansions()
 
 	var list []ExpansionProgression
 	for i, info := range expansionList {

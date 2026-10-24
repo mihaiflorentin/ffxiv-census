@@ -65,6 +65,13 @@ func TestValidateUIStatsSnapshot(t *testing.T) {
 			s.Summary.Levels, s.Summary.NoLevels = []int64{1, 1}, 1
 			s.Groups[0].Levels = []int64{2, 0}
 		}},
+		{name: "level band sums apart from the totals", ok: true, mutate: func(s *contract.UIStatsSnapshot) {
+			// The incremental refresh moves the totals but carries the
+			// nightly level bands unchanged, so their sums may differ.
+			s.LevelBands = []contract.StatsLevelBand{{Name: "A", Min: 1, Max: 49}, {Name: LevelCapBand, Min: 50}}
+			s.Summary.Levels, s.Summary.NoLevels = []int64{4, 1}, 2
+			s.Groups[0].Levels = []int64{5, 0}
+		}},
 		{name: "summary level band negative", mutate: func(s *contract.UIStatsSnapshot) {
 			s.LevelBands = []contract.StatsLevelBand{{Name: "A", Min: 1, Max: 49}, {Name: LevelCapBand, Min: 50}}
 			s.Summary.Levels = []int64{-1, 1}

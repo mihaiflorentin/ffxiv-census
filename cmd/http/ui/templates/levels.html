@@ -47,7 +47,7 @@
                     <thead><tr><th scope="col">Expansion</th><th scope="col" class="text-right">Highest job level</th><th scope="col" class="text-right">Characters</th><th scope="col" class="text-right">Share</th></tr></thead>
                     <tbody>
                         {{range .Bands}}<tr><th scope="row">{{.Name}}</th><td class="text-right">{{.Range}}</td><td class="text-right">{{formatNumber .Count}}</td><td class="text-right">{{.Share}}</td></tr>{{end}}
-                        <tr><th scope="row">No job levels yet</th><td class="text-right">0</td><td class="text-right">{{formatNumber .NoLevels}}</td><td class="text-right">left out</td></tr>
+                        <tr><th scope="row">No job levels yet</th><td class="text-right">–</td><td class="text-right">{{formatNumber .NoLevels}}</td><td class="text-right">left out</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -109,10 +109,10 @@
     {{range .Rows}}
     <li class="balance-row level-row{{if .Current}} balance-current level-row-current{{end}}"{{if .Current}} aria-current="true"{{end}}>
         <span class="balance-name level-row-name"><a href="{{.Href}}">{{.Name}}</a>{{if .Region}} <abbr class="balance-region" title="{{regionName .Region}}">{{.Region}}</abbr>{{end}}</span>
-        {{$row := .Name}}<svg class="balance-bar level-bar" viewBox="0 0 100 10" preserveAspectRatio="none" role="group" aria-label="{{.Name}} by highest job level">
-            {{range .Segments}}<rect class="level-segment level-step-{{.Step}}" x="{{.X}}" y="0" width="{{.Width}}" height="10" tabindex="0" role="img" aria-label="{{.Name}}, level {{.Range}}: {{formatNumber .Count}} characters, {{.Share}}" data-tip="{{$row}}" data-tip-value="{{.Name}}, level {{.Range}}: {{formatNumber .Count}} characters, {{.Share}}" data-tip-swatch="swatch level-swatch level-step-{{.Step}}"/>{{end}}
+        <svg class="balance-bar level-bar" viewBox="0 0 100 10" preserveAspectRatio="none" role="group" aria-label="{{.Name}} by highest job level">
+            {{template "level-segments" .}}
         </svg>
-        <span class="level-row-cap">{{.Cap.Share}}<span class="visually-hidden"> at the level cap</span></span>
+        <span class="level-row-cap">{{.CapBand.Share}}<span class="visually-hidden"> at the level cap</span></span>
     </li>
     {{end}}
 </ol>

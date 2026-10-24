@@ -122,10 +122,7 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 	for _, completion := range completions {
 		countMap[completion.Expansion] = completion.Count
 	}
-	expansions := census.DefaultExpansions
-	if c.svc != nil && len(c.svc.Expansions()) > 0 {
-		expansions = c.svc.Expansions()
-	}
+	expansions := c.expansions()
 	var expansionCards []ExpansionCard
 	for _, expansion := range expansions {
 		expansionCards = append(expansionCards, ExpansionCard{Name: expansion.Name, Count: countMap[expansion.Name]})
