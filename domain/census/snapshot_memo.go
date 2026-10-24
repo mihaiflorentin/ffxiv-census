@@ -36,6 +36,9 @@ type memoEntries struct {
 	leanHeld       bool
 	privacyRegions []PrivacyShare
 	regionsHeld    bool
+	worldNew       map[string]NewCharacterTotals
+	worldNewBase   NewCharacterTotals
+	worldNewHeld   bool
 }
 
 type privacyWorldsKey struct {
@@ -58,6 +61,9 @@ func (m *SnapshotMemo) size() int {
 		n++
 	}
 	if e.regionsHeld {
+		n++
+	}
+	if e.worldNewHeld {
 		n++
 	}
 	return n
@@ -183,4 +189,20 @@ func (m *SnapshotMemo) PrivacyWorlds(snapshot *contract.UIStatsSnapshot, region 
 	board.MostPrivate = append([]PrivacyShare(nil), board.MostPrivate...)
 	board.LeastPrivate = append([]PrivacyShare(nil), board.LeastPrivate...)
 	return board
+}
+
+// WorldNewCharacters returns NewCharactersTotals(snapshot, {World: world})
+// from an index of every world built once per snapshot, so a page listing
+// every world reads each in constant time.
+func (m *SnapshotMemo) WorldNewCharacters(snapshot *contract.UIStatsSnapshot, world string) NewCharacterTotals {
+	if snapshot == nil {
+		return NewCharacterTotals{}
+	}
+	m.lockFor(snapshot)
+	defer m.mu.Unlock()
+	if !m.entries.worldNewHeld {
+		m.entries.worldNew, m.entries.worldNewHeld = worldNewCharacters(snapshot), true
+		m.entries.worldNewBase = emptyNewCharacterTotals(SnapshotNewCharactersBounds(snapshot))
+	}
+	return sumWorlds(m.entries.worldNewBase, m.entries.worldNew, map[string]struct{}{CanonicalWorld(world): {}})
 }

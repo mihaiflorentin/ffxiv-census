@@ -184,7 +184,7 @@ func (c *UIController) WorldDrilldown(w http.ResponseWriter, r *http.Request) {
 		wReg := orUnknown(census.RegionForDatacenter(wDC))
 
 		if wReg == region {
-			newCharacters := census.NewCharactersTotals(snapshot, contract.StatsScope{World: wName})
+			newCharacters := c.memo.WorldNewCharacters(snapshot, wName)
 			worlds = append(worlds, WorldRow{
 				Region:        wReg,
 				Datacenter:    wDC,

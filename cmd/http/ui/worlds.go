@@ -80,7 +80,7 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 			Total:         row.Total,
 			Active:        row.Active,
 			ActiveRatio:   formatPercent(row.Active, row.Total),
-			NewCharacters: census.NewCharactersTotals(snapshot, contract.StatsScope{World: wName}).Current,
+			NewCharacters: c.memo.WorldNewCharacters(snapshot, wName).Current,
 		})
 	}
 

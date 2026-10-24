@@ -179,40 +179,17 @@ func SnapshotNewCharactersWindowDays(snapshot *contract.UIStatsSnapshot) int {
 // world, datacenter, or region totals zero rather than falling back to
 // global. Missing days count as zero.
 func NewCharactersTotals(snapshot *contract.UIStatsSnapshot, scope contract.StatsScope) NewCharacterTotals {
-	var totals NewCharacterTotals
 	if snapshot == nil {
-		return totals
+		return NewCharacterTotals{}
+	}
+	if scope != (contract.StatsScope{}) {
+		return sumWorlds(emptyNewCharacterTotals(SnapshotNewCharactersBounds(snapshot)), worldNewCharacters(snapshot), worldSet(scope))
 	}
 	bounds := SnapshotNewCharactersBounds(snapshot)
-	totals.Days = bounds.Days
-	totals.StartDay = bounds.CurrentStart.Format("2006-01-02")
-
-	global := scope == (contract.StatsScope{})
-	selected := worldSet(scope)
-	if !global && snapshot.NewCharactersWindowDays > 0 {
-		for _, group := range snapshot.Groups {
-			if group.Scope != (contract.StatsScope{}) || group.Dimension != "world" {
-				continue
-			}
-			if _, ok := selected[group.Key]; ok {
-				totals.Current += group.NewCharacters
-				totals.Previous += group.NewCharactersPrevious
-			}
-		}
-		return totals
-	}
+	totals := emptyNewCharacterTotals(bounds)
 	for _, day := range snapshot.NewCharacters {
-		if global {
-			if day.Scope != (contract.StatsScope{}) {
-				continue
-			}
-		} else {
-			if day.Scope.World == "" {
-				continue
-			}
-			if _, ok := selected[day.Scope.World]; !ok {
-				continue
-			}
+		if day.Scope != (contract.StatsScope{}) {
+			continue
 		}
 		parsed, err := time.Parse("2006-01-02", day.Day)
 		if err != nil {
@@ -224,6 +201,65 @@ func NewCharactersTotals(snapshot *contract.UIStatsSnapshot, scope contract.Stat
 		case bounds.InPrevious(parsed):
 			totals.Previous += day.Count
 		}
+	}
+	return totals
+}
+
+// emptyNewCharacterTotals is a zero count over bounds' windows.
+func emptyNewCharacterTotals(bounds NewCharactersBounds) NewCharacterTotals {
+	return NewCharacterTotals{Days: bounds.Days, StartDay: bounds.CurrentStart.Format("2006-01-02")}
+}
+
+// worldNewCharacters indexes every world's new characters in the current and
+// previous window, by world name as the snapshot spells it, in one pass: the
+// world groups' window totals, or on snapshots from before the window was
+// recorded the per-world daily rows. A world without new characters is
+// missing.
+func worldNewCharacters(snapshot *contract.UIStatsSnapshot) map[string]NewCharacterTotals {
+	bounds := SnapshotNewCharactersBounds(snapshot)
+	index := make(map[string]NewCharacterTotals)
+	add := func(world string, current, previous int64) {
+		totals, ok := index[world]
+		if !ok {
+			totals = emptyNewCharacterTotals(bounds)
+		}
+		totals.Current += current
+		totals.Previous += previous
+		index[world] = totals
+	}
+	if snapshot.NewCharactersWindowDays > 0 {
+		for _, group := range snapshot.Groups {
+			if group.Scope == (contract.StatsScope{}) && group.Dimension == "world" {
+				add(group.Key, group.NewCharacters, group.NewCharactersPrevious)
+			}
+		}
+		return index
+	}
+	for _, day := range snapshot.NewCharacters {
+		if day.Scope.World == "" {
+			continue
+		}
+		parsed, err := time.Parse("2006-01-02", day.Day)
+		if err != nil {
+			continue
+		}
+		switch {
+		case bounds.InCurrent(parsed):
+			add(day.Scope.World, day.Count, 0)
+		case bounds.InPrevious(parsed):
+			add(day.Scope.World, 0, day.Count)
+		}
+	}
+	return index
+}
+
+// sumWorlds adds the indexed figures of the selected worlds to base (the
+// snapshot's empty totals).
+func sumWorlds(base NewCharacterTotals, index map[string]NewCharacterTotals, selected map[string]struct{}) NewCharacterTotals {
+	totals := base
+	for world := range selected {
+		totals.Current += index[world].Current
+		totals.Previous += index[world].Previous
 	}
 	return totals
 }
