@@ -72,6 +72,8 @@ type UIStatsSnapshot struct {
 	Expansions       []ScopedExpansionCount `json:"expansions"`
 	NewCharacters    []ScopedDailyCount     `json:"new_characters"`
 	Summary          StatsSummary           `json:"summary"`
+	// Jobs is the job section (schema 3); nil on snapshots built before it.
+	Jobs *StatsJobsSection `json:"jobs,omitempty"`
 	// PrivacyBuiltAt is when the full rebuild that produced the private and
 	// unchecked counts ran. The incremental refresh carries it forward with
 	// the counts; zero means the snapshot has no privacy figures.

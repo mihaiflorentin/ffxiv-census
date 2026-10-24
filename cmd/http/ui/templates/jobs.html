@@ -1,0 +1,126 @@
+{{define "content"}}
+<div class="page-header">
+    <h1 class="page-title">Jobs</h1>
+    <p class="page-desc">Which jobs characters have levelled and which they have at the level cap, {{.Data.Scope}}. Narrow it down by region, datacenter or world.</p>
+</div>
+
+{{template "filter-bar" .Data.Filters}}
+
+{{if not .Data.Ready}}
+{{template "next-refresh" (nextRefresh "Job figures")}}
+{{else if not .Data.Combat}}
+{{if .Data.Filtered}}{{template "empty-state" (emptyStateLink "No job figures for this selection." "Try a wider selection, or clear the filters to see the whole game." "/ui/jobs" "Clear filters")}}{{else}}{{template "empty-state" (emptyState "No job figures yet." "They appear after the next nightly rebuild.")}}{{end}}
+{{else}}
+<div class="jobs-status">
+    {{template "freshness" (nightly .Data.BuiltAt)}}
+    {{if .Data.Partial}}<p class="coverage-line">Based on {{formatNumber .Data.Covered}} of {{formatNumber .Data.Characters}} characters; older characters are still being added.</p>{{end}}
+</div>
+
+{{template "armoury" .}}
+
+<section class="panel" aria-labelledby="balance-heading">
+    <div class="panel-header">
+        <h2 id="balance-heading" class="panel-title">Party balance at the level cap</h2>
+        <p class="panel-meta">Combat jobs at the level cap, {{.Data.BalanceArea}}</p>
+    </div>
+    <div class="panel-body">
+        {{with .Data.Balance}}{{if .PerTank}}
+        <p class="balance-headline"><span class="balance-headline-place">{{.Name}}</span> <span class="balance-headline-ratio">{{.PerTank}}</span></p>
+        {{end}}{{end}}
+        {{if .Data.DatacenterBalances}}
+        <ul class="balance-key" aria-label="Key">
+            <li><span class="swatch role-swatch role-tank" aria-hidden="true"></span>Tanks</li>
+            <li><span class="swatch role-swatch role-healer" aria-hidden="true"></span>Healers</li>
+            <li><span class="swatch role-swatch role-dps" aria-hidden="true"></span>DPS</li>
+            <li><span class="balance-key-guide" aria-hidden="true"></span>A light party: 1 tank, 1 healer, 2 DPS</li>
+        </ul>
+        <ol class="balance-list">
+            {{range .Data.DatacenterBalances}}
+            <li class="balance-row{{if .Current}} balance-current{{end}}"{{if .Current}} aria-current="true"{{end}}>
+                <span class="balance-name">{{.Name}} <abbr class="balance-region" title="{{regionName .Region}}">{{.Region}}</abbr></span>
+                <svg class="balance-bar" viewBox="0 0 100 10" preserveAspectRatio="none" aria-hidden="true" focusable="false">
+                    {{range .Segments}}<rect class="balance-segment role-{{.Mark}}" x="{{.X}}" y="0" width="{{.Width}}" height="10"/>{{end}}
+                    <line class="balance-guide" x1="25" y1="0" x2="25" y2="10" vector-effect="non-scaling-stroke"/>
+                    <line class="balance-guide" x1="50" y1="0" x2="50" y2="10" vector-effect="non-scaling-stroke"/>
+                </svg>
+                <span class="balance-shares">{{range .Segments}}<span class="balance-share"><span class="visually-hidden">{{.Label}} </span>{{.Share}}</span>{{end}}</span>
+            </li>
+            {{end}}
+        </ol>
+        <p class="chart-summary">Each bar splits a datacenter’s combat jobs at the level cap into tanks, healers and DPS. The ticks mark a light party’s 1 : 1 : 2, so a tank segment short of the first tick means tanks are scarcer than parties need. A character with two tanks at the cap counts twice. Blue Mage is left out: it can’t join ordinary duties.</p>
+        <details class="chart-data">
+            <summary>Show the numbers</summary>
+            <div class="table-scroll" role="region" aria-label="Party balance by datacenter" tabindex="0">
+                <table class="data-table">
+                    <caption class="visually-hidden">Combat jobs at the level cap by role, {{.Data.BalanceArea}}</caption>
+                    <thead><tr><th scope="col">Datacenter</th><th scope="col" class="text-right">Tanks</th><th scope="col" class="text-right">Healers</th><th scope="col" class="text-right">DPS</th><th scope="col" class="text-right">Jobs at the cap</th></tr></thead>
+                    <tbody>
+                        {{range .Data.DatacenterBalances}}
+                        <tr><th scope="row">{{.Name}}</th>{{range .Segments}}<td class="text-right">{{formatNumber .Count}} <span class="table-note">{{.Share}}</span></td>{{end}}<td class="text-right">{{formatNumber .Total}}</td></tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+        {{else}}
+        {{template "empty-state" (emptyState "No jobs at the level cap here yet." "The balance appears once characters reach the level cap.")}}
+        {{end}}
+    </div>
+</section>
+{{end}}
+{{end}}
+
+{{/* The region the measure switch swaps; rendered alone for HTMX switch requests. */}}
+{{define "armoury"}}
+<section class="panel armoury-panel" id="armoury" aria-labelledby="armoury-heading" data-switch-announce="The Armoury, jobs {{.Data.MeasurePhrase}}, {{.Data.Scope}}">
+    <div class="panel-header">
+        <h2 id="armoury-heading" class="panel-title" tabindex="-1" data-switch-heading>The Armoury</h2>
+        {{template "switch" .Data.Switch}}
+    </div>
+    <div class="panel-body">
+        {{with .Data.Lead}}<p class="armoury-lede">{{if $.Data.AtCap}}{{.Name}} is the job most often at the level cap {{$.Data.Scope}}: {{.Share}} of characters have it there.{{else}}{{.Name}} is the most levelled job {{$.Data.Scope}}: {{.Share}} of characters have levelled it.{{end}}</p>{{end}}
+        <div class="armoury" data-entrance="roles">
+            <section class="armoury-discipline" aria-labelledby="discipline-war">
+                <h3 id="discipline-war" class="armoury-discipline-name">Disciples of War and Magic</h3>
+                {{range .Data.Combat}}{{template "armoury-role" .}}{{end}}
+            </section>
+            <section class="armoury-discipline armoury-discipline-crafting" aria-labelledby="discipline-hand-land">
+                <h3 id="discipline-hand-land" class="armoury-discipline-name">Disciples of the Hand and Land</h3>
+                {{range .Data.Crafting}}{{template "armoury-role" .}}{{end}}
+            </section>
+        </div>
+        <p class="chart-summary">Each tile is one job. The brighter the tile, the more characters have it {{.Data.MeasurePhrase}}; the brightest is the most common. The bar along the bottom is its share of characters. Base classes count towards their jobs.</p>
+        <details class="chart-data">
+            <summary>Show the numbers</summary>
+            <div class="table-scroll" role="region" aria-label="Characters by job" tabindex="0">
+                <table class="data-table">
+                    <caption class="visually-hidden">Characters by job, {{.Data.Scope}}</caption>
+                    <thead><tr><th scope="col">Job</th><th scope="col">Role</th><th scope="col" class="text-right"{{if not .Data.AtCap}} aria-sort="descending"{{end}}>Levelled</th><th scope="col" class="text-right">Share</th><th scope="col" class="text-right"{{if .Data.AtCap}} aria-sort="descending"{{end}}>At the level cap</th><th scope="col" class="text-right">Share</th></tr></thead>
+                    <tbody>
+                        {{range $role := .Data.Combat}}{{range .Jobs}}{{template "armoury-row" (dict "Job" . "Role" $role.Name)}}{{end}}{{end}}
+                        {{range $role := .Data.Crafting}}{{range .Jobs}}{{template "armoury-row" (dict "Job" . "Role" $role.Name)}}{{end}}{{end}}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    </div>
+</section>
+{{end}}
+
+{{define "armoury-row"}}<tr><th scope="row">{{.Job.Name}} <span class="table-note">{{.Job.Abbreviation}}</span></th><td>{{.Role}}</td><td class="text-right">{{formatNumber .Job.Levelled}}</td><td class="text-right">{{.Job.LevelledShare}}</td><td class="text-right">{{formatNumber .Job.AtCap}}</td><td class="text-right">{{.Job.AtCapShare}}</td></tr>{{end}}
+
+{{define "armoury-role"}}
+<section class="armoury-role{{if .Mark}} armoury-role-{{.Mark}}{{end}}" aria-labelledby="role-{{.Code}}">
+    <h4 id="role-{{.Code}}" class="armoury-role-name">{{.Name}}</h4>
+    <ul class="armoury-tiles">
+        {{range .Jobs}}
+        <li class="armoury-tile armoury-level-{{.Level}}{{if .Lead}} armoury-lead{{end}}">
+            <span class="armoury-abbr" aria-hidden="true">{{.Abbreviation}}</span>
+            <span class="armoury-name">{{.Name}}</span>
+            <span class="armoury-figures"><data class="armoury-count" value="{{.Count}}">{{formatNumber .Count}}</data> <span class="armoury-share">{{.Share}}</span></span>
+            <svg class="armoury-gauge" viewBox="0 0 100 2" preserveAspectRatio="none" aria-hidden="true" focusable="false"><rect class="armoury-gauge-fill" x="0" y="0" width="{{.Gauge}}" height="2"/></svg>
+        </li>
+        {{end}}
+    </ul>
+</section>
+{{end}}

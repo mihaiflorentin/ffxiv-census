@@ -234,6 +234,14 @@ _Avoid_: maxed character, max-level jobs (the census counts characters, not jobs
 One of the two 64-bit values stored on each character recording which jobs it has levelled and which it has at their level cap, one bit per job (base classes folded into their jobs; Blue Mage measured against its own lower cap). Empty until computed, by a census write or the one-off backfill.
 _Avoid_: job flags, job set
 
+**Job coverage**:
+How many characters the job figures include: those whose job bitmasks were computed when the nightly rebuild ran, out of all characters it counted. Below 100% while the backfill is still running.
+_Avoid_: job completeness
+
+**Party balance**:
+The split of combat jobs at the level cap into tanks, healers and DPS for a datacenter or selection, counted per job (a character with two tanks at the cap counts twice) and leaving out Blue Mage. Compared against a light party's 1 tank, 1 healer and 2 DPS.
+_Avoid_: role ratio, role distribution
+
 **MSQ completion funnel**:
 The expansion-by-expansion view of how many characters' milestone records show each expansion's main-scenario story completed, read as retention and drop-off. Characters with private or unscanned achievements are invisible to it, however far they have progressed.
 

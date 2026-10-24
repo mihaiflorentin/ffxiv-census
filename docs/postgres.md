@@ -107,7 +107,7 @@ The full refresh reads `characters` in one statement (besides the milestone quer
 
 `characters.max_job_level` is maintained by every character upsert. This removes the former correlated `character_jobs` membership check from max-level counts: the refresh scans the character row directly with `max_job_level >= $maxLevel`. At tens of millions of characters, refresh cost still grows with the source tables, but web request cost remains bounded by the snapshot payload rather than census cardinality.
 
-`characters.jobs_levelled_mask` and `characters.jobs_at_cap_mask` are maintained the same way, so job figures can be summed from the character row without reading `character_jobs`. Rows stored before migration `00026` are filled by the throttled, resumable `backfill job-masks` command (see [census.md](census.md#job-bitmasks)), which is the only job-table reader outside the census write path.
+`characters.jobs_levelled_mask` and `characters.jobs_at_cap_mask` are maintained the same way, so job figures can be summed from the character row without reading `character_jobs`. Rows stored before migration `00026` are filled by the throttled, resumable `backfill job-masks` command (see [census.md](census.md#job-bitmasks)), which is the only job-table reader outside the census write path. The full UI statistics refresh sums them in its single pass over `characters` (one levelled and one at-cap filtered count per job bit, plus the covered count); no refresh reads `character_jobs`.
 
 The opt-in scale regression test is:
 
