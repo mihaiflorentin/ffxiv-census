@@ -30,6 +30,7 @@ func (c *UIController) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /ui/dashboard", c.Dashboard)
 	mux.HandleFunc("GET /ui/partials/world-breakdown", c.WorldDrilldown)
 	mux.HandleFunc("GET /ui/races", c.Races)
+	mux.HandleFunc("GET /ui/grand-companies", c.GrandCompanies)
 	mux.HandleFunc("GET /ui/worlds/{world}", c.WorldDetail)
 	mux.HandleFunc("GET /ui/worlds", c.Worlds)
 	mux.HandleFunc("GET /ui/expansions", c.Expansions)

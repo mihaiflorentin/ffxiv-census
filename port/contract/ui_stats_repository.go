@@ -5,7 +5,14 @@ import (
 	"time"
 )
 
-const UIStatsSchemaVersion = 2
+// UIStatsSchemaVersion is the snapshot schema the refreshes write.
+// UIStatsMinSchemaVersion is the oldest stored schema readers still accept:
+// a v2 snapshot keeps the existing pages working until the next refresh,
+// while the sections added in v3 report as missing (census.SnapshotHasSection).
+const (
+	UIStatsSchemaVersion    = 3
+	UIStatsMinSchemaVersion = 2
+)
 
 // StatsScope identifies the aggregation scope. Empty fields mean global.
 // At most one field is normally populated.

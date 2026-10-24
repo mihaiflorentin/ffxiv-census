@@ -44,6 +44,8 @@ func TestIndexablePagesHeadMetadata(t *testing.T) {
 		{"Dashboard At Root", "/", "/"},
 		{"Dashboard", "/ui/dashboard", "/"},
 		{"Races", "/ui/races", "/ui/races"},
+		{"Grand Companies", "/ui/grand-companies", "/ui/grand-companies"},
+		{"Grand Companies Filtered", "/ui/grand-companies?region=EU&dc=Chaos", "/ui/grand-companies"},
 		{"Worlds", "/ui/worlds", "/ui/worlds"},
 		{"World Detail", "/ui/worlds/Adamantoise", "/ui/worlds/Adamantoise"},
 		{"Expansions", "/ui/expansions", "/ui/expansions"},

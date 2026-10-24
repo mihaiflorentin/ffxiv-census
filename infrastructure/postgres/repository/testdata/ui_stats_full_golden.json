@@ -1,5 +1,5 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "generated_at": "0001-01-01T00:00:00Z",
   "activity_since": "0001-01-01T00:00:00Z",
   "max_level": 100,
@@ -28,6 +28,15 @@
       "scope": {
         "region": "EU"
       },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 3,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "EU"
+      },
       "dimension": "race_gender",
       "key": "Elezen|Male",
       "total": 1,
@@ -118,6 +127,15 @@
       "scope": {
         "region": "JP"
       },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "region": "JP"
+      },
       "dimension": "race_gender",
       "key": "|Female",
       "total": 1,
@@ -158,6 +176,15 @@
       "key": "Male",
       "total": 1,
       "active": 1
+    },
+    {
+      "scope": {
+        "region": "NA"
+      },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 4,
+      "active": 2
     },
     {
       "scope": {
@@ -280,6 +307,15 @@
       "scope": {
         "datacenter": "Chaos"
       },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 2,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Chaos"
+      },
       "dimension": "race_gender",
       "key": "Hyur|Male",
       "total": 1,
@@ -352,6 +388,15 @@
       "scope": {
         "datacenter": "Crystal"
       },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 4,
+      "active": 2
+    },
+    {
+      "scope": {
+        "datacenter": "Crystal"
+      },
       "dimension": "race_gender",
       "key": "Hyur|Female",
       "total": 1,
@@ -460,6 +505,15 @@
       "scope": {
         "datacenter": "Elemental"
       },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "datacenter": "Elemental"
+      },
       "dimension": "race_gender",
       "key": "|Female",
       "total": 1,
@@ -489,6 +543,15 @@
       },
       "dimension": "gender",
       "key": "Male",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "datacenter": "Light"
+      },
+      "dimension": "grand_company",
+      "key": "None",
       "total": 1,
       "active": 0
     },
@@ -541,6 +604,15 @@
       "scope": {
         "world": "Balmung"
       },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 3,
+      "active": 2
+    },
+    {
+      "scope": {
+        "world": "Balmung"
+      },
       "dimension": "race_gender",
       "key": "Hyur|Female",
       "total": 1,
@@ -622,6 +694,15 @@
       "scope": {
         "world": "Coeurl"
       },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Coeurl"
+      },
       "dimension": "race_gender",
       "key": "Miqo'te|Female",
       "total": 1,
@@ -651,6 +732,15 @@
       },
       "dimension": "gender",
       "key": "Male",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {
+        "world": "Lich"
+      },
+      "dimension": "grand_company",
+      "key": "None",
       "total": 1,
       "active": 0
     },
@@ -698,6 +788,15 @@
       "key": "Unknown",
       "total": 1,
       "active": 0
+    },
+    {
+      "scope": {
+        "world": "Ragnarok"
+      },
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 2,
+      "active": 1
     },
     {
       "scope": {
@@ -759,6 +858,15 @@
       },
       "dimension": "gender",
       "key": "Female",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {
+        "world": "Tonberry"
+      },
+      "dimension": "grand_company",
+      "key": "None",
       "total": 1,
       "active": 1
     },
@@ -837,6 +945,55 @@
       "key": "Unknown",
       "total": 1,
       "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "grand_company_race",
+      "key": "None|",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {},
+      "dimension": "grand_company_race",
+      "key": "None|Elezen",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "grand_company_race",
+      "key": "None|Hyur",
+      "total": 3,
+      "active": 2
+    },
+    {
+      "scope": {},
+      "dimension": "grand_company_race",
+      "key": "None|Lalafell",
+      "total": 1,
+      "active": 1
+    },
+    {
+      "scope": {},
+      "dimension": "grand_company_race",
+      "key": "None|Miqo'te",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "grand_company_race",
+      "key": "None|Roegadyn",
+      "total": 1,
+      "active": 0
+    },
+    {
+      "scope": {},
+      "dimension": "grand_company",
+      "key": "None",
+      "total": 8,
+      "active": 4
     },
     {
       "scope": {},

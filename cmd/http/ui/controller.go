@@ -36,6 +36,7 @@ func NewUIController(svc *census.Service, q contract.Queue, stats *census.UIStat
 	for _, page := range []string{
 		"templates/dashboard.html",
 		"templates/races.html",
+		"templates/grand_companies.html",
 		"templates/worlds.html",
 		"templates/world_detail.html",
 		"templates/expansions.html",

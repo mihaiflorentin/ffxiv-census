@@ -64,16 +64,7 @@ func (c *UIController) Races(w http.ResponseWriter, r *http.Request) {
 	place := parsePlaceFilter(r)
 	selectedRegion, selectedDC, selectedWorld := place.Region, place.Datacenter, place.World
 
-	// The narrowest applied filter is the statistics scope.
-	scope := contract.StatsScope{}
-	switch {
-	case selectedWorld != "":
-		scope.World = selectedWorld
-	case selectedDC != "":
-		scope.Datacenter = selectedDC
-	case selectedRegion != "":
-		scope.Region = selectedRegion
-	}
+	scope := place.scope()
 	scopeText := placeScope(selectedRegion, selectedDC, selectedWorld)
 
 	newWindow := census.NewCharactersWindow(snapshot, scope)
@@ -127,28 +118,6 @@ func (c *UIController) Races(w http.ResponseWriter, r *http.Request) {
 	}
 	data.FemaleShare = formatPercent(female, all)
 
-	// Build cascading filter lists: Region narrows DCs, DC narrows Worlds.
-	var dcList []string
-	if selectedRegion != "" {
-		dcList = DCsForRegion(selectedRegion)
-	} else {
-		dcList = census.Datacenters()
-		sort.Strings(dcList)
-	}
-
-	var worldList []string
-	if selectedDC != "" {
-		worldList = WorldsForDC(selectedDC)
-	} else if selectedRegion != "" {
-		for _, dc := range DCsForRegion(selectedRegion) {
-			worldList = append(worldList, WorldsForDC(dc)...)
-		}
-		sort.Strings(worldList)
-	} else {
-		worldList = census.Worlds()
-		sort.Strings(worldList)
-	}
-
 	title := "Race & Clan Demographics"
 	if selectedWorld != "" {
 		title = fmt.Sprintf("Race & Clan Demographics - %s", selectedWorld)
@@ -158,25 +127,7 @@ func (c *UIController) Races(w http.ResponseWriter, r *http.Request) {
 		title = fmt.Sprintf("Race & Clan Demographics - %s", selectedRegion)
 	}
 
-	var regionList []string
-	for _, region := range census.Regions() {
-		regionList = append(regionList, region.Code)
-	}
-	data.Filters = FilterBar{
-		Action: "/ui/races",
-		Label:  "Filter races",
-		Selects: []FilterSelect{
-			{ID: "filter-region", Name: "region", Label: "Region", AllLabel: "All regions", Options: filterOptions(regionList, selectedRegion, regionDisplayName)},
-			{ID: "filter-dc", Name: "dc", Label: "Datacenter", AllLabel: "All datacenters", Options: filterOptions(dcList, selectedDC, nil)},
-			{ID: "filter-world", Name: "world", Label: "World", AllLabel: "All worlds", Options: filterOptions(worldList, selectedWorld, nil)},
-		},
-		Chips: filterChips("/ui/races", []appliedFilter{
-			{Name: "region", Label: "Region", Value: selectedRegion, Shown: regionDisplayName(selectedRegion)},
-			{Name: "dc", Label: "Datacenter", Value: selectedDC},
-			{Name: "world", Label: "World", Value: selectedWorld},
-		}),
-		ClearHref: "/ui/races",
-	}
+	data.Filters = placeFilterBar("/ui/races", "Filter races", place)
 
 	c.render(w, "templates/races.html", statsPageData(title, "races", "/ui/races", "Race and clan demographics for Final Fantasy XIV: population shares, active ratios, and tribe and gender breakdowns filterable by region, datacenter, and world.", state, data))
 }

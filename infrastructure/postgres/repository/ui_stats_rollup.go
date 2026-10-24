@@ -3,11 +3,12 @@ package repository
 import (
 	"sort"
 
+	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
 // The UI statistics refreshes read characters at one fine grain (region,
-// datacenter, world, race, clan, gender) and roll those rows up in Go into
+// datacenter, world, race, clan, gender, Grand Company) and roll those rows up in Go into
 // every scope and dimension the snapshot holds. The full refresh, the
 // incremental delta and the incremental active pass all share this grain and
 // statsRollup, so the refresh modes cannot disagree about grouping.
@@ -25,15 +26,17 @@ import (
 // UI statistics query, in fineKey order.
 const fineGrainKeyColumns = `COALESCE(region, '') AS region, COALESCE(datacenter, '') AS datacenter,
 		       COALESCE(world, '') AS world, COALESCE(race, '') AS race,
-		       COALESCE(tribe, '') AS tribe, gender`
+		       COALESCE(tribe, '') AS tribe, gender,
+		       COALESCE(grand_company, '') AS grand_company`
 
-const fineGrainGroupBy = `1, 2, 3, 4, 5, 6`
+const fineGrainGroupBy = `1, 2, 3, 4, 5, 6, 7`
 
 // fineKey is one fine-grain group of characters.
 type fineKey struct {
 	Region, Datacenter, World string
 	Race, Tribe               string
 	Gender                    int64
+	GrandCompany              string
 }
 
 // fineCounts are the counts measured per fine-grain group and per rolled-up
@@ -69,6 +72,8 @@ var rollupDimensions = []rollupDimension{
 	{name: "tribe", key: func(k fineKey) string { return k.Tribe }},
 	{name: "gender", key: func(k fineKey) string { return genderName(k.Gender) }},
 	{name: "race_gender", key: func(k fineKey) string { return k.Race + "|" + genderName(k.Gender) }},
+	{name: "grand_company", key: func(k fineKey) string { return grandCompanyName(k.GrandCompany) }},
+	{name: "grand_company_race", key: func(k fineKey) string { return grandCompanyName(k.GrandCompany) + "|" + k.Race }, globalOnly: true},
 }
 
 // statsRollup accumulates fine-grain rows into the summary, the location
@@ -148,6 +153,15 @@ func sortGroupKeys[V any](groups map[groupKey]V) []groupKey {
 		return a.Key < b.Key
 	})
 	return keys
+}
+
+// grandCompanyName is a Grand Company group key: the stored company name, or
+// "None" for a character in no company, so the shares add up to 100%.
+func grandCompanyName(stored string) string {
+	if stored == "" {
+		return census.GrandCompanyNone
+	}
+	return stored
 }
 
 func genderName(value int64) string {

@@ -1,0 +1,29 @@
+package census
+
+import "github.com/mihaiflorentin88/ffxiv-census/port/contract"
+
+// SnapshotSection names a part of the UI statistics snapshot that was added
+// after the oldest schema readers still accept (contract.UIStatsMinSchemaVersion).
+// A page that needs one asks SnapshotHasSection and shows the
+// "arrives with the next refresh" state when the stored snapshot predates it.
+//
+// Adding a section: declare its constant and the schema version that
+// introduced it in sectionSince.
+type SnapshotSection string
+
+const (
+	// SectionGrandCompanies is the grand_company and grand_company_race groups.
+	SectionGrandCompanies SnapshotSection = "grand_companies"
+)
+
+// sectionSince is the first snapshot schema version carrying each section.
+var sectionSince = map[SnapshotSection]int{
+	SectionGrandCompanies: 3,
+}
+
+// SnapshotHasSection reports whether snapshot carries section: its schema is
+// at least the version that introduced it. Unknown sections are absent.
+func SnapshotHasSection(snapshot *contract.UIStatsSnapshot, section SnapshotSection) bool {
+	since, ok := sectionSince[section]
+	return ok && snapshot != nil && snapshot.SchemaVersion >= since
+}

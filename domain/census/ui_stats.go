@@ -16,7 +16,7 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 	if snapshot == nil {
 		return ErrUIStatsUnavailable
 	}
-	if snapshot.SchemaVersion != contract.UIStatsSchemaVersion {
+	if snapshot.SchemaVersion < contract.UIStatsMinSchemaVersion || snapshot.SchemaVersion > contract.UIStatsSchemaVersion {
 		return fmt.Errorf("unsupported UI statistics schema version %d", snapshot.SchemaVersion)
 	}
 	if snapshot.GeneratedAt.IsZero() || snapshot.ActivitySince.IsZero() {

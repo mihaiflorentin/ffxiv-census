@@ -26,6 +26,7 @@ type WorldDetailViewData struct {
 	RaceData       []int64
 	MSQCompletions []ExpansionCard
 	Timeline       Timeline
+	GrandCompanies GrandCompanyBand
 }
 
 // WorldDetail handles GET /ui/worlds/{world}.
@@ -100,5 +101,7 @@ func (c *UIController) WorldDetail(w http.ResponseWriter, r *http.Request) {
 		RaceData:           raceData,
 		MSQCompletions:     msq,
 		Timeline:           newCharactersTimeline(snapshot, scope),
+		GrandCompanies: grandCompanyBand(census.GrandCompanySplitFor(snapshot, scope),
+			census.SnapshotHasSection(snapshot, census.SectionGrandCompanies), worldName),
 	}))
 }
