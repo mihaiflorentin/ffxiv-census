@@ -67,7 +67,7 @@ func TestRacesHandler(t *testing.T) {
 	if recFiltered.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", recFiltered.Code, recFiltered.Body.String())
 	}
-	bodyFiltered := recFiltered.Body.String()
+	bodyFiltered := renderedMain(t, parseHTML(t, recFiltered.Body.String()))
 	if !strings.Contains(bodyFiltered, "Lalafell") {
 		t.Errorf("expected filtered body to contain Lalafell, got:\n%s", bodyFiltered)
 	}

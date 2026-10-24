@@ -11,6 +11,7 @@
  *   CensusCharts.slot(n)          categorical slot 1-8 (0 = neutral "other")
  *   CensusCharts.raceColor(name)  fixed colour for a race, on every page
  *   CensusCharts.raceColors(list) the same for a list of labels
+ *   CensusCharts.regionColor(code) fixed colour for a region code (NA ...)
  *   CensusCharts.sortRaces(labels, values) labels/values in fixed race order
  *                                 (use for doughnuts so neighbours are the
  *                                 validated adjacent pairs)
@@ -51,19 +52,21 @@
         "--color-chart-8"
     ];
 
-    // Fixed race -> slot mapping. A race keeps its colour on every chart and
-    // page, whatever its rank or which races a filter leaves visible.
-    var RACE_SLOTS = {
-        "Hyur": 1,
-        "Elezen": 2,
-        "Lalafell": 3,
-        "Miqo'te": 4,
-        "Roegadyn": 5,
-        "Au Ra": 6,
-        "Hrothgar": 7,
-        "Viera": 8
-    };
-    var RACE_ORDER = Object.keys(RACE_SLOTS);
+    // Fixed race and region -> slot mapping: a race's slot is its 1-based
+    // position in the census race order, which the layout renders from the
+    // domain taxonomy into #census-taxonomy (the same order the server uses
+    // for swatches). A race keeps its colour on every chart and page,
+    // whatever its rank or which races a filter leaves visible.
+    var taxonomy = (function () {
+        var node = document.getElementById("census-taxonomy");
+        try {
+            return JSON.parse(node ? node.textContent : "{}") || {};
+        } catch (e) {
+            return {};
+        }
+    })();
+    var RACE_ORDER = taxonomy.races || [];
+    var REGION_ORDER = taxonomy.regions || [];
 
     function slot(n) {
         if (n >= 1 && n <= SLOTS.length) {
@@ -73,7 +76,11 @@
     }
 
     function raceColor(name) {
-        return slot(RACE_SLOTS[name] || 0);
+        return slot(RACE_ORDER.indexOf(name) + 1);
+    }
+
+    function regionColor(code) {
+        return slot(REGION_ORDER.indexOf(code) + 1);
     }
 
     function raceColors(names) {
@@ -274,6 +281,7 @@
         slot: slot,
         raceColor: raceColor,
         raceColors: raceColors,
+        regionColor: regionColor,
         sortRaces: sortRaces,
         primary: function () { return token("--color-aether"); },
         comparison: function () { return token("--color-crystal"); },

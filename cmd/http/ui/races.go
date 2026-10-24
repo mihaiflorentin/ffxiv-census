@@ -10,45 +10,6 @@ import (
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
-// raceOrder is the fixed order of the playable races. It matches RACE_SLOTS
-// in assets/chart-theme.js: a race's position is its categorical colour slot.
-var raceOrder = []string{"Hyur", "Elezen", "Lalafell", "Miqo'te", "Roegadyn", "Au Ra", "Hrothgar", "Viera"}
-
-// raceSlot returns a race's fixed colour slot (1-8), or 0 (neutral).
-func raceSlot(race string) int {
-	for i, r := range raceOrder {
-		if r == race {
-			return i + 1
-		}
-	}
-	return 0
-}
-
-// clanRace maps each clan (Lodestone "tribe") to its race, so clans group
-// under their race and take its colour. Plural spellings are accepted too.
-var clanRace = map[string]string{
-	"Midlander": "Hyur", "Highlander": "Hyur",
-	"Wildwood": "Elezen", "Duskwight": "Elezen",
-	"Plainsfolk": "Lalafell", "Dunesfolk": "Lalafell",
-	"Seeker of the Sun": "Miqo'te", "Seekers of the Sun": "Miqo'te",
-	"Keeper of the Moon": "Miqo'te", "Keepers of the Moon": "Miqo'te",
-	"Sea Wolf": "Roegadyn", "Sea Wolves": "Roegadyn", "Hellsguard": "Roegadyn",
-	"Raen": "Au Ra", "Xaela": "Au Ra",
-	"Helions": "Hrothgar", "The Lost": "Hrothgar",
-	"Rava": "Viera", "Veena": "Viera",
-}
-
-// RaceRow represents demographic stats for one playable race.
-type RaceRow struct {
-	Race            string
-	Slot            int
-	Total           int64
-	Active          int64
-	ActiveRatio     string
-	ShareOfTotal    string
-	SharePercentVal float64
-}
-
 // ClanRow is one clan with its race and share of the selection.
 type ClanRow struct {
 	Clan  string
@@ -103,18 +64,17 @@ func (c *UIController) Races(w http.ResponseWriter, r *http.Request) {
 	place := parsePlaceFilter(r)
 	selectedRegion, selectedDC, selectedWorld := place.Region, place.Datacenter, place.World
 
+	// The narrowest applied filter is the statistics scope.
 	scope := contract.StatsScope{}
-	scopeText := "across every region"
-	if selectedWorld != "" {
+	switch {
+	case selectedWorld != "":
 		scope.World = selectedWorld
-		scopeText = "on " + selectedWorld
-	} else if selectedDC != "" {
+	case selectedDC != "":
 		scope.Datacenter = selectedDC
-		scopeText = "on the " + selectedDC + " datacenter"
-	} else if selectedRegion != "" {
+	case selectedRegion != "":
 		scope.Region = selectedRegion
-		scopeText = "in " + regionDisplayName(strings.ToUpper(selectedRegion))
 	}
+	scopeText := placeScope(selectedRegion, selectedDC, selectedWorld)
 
 	newWindow := census.NewCharactersWindow(snapshot, scope)
 
@@ -133,17 +93,9 @@ func (c *UIController) Races(w http.ResponseWriter, r *http.Request) {
 		data.ActiveCharacters += row.Active
 	}
 	data.ActivePercent = formatPercent(data.ActiveCharacters, data.TotalCharacters)
-	for _, row := range races {
-		name := row.Key
-		if name == "" {
-			name = "Unknown"
-		}
-		share := 0.0
-		if data.TotalCharacters > 0 {
-			share = float64(row.Total) / float64(data.TotalCharacters) * 100
-		}
-		data.Races = append(data.Races, RaceRow{Race: name, Slot: raceSlot(name), Total: row.Total, Active: row.Active, ActiveRatio: formatPercent(row.Active, row.Total), ShareOfTotal: formatPercent(row.Total, data.TotalCharacters), SharePercentVal: share})
-		data.ChartLabels = append(data.ChartLabels, name)
+	data.Races = newRaceRows(races, data.TotalCharacters)
+	for _, row := range data.Races {
+		data.ChartLabels = append(data.ChartLabels, row.Race)
 		data.ChartData = append(data.ChartData, row.Total)
 	}
 
@@ -206,7 +158,10 @@ func (c *UIController) Races(w http.ResponseWriter, r *http.Request) {
 		title = fmt.Sprintf("Race & Clan Demographics - %s", selectedRegion)
 	}
 
-	regionList := []string{"NA", "EU", "JP", "OCE"}
+	var regionList []string
+	for _, region := range census.Regions() {
+		regionList = append(regionList, region.Code)
+	}
 	data.Filters = FilterBar{
 		Action: "/ui/races",
 		Label:  "Filter races",
@@ -234,13 +189,13 @@ func clanRows(groups []contract.GroupCount, total int64) []ClanRow {
 		if g.Key == "" {
 			continue
 		}
-		rows = append(rows, ClanRow{Clan: g.Key, Race: clanRace[g.Key], Total: g.Total, Share: formatPercent(g.Total, total)})
+		rows = append(rows, ClanRow{Clan: g.Key, Race: census.ClanRace(g.Key), Total: g.Total, Share: formatPercent(g.Total, total)})
 	}
 	rank := func(race string) int {
 		if s := raceSlot(race); s > 0 {
 			return s
 		}
-		return len(raceOrder) + 1
+		return len(census.RaceOrder()) + 1
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
 		if ri, rj := rank(rows[i].Race), rank(rows[j].Race); ri != rj {
@@ -275,7 +230,7 @@ func raceGenderRows(groups []contract.GroupCount) []RaceGenderRow {
 		}
 	}
 	var rows []RaceGenderRow
-	for _, race := range raceOrder {
+	for _, race := range census.RaceOrder() {
 		if row, ok := byRace[race]; ok {
 			rows = append(rows, *row)
 			delete(byRace, race)

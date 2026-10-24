@@ -18,7 +18,7 @@
                     <h3 class="progression-name">{{.Name}}</h3>
                     <p class="progression-meta">{{.Version}}, level {{.LevelCap}}, finale <cite>{{.FinalQuest}}</cite></p>
                 </div>
-                <meter class="progress-meter progression-meter" min="0" max="100" value="{{.MeterValue}}" aria-label="{{.Name}} completion">{{.PercentOfTotal}}</meter>
+                <meter class="progress-meter progression-meter" min="0" max="100" value="{{printf "%.1f" .MeterValue}}" aria-label="{{.Name}} completion">{{.PercentOfTotal}}</meter>
                 <dl class="progression-figures">
                     <div class="progression-figure">
                         <dt>Completed</dt>

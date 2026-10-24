@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"math"
 	"net/url"
 
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
@@ -37,27 +36,6 @@ type RealmSegment struct {
 	Slot int
 }
 
-// regionNames maps snapshot region codes to display names.
-var regionNames = map[string]string{
-	"NA":  "North America",
-	"EU":  "Europe",
-	"JP":  "Japan",
-	"OCE": "Oceania",
-}
-
-// regionSlots fixes each region's categorical colour so a region keeps its
-// colour whatever its rank. Slots 1-4 validate all-pairs, so any ordering of
-// the band is safe to tell apart.
-var regionSlots = map[string]int{"NA": 1, "EU": 2, "JP": 3, "OCE": 4}
-
-// regionDisplayName returns the display name for a region code.
-func regionDisplayName(code string) string {
-	if name, ok := regionNames[code]; ok {
-		return name
-	}
-	return code
-}
-
 // minLabelShare is the smallest share (in percent) whose segment carries an
 // in-band label; narrower segments rely on the key, tooltip and table.
 const minLabelShare = 9.0
@@ -83,12 +61,9 @@ func newRealmTally(total int64, regions []contract.GroupCount) RealmTally {
 		if r.Total <= 0 {
 			continue
 		}
-		code := r.Key
-		if code == "" {
-			code = "Unknown"
-		}
+		code := orUnknown(r.Key)
 		// Round once so the drawn width, the label and the offsets agree.
-		pct := math.Round(float64(r.Total)/float64(denom)*1000) / 10
+		pct := percentValue(r.Total, denom)
 		tally.Segments = append(tally.Segments, RealmSegment{
 			Code:      code,
 			Name:      regionDisplayName(code),
@@ -99,7 +74,7 @@ func newRealmTally(total int64, regions []contract.GroupCount) RealmTally {
 			LabelX:    fmt.Sprintf("%.1f%%", offset+1.2),
 			ShowLabel: pct >= minLabelShare,
 			Href:      "/ui/worlds?region=" + url.QueryEscape(code),
-			Slot:      regionSlots[code],
+			Slot:      regionSlot(code),
 		})
 		offset += pct
 	}

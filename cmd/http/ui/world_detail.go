@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
@@ -61,27 +60,8 @@ func (c *UIController) WorldDetail(w http.ResponseWriter, r *http.Request) {
 	dc := WorldToDC(worldName)
 	region := census.RegionForDatacenter(dc)
 
-	var raceRows []RaceRow
-	for _, row := range census.SnapshotGroups(snapshot, "race", scope) {
-		name := row.Key
-		if name == "" {
-			name = "Unknown"
-		}
-		var share float64
-		if total > 0 {
-			share = float64(row.Total) / float64(total) * 100
-		}
-		raceRows = append(raceRows, RaceRow{
-			Race:            name,
-			Slot:            raceSlot(name),
-			Total:           row.Total,
-			Active:          row.Active,
-			ActiveRatio:     formatPercent(row.Active, row.Total),
-			ShareOfTotal:    formatPercent(row.Total, total),
-			SharePercentVal: share,
-		})
-	}
-	sort.SliceStable(raceRows, func(i, j int) bool { return raceRows[i].Total > raceRows[j].Total })
+	// SnapshotGroups ranks the races by characters already.
+	raceRows := newRaceRows(census.SnapshotGroups(snapshot, "race", scope), total)
 	var raceLabels []string
 	var raceData []int64
 	for _, row := range raceRows {
@@ -103,8 +83,7 @@ func (c *UIController) WorldDetail(w http.ResponseWriter, r *http.Request) {
 	var msq []ExpansionCard
 	for _, exp := range expansionList {
 		count := completions[exp.Name]
-		percent := formatPercent(count, total)
-		msq = append(msq, ExpansionCard{Name: exp.Name, Count: count, Percent: percent, Value: strings.TrimSuffix(percent, "%")})
+		msq = append(msq, ExpansionCard{Name: exp.Name, Count: count, Percent: formatPercent(count, total), Value: percentValue(count, total)})
 	}
 
 	c.render(w, "templates/world_detail.html", statsPageData(fmt.Sprintf("%s - World Demographics", worldName), "worlds", fmt.Sprintf("/ui/worlds/%s", worldName), fmt.Sprintf("Character population for the FFXIV world %s: active players, race demographics, MSQ completions, and new characters over the last 30 days.", worldName), state, WorldDetailViewData{

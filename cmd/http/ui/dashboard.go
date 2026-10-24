@@ -3,7 +3,6 @@ package ui
 import (
 	"net/http"
 	"sort"
-	"strings"
 
 	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
@@ -52,7 +51,7 @@ type ExpansionCard struct {
 	Count   int64
 	Percent string
 	// Value is the completion share as a plain number (0-100) for the meter.
-	Value string
+	Value float64
 }
 
 // RegionSummary holds aggregated stats for a region in the dashboard.
@@ -98,10 +97,7 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 	var regions []RegionSummary
 	regionGroups := census.SnapshotGroups(snapshot, "region", contract.StatsScope{})
 	for _, row := range regionGroups {
-		name := row.Key
-		if name == "" {
-			name = "Unknown"
-		}
+		name := orUnknown(row.Key)
 		regions = append(regions, RegionSummary{Region: name, Name: regionDisplayName(name), Total: row.Total, Active: row.Active, ActiveRatio: formatPercent(row.Active, row.Total)})
 	}
 	var raceLabels []string
@@ -134,7 +130,7 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 	// Fix expansion percents now that total is known
 	for i := range expansionCards {
 		expansionCards[i].Percent = formatPercent(expansionCards[i].Count, total)
-		expansionCards[i].Value = strings.TrimSuffix(expansionCards[i].Percent, "%")
+		expansionCards[i].Value = percentValue(expansionCards[i].Count, total)
 	}
 
 	newCharactersWindow := census.NewCharactersWindow(snapshot, contract.StatsScope{})
@@ -178,12 +174,9 @@ func (c *UIController) WorldDrilldown(w http.ResponseWriter, r *http.Request) {
 	for _, wc := range census.SnapshotGroups(snapshot, "world", contract.StatsScope{}) {
 		wName := wc.Key
 		wDC := WorldToDC(wName)
-		wReg := census.RegionForDatacenter(wDC)
-		if wReg == "" {
-			wReg = "Unknown"
-		}
+		wReg := orUnknown(census.RegionForDatacenter(wDC))
 
-		if strings.EqualFold(wReg, region) || (region == "Unknown" && wReg == "Unknown") {
+		if wReg == region {
 			newCharacters := census.NewCharactersWindow(snapshot, contract.StatsScope{World: wName})
 			worlds = append(worlds, WorldRow{
 				Region:           wReg,

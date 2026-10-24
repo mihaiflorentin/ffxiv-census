@@ -19,11 +19,9 @@ type WorldsViewData struct {
 	SelectedRegion     string
 	SelectedDC         string
 	// Scope reads like "across every region" or "in Europe".
-	Scope       string
-	Regions     []string
-	Datacenters []string
-	Worlds      []WorldDetailRow
-	Filters     FilterBar
+	Scope   string
+	Worlds  []WorldDetailRow
+	Filters FilterBar
 }
 
 // WorldDetailRow represents one row in the global worlds table.
@@ -34,7 +32,6 @@ type WorldDetailRow struct {
 	Total            int64
 	Active           int64
 	ActiveRatio      string
-	ActivePctVal     float64
 	NewCharacters30d int64
 }
 
@@ -64,11 +61,6 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 		regionSet[wReg] = true
 		dcSet[wDC] = true
 
-		var actPctVal float64
-		if row.Total > 0 {
-			actPctVal = (float64(row.Active) / float64(row.Total)) * 100
-		}
-
 		allWorlds = append(allWorlds, WorldDetailRow{
 			World:            wName,
 			Datacenter:       wDC,
@@ -76,7 +68,6 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 			Total:            row.Total,
 			Active:           row.Active,
 			ActiveRatio:      formatPercent(row.Active, row.Total),
-			ActivePctVal:     actPctVal,
 			NewCharacters30d: census.NewCharactersWindow(snapshot, contract.StatsScope{World: wName}).Current,
 		})
 	}
@@ -103,20 +94,7 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 	for reg := range regionSet {
 		regionList = append(regionList, reg)
 	}
-	// Canonical region order (NA, EU, JP, OCE), as on the Races filter.
-	sort.Slice(regionList, func(i, j int) bool {
-		si, sj := regionSlots[regionList[i]], regionSlots[regionList[j]]
-		if si == 0 {
-			si = len(regionSlots) + 1
-		}
-		if sj == 0 {
-			sj = len(regionSlots) + 1
-		}
-		if si != sj {
-			return si < sj
-		}
-		return regionList[i] < regionList[j]
-	})
+	sortRegionCodes(regionList)
 
 	var dcList []string
 	if selectedRegion != "" {
@@ -135,11 +113,9 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 		ActiveCharacters:   activeChars,
 		NewCharacters30d:   newWindow.Current,
 		NewCharactersTrend: newTrend(newWindow.Current, newWindow.Previous),
-		Scope:              worldsScope(selectedRegion, selectedDC),
+		Scope:              placeScope(selectedRegion, selectedDC, ""),
 		SelectedRegion:     selectedRegion,
 		SelectedDC:         selectedDC,
-		Regions:            regionList,
-		Datacenters:        dcList,
 		Worlds:             filteredWorlds,
 		Filters:            worldsFilterBar(regionList, dcList, selectedRegion, selectedDC),
 	}))
@@ -172,15 +148,4 @@ func worldsFilterBar(regions, dcs []string, selectedRegion, selectedDC string) F
 		bar.Selects = []FilterSelect{{ID: "filter-dc", Name: "dc", Label: "Datacenter", AllLabel: "All datacenters", Options: filterOptions(dcs, selectedDC, nil)}}
 	}
 	return bar
-}
-
-// worldsScope describes the filtered selection for captions and tiles.
-func worldsScope(region, dc string) string {
-	switch {
-	case dc != "":
-		return "on the " + dc + " datacenter"
-	case region != "":
-		return "in " + regionDisplayName(strings.ToUpper(region))
-	}
-	return "across every region"
 }

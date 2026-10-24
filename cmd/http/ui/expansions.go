@@ -2,7 +2,6 @@ package ui
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
@@ -24,7 +23,7 @@ type ExpansionProgression struct {
 	// PercentOfTotal is the share of all characters ("12.5%"); MeterValue
 	// the same share as a plain 0-100 number for the step's meter.
 	PercentOfTotal string
-	MeterValue     string
+	MeterValue     float64
 	// Previous names the expansion before this one ("" for the first).
 	Previous string
 	// Retention is the share of Previous's finishers who also finished this
@@ -64,7 +63,7 @@ func (c *UIController) Expansions(w http.ResponseWriter, r *http.Request) {
 			LevelCap:       info.LevelCap,
 			Completions:    count,
 			PercentOfTotal: percent,
-			MeterValue:     strings.TrimSuffix(percent, "%"),
+			MeterValue:     percentValue(count, totalChars),
 		}
 		if i > 0 {
 			prev := expansionList[i-1]

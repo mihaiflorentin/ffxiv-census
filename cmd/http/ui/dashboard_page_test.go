@@ -78,6 +78,9 @@ func TestDashboardChartsUseSharedThemeAndHaveTextAlternatives(t *testing.T) {
 	themeAt, chartLibAt, firstInlineAt := -1, -1, -1
 	for i, s := range scripts {
 		src, _ := attr(s, "src")
+		if typ, _ := attr(s, "type"); typ == "application/json" {
+			continue // a data block, not a script
+		}
 		switch {
 		case src == "/ui/assets/chart-theme.js":
 			themeAt = i
@@ -178,10 +181,9 @@ func TestChartThemeAssetAndPalette(t *testing.T) {
 			t.Errorf("chart theme does not read --color-%s", name)
 		}
 	}
-	// Each race has one fixed slot in the theme.
-	for _, race := range playableRaces {
-		if !strings.Contains(theme, fmt.Sprintf("%q:", race)) {
-			t.Errorf("chart theme has no fixed colour for race %q", race)
-		}
+	// Each race's fixed slot comes from the page's taxonomy block (see
+	// TestPagesCarryTheCensusTaxonomyForCharts), not a copy in the theme.
+	if !strings.Contains(theme, "census-taxonomy") {
+		t.Error("chart theme does not read the race order from #census-taxonomy")
 	}
 }

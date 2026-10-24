@@ -77,7 +77,7 @@
                         <span class="progress-name">{{.Name}}</span>
                         <span class="progress-value">{{.Percent}} <span class="progress-count">{{formatNumber .Count}}</span></span>
                     </div>
-                    <meter class="progress-meter" min="0" max="100" value="{{.Value}}" aria-label="{{.Name}} completion">{{.Percent}}</meter>
+                    <meter class="progress-meter" min="0" max="100" value="{{printf "%.1f" .Value}}" aria-label="{{.Name}} completion">{{.Percent}}</meter>
                 </li>
                 {{end}}
             </ol>
