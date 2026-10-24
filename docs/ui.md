@@ -25,7 +25,7 @@
 | `/ui/characters/{id}` | `GET` | Detailed character profile with Dawntrail Lv 100 job matrix, story milestone timeline, Free Company badge, and external links |
 | `/ui/characters` | `GET` | Paginated directory browser of discovered player characters |
 | `/ui/characters/search` | `GET` | Global search handler: numeric IDs redirect directly to `/ui/characters/{id}`, text queries filter by character name |
-| `/ui/*` (anything else) | `GET` | Styled not-found page (`404`, through the page shell, `noindex`). The disabled character routes below also land here. |
+| any other path | `GET`/`HEAD` | Styled not-found page (`404`, through the page shell, `noindex`) for every path no route matches outside `/api/` (for example `/nope` or `/ui/nope`). The disabled character routes below also land here. |
 | `/ui/assets/*` | `GET` | Static asset file server (`styles.css`, `htmx.min.js`, `chart.umd.min.js`, `chart-theme.js`, `fonts/*.woff2` as `font/woff2` with year-long immutable caching) |
 
 ### Head Metadata & Canonical URLs
@@ -45,6 +45,11 @@ Filter query parameters (for example `/ui/worlds?region=NA&dc=Aether`) never app
 filtered views always canonicalize to their clean path, so crawlers index exactly one URL per page. The
 root URL `/` and `/ui/dashboard` serve the same dashboard handler, and each renders its own canonical path
 (`/` and `/ui/dashboard` respectively).
+
+Filter values are matched case-insensitively and resolved once, at parse time, to their canonical names
+(`?region=na` → `NA`, `?dc=chaos` → `Chaos`, `?world=cerberus` → `Cerberus`) on Races, Worlds and the
+world-breakdown partial, so the figures, current pill, selected options, chips and scope sentence all
+agree. Unknown values pass through unchanged (and show the filtered empty state).
 
 ## 3. Statistics Snapshot
 
@@ -115,13 +120,14 @@ cmd/http/ui/
 ├── routes.go               # ServeMux route registration and embedded asset handler (font headers)
 ├── controller.go           # Core UI controller & template renderer
 ├── dashboard.go            # Controller for /ui/dashboard & /ui/partials/world-breakdown
-├── realm_tally.go          # Realm-tally view model (region shares, band geometry, region colour slots)
+├── realm_tally.go          # Realm-tally view model (region shares, band geometry)
+├── taxonomy.go             # Census taxonomy for the UI: colour slots, #census-taxonomy data, race rows, scope sentence
 ├── trend.go                # Worded, signed trend (Up +20 (+200.0%)) for stat tiles
 ├── filters.go              # FilterBar view model and filterChips (URL with one filter removed)
-├── races.go                # Controller for /ui/races (fixed race order, clan -> race map)
+├── races.go                # Controller for /ui/races (clans grouped by race, race x gender)
 ├── worlds.go               # Controller for /ui/worlds
 ├── world_detail.go         # Controller for /ui/worlds/{world}
-├── timeline.go             # 30-day new-character series (dashboard and world detail charts)
+├── timeline.go             # 30-day new-character series: the 30 complete UTC days before the snapshot day
 ├── expansions.go           # Controller for /ui/expansions (progression steps and retention)
 ├── character.go            # Controller for /ui/characters/{id} & /ui/characters/search
 ├── world_data.go           # UI wrappers over the domain world hierarchy + indexable-world helper
@@ -153,7 +159,7 @@ Every value is a CSS custom property on `:root`, defined once and reused:
 | `--color-crystal` | `#9D8CFF` | Secondary accent: comparison series, brand facet. Never text links |
 | `--color-ink` / `--color-ink-muted` | `#E8ECF5` / `#98A2BC` | Text and secondary text |
 | `--color-active` / `--color-warning` / `--color-negative` | `#4CC38A` / `#E8B04A` / `#EF7A72` | Status |
-| `--color-chart-1` … `--color-chart-8` | `#00A4C5` `#917EF4` `#BA8C01` `#D24C49` `#4194F9` `#27AF57` `#DD61A2` `#DD7303` | Categorical chart palette, fixed order (see Charts) |
+| `--color-chart-1` … `--color-chart-8` | `#00A4C5` `#917EF4` `#D24C49` `#B334AD` `#4194F9` `#27AF57` `#DD61A2` `#DD7303` | Categorical chart palette, fixed order (see Charts) |
 | `--color-chart-other` | `#7C869E` | Neutral for categories without a slot |
 | `--color-role-*` | tank `#5B8DEF`, healer `#4CC38A`, melee `#EF7A72`, phys-ranged `#F0975A`, magic-ranged `#B58CFF`, crafter `#3CC4B4`, gatherer `#E8C14A` | Job-role colours (`.role-*` classes) |
 
@@ -232,8 +238,11 @@ set `--slot-color` for SVG marks and swatches.
 Shared figure and filter components live in `templates/components/` and are parsed into every page and
 partial: `filter-bar` (see Cascading Filters), `trend` (the arrow + word + signed delta line for a
 `Trend` from `newTrend`, used by the new-characters tiles on the dashboard, Races and Worlds) and
-`empty-state`. Page grids: `.panel-grid` pairs chart panels (two columns from 720px), `.stat-grid-quad`
-lays four tiles out 1 / 2 × 2 / 4 across. `.chart-container-tall` sizes bar charts with many categories.
+`empty-state`. Page grids: `.panel-grid` pairs chart panels (two columns from 720px). A stat-tile row
+names its layout: `.stat-grid-trio` (three tiles: the first spans the row over the other two on phones,
+then one row of three from 600px) and `.stat-grid-quad` (four tiles: 2 × 2 on phones and tablets, one row
+of four from 1024px); neither stacks into one tall column. On phones the paired tiles tighten their
+padding and value size so a seven-figure value fits. `.chart-container-tall` sizes bar charts with many categories.
 
 ### Page layouts
 
@@ -302,7 +311,7 @@ The dashboard's one bold element. `realm_tally.go` builds it in the UI controlle
 global `region` groups (no snapshot schema change): each region's share of the census total, rounded once
 to 0.1% so the drawn width, the label and the offsets agree, plus a display name (NA → North America,
 EU → Europe, JP → Japan, OCE → Oceania), a link to `/ui/worlds?region=<code>` and a fixed colour slot
-(NA 1, EU 2, JP 3, OCE 4, anything else the neutral slot). Segments are ordered by population.
+(the region's position in the census taxonomy: NA 1, EU 2, JP 3, OCE 4, anything else the neutral slot). Segments are ordered by population.
 
 The markup is a `<section aria-labelledby>` whose heading is the page `h1` ("Characters in the census"):
 
@@ -323,7 +332,8 @@ Every Chart.js chart on every page starts from `assets/chart-theme.js`, loaded b
 Chart.js and before any page script. It reads colours from the CSS tokens at runtime (the stylesheet stays
 the single source) and sets `Chart.defaults`: Manrope at 12px, Ink-muted text, Line-coloured hairline
 grid, the overlay tooltip (Raised, Line border, value in Ink 600), circular legend markers at the bottom,
-2px lines with no resting points and a 12px hit radius, bars capped at 24px with 4px rounded ends, a 2px
+2px lines with no resting points and a 12px hit radius, drawn with monotone cubic interpolation (a curve
+never overshoots its data, so sparse daily counts cannot dip below zero), bars capped at 24px with 4px rounded ends, a 2px
 Surface gap between doughnut arcs, `responsive` with `maintainAspectRatio: false` (size the
 `.chart-container`), and no animation under `prefers-reduced-motion` (updated live). It redraws charts once
 the web font has loaded. Opt-in plugins: `censusCrosshair` (vertical hairline at the hovered X, for line
@@ -337,21 +347,33 @@ scripts); they use `window.CensusCharts`:
 | `primary()` / `comparison()` | Aether for a single or primary series, Crystal for a comparison series |
 | `slot(n)` | Categorical slot 1-8; anything else is `--color-chart-other` |
 | `raceColor(name)` / `raceColors(labels)` | The fixed race colour |
+| `regionColor(code)` | The fixed region colour (NA, EU, JP, OCE) |
 | `sortRaces(labels, values)` | Labels and values in fixed race order, for doughnuts |
 | `wash(colour)` / `surface()` | 10% area fill for a line; Surface for rings and gaps |
 | `format(n)` / `compact(n)` / `formatDate(iso)` | `1,234`; `1.2K` axis ticks; `Sat, 24 Oct 2026` tooltip titles |
 
 **Categorical palette.** Eight slots, assigned in fixed order and never cycled. Slot 1 is the Aether hue
 and slot 2 the Crystal hue, stepped down into the dark-mode chart lightness band (OKLCH L 0.48–0.67),
-because the brand accents themselves (L 0.82 and 0.71) are too light to sit beside other series. Slots
-3-8 are amber, red, blue, green, pink and orange. Generated and checked with the dataviz palette
-validator against Night and Surface: every slot inside the band with chroma ≥ 0.10, worst adjacent CVD
+because the brand accents themselves (L 0.82 and 0.71) are too light to sit beside other series:
+`#00A4C5` and `#917EF4` keep the Aether and Crystal hues at the top of the band (L 0.665), the closest
+the validator allows, and their pair sets the palette's worst CVD separation. Slots 3-8 are red
+`#D24C49`, magenta `#B334AD`, blue `#4194F9`, green `#27AF57`, pink `#DD61A2` and orange `#DD7303`.
+There is no gold or amber slot (the spec drops gold entirely; a test rejects OKLCH hues 60-115°): the
+former amber slot 3 was replaced by a searched non-gold hue and slots 3-8 reordered so the new set still
+passes. Generated (scratch search over OKLCH hue, lightness and chroma) and checked with the dataviz
+palette validator against Night and Surface: every slot inside the band with chroma ≥ 0.10, worst adjacent CVD
 ΔE 8.2 (protan/deutan, target 8), worst adjacent normal-vision ΔE 17.0 (floor 15), every slot ≥ 3:1 on
 Surface; slots 1-4 also pass the all-pairs test, which is why regions use them. Single-series charts use
 Aether itself, comparisons Crystal. Past eight categories, fold the tail into "Other" (neutral slot).
 
-**Fixed race colours** (`RACE_SLOTS` in `chart-theme.js`): Hyur 1, Elezen 2, Lalafell 3, Miqo'te 4,
-Roegadyn 5, Au Ra 6, Hrothgar 7, Viera 8. A race keeps its colour on every chart whatever its rank. In a
+**Census taxonomy, one source.** The race order, the clan → race map and the region facts (code, display
+name, display order) live in `domain/census/taxonomy.go`. A race's or region's colour slot is its 1-based
+position in that order: Hyur 1, Elezen 2, Lalafell 3, Miqo'te 4, Roegadyn 5, Au Ra 6, Hrothgar 7,
+Viera 8; NA 1, EU 2, JP 3, OCE 4. The server uses it for swatches and the realm tally (`taxonomy.go` in
+`cmd/http/ui`), and the layout renders it into every page as
+`<script type="application/json" id="census-taxonomy">{"races":[…],"regions":[…]}</script>`, which
+`chart-theme.js` reads, so the chart colours and the server-rendered swatches cannot drift apart. A race
+keeps its colour on every chart whatever its rank. In a
 doughnut, call `sortRaces` first so neighbouring arcs are the validated adjacent pairs.
 
 **Text alternatives.** Every `<canvas>` has `role="img"`, an `aria-label` naming the chart, and
@@ -362,6 +384,12 @@ On the dashboard the race distribution is a horizontal bar chart (eight close va
 bars than as a doughnut), main-scenario completion is a list of native `<meter>` elements, and the
 new-character trend on the stat tile is an arrow icon plus a word and a signed delta ("Down −124
 (−5.3%) on the previous 30 days"), never colour alone.
+
+**30-day windows use complete days.** The new-character timeline (dashboard and world detail) and the
+"New characters, last 30 days" tiles and their trend (`census.NewCharactersWindow`) cover the 30 complete
+UTC days before the snapshot's generation day, so the partial current day never shows as a false drop or
+biases the trend. The timeline always has 30 points; its summary and "Show the numbers" table print
+dates like "Oct 23" (the table wraps each in `<time datetime="2026-10-23">`).
 
 ### Error, stale and empty states
 
@@ -378,13 +406,22 @@ All three render through the page shell, so they keep the header, navigation and
   `templates/not_found.html`: a heading ("World not found" or "Page not found"), one line of direction,
   and links to the dashboard and the worlds list. The footer still shows snapshot freshness when a
   snapshot exists, but a missing snapshot never turns a 404 into a 503, and the stale notice is not shown
-  (the page has no figures). Paths outside `/ui/` keep Go's default plain 404.
+  (the page has no figures). Any other unmatched path answers the same styled 404 (`GET`/`HEAD`):
+  `NotFoundFallback` wraps the server mux and only steps in when no route matches, so API, health,
+  metrics and docs routes, a handler's own 404, method-mismatch 405s and redirects are untouched, and
+  unknown paths under `/api/` keep Go's plain-text 404.
+- **Freshness on snapshot-free pages.** The 404 and Methodology pages read freshness only from the
+  snapshot already held in memory (`UIStatsService.Cached`); they never trigger or wait on a database
+  load. With nothing cached yet, the footer reads "Statistics are being prepared".
 - Both error pages set `PageData.NoIndex`: the head carries `<meta name="robots" content="noindex">`
   instead of a canonical link, and no primary-nav item is marked `aria-current`.
 - **Stale notice.** `UIStatsService.Current` reports a snapshot stale only when it is at least
   `stale_warning` old, or when the most recent reload attempt failed while a warm snapshot was held.
   A routine background reload after `cache_ttl` (stale-while-revalidate, metric result `stale_served`)
-  does not mark it stale. A later successful reload or refresh clears the failed-reload flag. The notice
+  does not mark it stale. A later successful reload or refresh clears the failed-reload flag. Each load
+  and refresh takes a generation number, and a load applies its outcome only if nothing newer has
+  started or landed since: a slow reload that fails after a refresh installed a newer snapshot cannot
+  flag it stale or reset its cache time, and a slow successful one cannot overwrite it. The notice
   (`role="status"`) reads "Statistics may be behind." and names the snapshot time; the footer adds
   "(stale)".
 - **Empty states.** Every "no data here" block uses the shared `empty-state` component from
