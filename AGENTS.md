@@ -86,6 +86,10 @@ Server-rendered Go templates + HTMX in `cmd/http/ui/` (embedded via `//go:embed`
 
 Issues live in GitHub Issues (`mihaiflorentin/ffxiv-census`, via `gh`). See `docs/agents/issue-tracker.md`.
 
+### Triage labels
+
+Default five-role vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`), all present on GitHub. See `docs/agents/triage-labels.md`.
+
 ### Domain docs
 
 Single-context; the glossary is `GLOSSARY.md` at the repo root, ADRs in `docs/adr/`. See `docs/agents/domain.md`.
