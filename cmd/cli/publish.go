@@ -164,8 +164,9 @@ type fillGapsScanner interface {
 // publishFillGapsIDSweep publishes at most count id-sweep jobs covering the
 // oldest unscanned gaps after the persistent fill-gaps cursor. With minID > 0
 // it runs a one-shot manual scan from minID instead and never touches the
-// cursor. When the cursor reaches MaxID it wraps to 0 so the sweep restarts
-// from the lowest gaps on the next run.
+// cursor. When no gaps remain after the cursor (or it is at or past MaxID) it
+// wraps to 0 and the same run searches again from the lowest ID, so the gap
+// fill cycles for ever. A wrap is logged as wrapped=true.
 func publishFillGapsIDSweep(ctx context.Context, repo fillGapsScanner, q contract.Queue, logger contract.Logger, count, chunkSize uint32, source string, minID uint32) error {
 	if count == 0 {
 		return fmt.Errorf("--count must be > 0 in --fill-gaps mode")
@@ -183,6 +184,7 @@ func publishFillGapsIDSweep(ctx context.Context, repo fillGapsScanner, q contrac
 	cursorMode := minID == 0
 	after := minID
 	var cursorBefore uint32
+	wrapped := false
 	if cursorMode {
 		c, err := repo.FillGapsCursor(ctx)
 		if err != nil {
@@ -193,6 +195,7 @@ func publishFillGapsIDSweep(ctx context.Context, repo fillGapsScanner, q contrac
 				return fmt.Errorf("wrap fill gaps cursor: %w", err)
 			}
 			c = 0
+			wrapped = true
 		}
 		cursorBefore = c
 		after = c
@@ -202,8 +205,24 @@ func publishFillGapsIDSweep(ctx context.Context, repo fillGapsScanner, q contrac
 	if err != nil {
 		return fmt.Errorf("find id gaps: %w", err)
 	}
+	if len(gaps) == 0 && cursorMode && cursorBefore > 0 {
+		// No gaps remain after the cursor: wrap to 0 and search again so the
+		// cycle restarts from the lowest gaps in this same run.
+		if err := repo.AdvanceFillGapsCursor(ctx, cursorBefore, 0); err != nil {
+			return fmt.Errorf("wrap fill gaps cursor: %w", err)
+		}
+		cursorBefore = 0
+		wrapped = true
+		gaps, err = repo.FindIDGapsAfter(ctx, 0, maxID, int(count))
+		if err != nil {
+			return fmt.Errorf("find id gaps: %w", err)
+		}
+	}
 	if len(gaps) == 0 {
-		logger.InfoContext(ctx, "publish.id_sweep_gaps.none_found", slog.Uint64("max_id", uint64(maxID)))
+		logger.InfoContext(ctx, "publish.id_sweep_gaps.none_found",
+			slog.Uint64("max_id", uint64(maxID)),
+			slog.Bool("wrapped", wrapped),
+		)
 		return nil
 	}
 
@@ -213,6 +232,13 @@ func publishFillGapsIDSweep(ctx context.Context, repo fillGapsScanner, q contrac
 	}
 
 	published, pubErr := publishAll(q, logger, ctx, jobs)
+	logger.InfoContext(ctx, "publish.id_sweep_gaps.published",
+		slog.Uint64("after", uint64(cursorBefore)),
+		slog.Uint64("max_id", uint64(maxID)),
+		slog.Int("count", published),
+		slog.Bool("cursor_mode", cursorMode),
+		slog.Bool("wrapped", wrapped),
+	)
 	if cursorMode && published > 0 {
 		var last handler.IDSweepPayload
 		if err := json.Unmarshal(jobs[published-1].Payload, &last); err != nil {

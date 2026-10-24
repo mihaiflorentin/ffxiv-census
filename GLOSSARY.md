@@ -25,7 +25,7 @@ An ID sweep over the unprobed gaps between stored character IDs, published in ca
 _Avoid_: fill-gaps (bare), 404 ledger
 
 **Gap-fill cursor**:
-The persistent last-queued ID for gap fills, separate from the ID sweep cursor. It wraps back to the start once it passes the highest stored character ID.
+The persistent last-queued ID for gap fills, separate from the ID sweep cursor. It wraps back to 0 once no gaps remain after it (or it reaches the highest stored character ID), and the same run searches again from the lowest ID, so the gap fill cycles for ever.
 _Avoid_: fill_gaps_state, gap cursor
 
 **Achievement census**:
