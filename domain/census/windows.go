@@ -7,6 +7,10 @@ import (
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
+// DefaultNewCharactersWindowDays is the new-characters window when none is
+// configured.
+const DefaultNewCharactersWindowDays = 90
+
 // WindowDays is a census window's length in whole days, rounded to the
 // nearest day. Non-positive windows are 0.
 func WindowDays(d time.Duration) int {

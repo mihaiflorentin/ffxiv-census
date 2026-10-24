@@ -53,6 +53,22 @@ func TestCensusConfig_EnvOverride(t *testing.T) {
 	}
 }
 
+func TestCensusConfig_NewCharactersWindowDefaultAndEnv(t *testing.T) {
+	cfg, err := NewConfig()
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	if cfg.Census == nil || cfg.Census.NewCharactersWindowDays != 90 {
+		t.Fatalf("new_characters_window_days = %+v, want 90", cfg.Census)
+	}
+
+	t.Setenv("CENSUS_NEW_CHARACTERS_WINDOW_DAYS", "60")
+	cfg, _ = NewConfig()
+	if cfg.Census.NewCharactersWindowDays != 60 {
+		t.Fatalf("CENSUS_NEW_CHARACTERS_WINDOW_DAYS override: got %v, want 60", cfg.Census.NewCharactersWindowDays)
+	}
+}
+
 func TestCensusConfig_MaxLevelAndExpansions(t *testing.T) {
 	cfg, err := NewConfig()
 	if err != nil {

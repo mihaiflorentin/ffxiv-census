@@ -466,7 +466,7 @@ const docTemplate = `{
     "/api/v1/stats/new-characters": {
       "get": {
         "summary": "New characters per day",
-        "description": "Daily counts of characters who earned the Chocobo milestone (achievement 590) within the bounded statistics snapshot window.",
+        "description": "Daily counts of characters who earned the Chocobo milestone (achievement 590). Defaults to the new-characters window (census.new_characters_window_days, 90 by default): its complete UTC days before the snapshot day. A range must stay inside the snapshot's current and previous windows.",
         "produces": [
           "application/json"
         ],
@@ -474,15 +474,15 @@ const docTemplate = `{
           {
             "name": "since",
             "in": "query",
-            "description": "Inclusive start date (YYYY-MM-DD, UTC).",
-            "required": true,
+            "description": "Inclusive start date (YYYY-MM-DD, UTC); defaults to the start of the new-characters window.",
+            "required": false,
             "type": "string",
             "format": "date"
           },
           {
             "name": "until",
             "in": "query",
-            "description": "Exclusive end date (YYYY-MM-DD, UTC); defaults to now.",
+            "description": "Exclusive end date (YYYY-MM-DD, UTC); defaults to the snapshot day (the end of the window).",
             "required": false,
             "type": "string",
             "format": "date"

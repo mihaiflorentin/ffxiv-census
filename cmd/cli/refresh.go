@@ -59,12 +59,19 @@ func runRefreshUIStats(mode contract.UIStatsRefreshMode) error {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	return runRefreshUIStatsWithService(ctx, stats, contract.UIStatsRefreshOptions{
-		ActivitySince: censusService.ActivitySince(),
-		MaxLevel:      censusService.MaxLevel(),
-		Timeout:       timeout,
-		Mode:          mode,
-	})
+	return runRefreshUIStatsWithService(ctx, stats, uiStatsRefreshOptions(censusService, timeout, mode))
+}
+
+// uiStatsRefreshOptions builds a refresh request from the census service's
+// configured windows and maximum level.
+func uiStatsRefreshOptions(svc *census.Service, timeout time.Duration, mode contract.UIStatsRefreshMode) contract.UIStatsRefreshOptions {
+	return contract.UIStatsRefreshOptions{
+		ActivitySince:           svc.ActivitySince(),
+		NewCharactersWindowDays: census.WindowDays(svc.NewCharactersWindow()),
+		MaxLevel:                svc.MaxLevel(),
+		Timeout:                 timeout,
+		Mode:                    mode,
+	}
 }
 
 var refreshCmd = &cobra.Command{

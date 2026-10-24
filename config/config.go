@@ -168,6 +168,9 @@ type ExpansionConfig struct {
 
 type CensusConfig struct {
 	ActivityWindowDays int `mapstructure:"activity_window_days"`
+	// NewCharactersWindowDays is how many days the new-characters figures
+	// count, compared with the same number of days before them.
+	NewCharactersWindowDays int `mapstructure:"new_characters_window_days"`
 	// PrivateRecheckDays is how many days a character found private is left
 	// alone before its achievement census runs again.
 	PrivateRecheckDays int               `mapstructure:"private_recheck_days"`

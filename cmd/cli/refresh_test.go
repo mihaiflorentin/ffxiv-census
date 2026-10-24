@@ -37,6 +37,22 @@ func TestRunRefreshUIStatsWithService(t *testing.T) {
 	}
 }
 
+func TestUIStatsRefreshOptionsCarryTheServiceWindows(t *testing.T) {
+	svc := census.NewService(nil, nil, nil)
+	svc.SetActivityWindow(45 * 24 * time.Hour)
+	svc.SetNewCharactersWindow(60 * 24 * time.Hour)
+	opts := uiStatsRefreshOptions(svc, time.Hour, contract.UIStatsRefreshIncremental)
+	if opts.NewCharactersWindowDays != 60 {
+		t.Fatalf("new-characters window = %d days, want 60", opts.NewCharactersWindowDays)
+	}
+	if days := census.WindowDays(time.Since(opts.ActivitySince)); days != 45 {
+		t.Fatalf("activity cutoff = %d days ago, want 45", days)
+	}
+	if opts.MaxLevel != 100 || opts.Timeout != time.Hour || opts.Mode != contract.UIStatsRefreshIncremental {
+		t.Fatalf("options = %#v", opts)
+	}
+}
+
 func TestRefreshUIStatsModeFlag(t *testing.T) {
 	flag := refreshUIStatsCmd.Flags().Lookup("mode")
 	if flag == nil || flag.DefValue != "full" {

@@ -117,6 +117,17 @@ func TestUIStatsServiceStateCarriesSnapshotActivityWindow(t *testing.T) {
 	}
 }
 
+func TestUIStatsServiceStateCarriesSnapshotNewCharactersWindow(t *testing.T) {
+	snapshot := validUIStatsSnapshot()
+	snapshot.NewCharactersWindowDays = 60
+	svc := NewUIStatsService(&statsRepoStub{snapshot: snapshot}, time.Minute, 12*time.Hour)
+
+	_, state, err := svc.Current(context.Background())
+	if err != nil || state.NewCharactersWindowDays != 60 {
+		t.Fatalf("Current() state = %#v, err %v; want NewCharactersWindowDays 60", state, err)
+	}
+}
+
 func TestUIStatsServiceSingleflightsExpiredReload(t *testing.T) {
 	now := time.Date(2026, 8, 24, 12, 0, 0, 0, time.UTC)
 	repo := &statsRepoStub{snapshot: validUIStatsSnapshot()}
