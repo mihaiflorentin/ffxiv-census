@@ -1,7 +1,7 @@
 {{define "content"}}
 <div class="page-header">
     <h1 class="page-title">Levels</h1>
-    <p class="page-desc">How far characters have levelled, {{.Data.Scope}}: each character sits in the expansion its highest job reached. Narrow it down by region, datacenter or world.</p>
+    <p class="page-desc">How far characters have levelled, {{.Data.Scope}}: each character sits in the expansion whose level range holds their highest job. Job levels aren’t story progress: see <a href="/ui/expansions">Expansions</a> for that. Narrow it down by region, datacenter or world.</p>
 </div>
 
 {{template "filter-bar" .Data.Filters}}
@@ -38,7 +38,7 @@
         {{else}}
         {{template "empty-state" (emptyState "No job levels stored here yet." "Characters join the bands once the census has read their jobs.")}}
         {{end}}
-        <p class="chart-summary">Each bar counts the characters whose highest job level falls in that expansion’s levels, from the previous level cap up to just below its own. The shares are of characters with job levels.{{if .NoLevels}} Another {{formatNumber .NoLevels}} characters with no job levels yet are left out of them.{{end}}</p>
+        <p class="chart-summary">Each bar counts the characters whose highest job level falls in that expansion’s levels, from just above the previous level cap up to its own; the level cap has its own bar. The shares are of characters with job levels.{{if .NoLevels}} Another {{formatNumber .NoLevels}} characters with no job levels yet are left out of them.{{end}}</p>
         <details class="chart-data">
             <summary>Show the numbers</summary>
             <div class="table-scroll" role="region" aria-label="Characters by highest job level" tabindex="0">
@@ -65,7 +65,7 @@
         {{if .Data.Datacenters}}
         {{template "level-key" .Data.Key}}
         {{template "level-rows" (dict "Rows" .Data.Datacenters "Label" "Datacenter")}}
-        <p class="chart-summary">Each bar splits a datacenter’s characters with job levels by the expansion their highest job reached, from A Realm Reborn on the left to the level cap on the right. Pick a datacenter to compare its worlds.</p>
+        <p class="chart-summary">Each bar splits a datacenter’s characters with job levels by the expansion level range their highest job falls in, from A Realm Reborn on the left to the level cap on the right. Pick a datacenter to compare its worlds.</p>
         {{template "level-table" (dict "Rows" .Data.Datacenters "Key" .Data.Key "Label" "Datacenter" "Area" .Data.DatacenterArea)}}
         {{else}}
         {{template "empty-state" (emptyState "No datacenters to compare here yet." "They appear after the next nightly rebuild.")}}

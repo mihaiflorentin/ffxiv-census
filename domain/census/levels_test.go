@@ -8,15 +8,18 @@ import (
 	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
 
-func TestLevelBandsRunFromOneExpansionCapToJustBelowTheNext(t *testing.T) {
+// The bands follow the level caps: each expansion's band ends at its own cap,
+// the highest level a character can reach with that expansion, and the last
+// band is the current maximum on its own.
+func TestLevelBandsRunFromJustAboveOneExpansionCapToTheNext(t *testing.T) {
 	got := LevelBands(DefaultExpansions, 100)
 	want := []contract.StatsLevelBand{
-		{Name: "A Realm Reborn", Min: 1, Max: 49},
-		{Name: "Heavensward", Min: 50, Max: 59},
-		{Name: "Stormblood", Min: 60, Max: 69},
-		{Name: "Shadowbringers", Min: 70, Max: 79},
-		{Name: "Endwalker", Min: 80, Max: 89},
-		{Name: "Dawntrail", Min: 90, Max: 99},
+		{Name: "A Realm Reborn", Min: 1, Max: 50},
+		{Name: "Heavensward", Min: 51, Max: 60},
+		{Name: "Stormblood", Min: 61, Max: 70},
+		{Name: "Shadowbringers", Min: 71, Max: 80},
+		{Name: "Endwalker", Min: 81, Max: 90},
+		{Name: "Dawntrail", Min: 91, Max: 99},
 		{Name: LevelCapBand, Min: 100},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -30,7 +33,7 @@ func TestLevelBandsExtendWithAFutureExpansion(t *testing.T) {
 	if n := len(bands); n != 8 {
 		t.Fatalf("got %d bands, want 8", n)
 	}
-	if got, want := bands[6], (contract.StatsLevelBand{Name: "Next", Min: 100, Max: 109}); got != want {
+	if got, want := bands[6], (contract.StatsLevelBand{Name: "Next", Min: 101, Max: 109}); got != want {
 		t.Errorf("new expansion band = %v, want %v", got, want)
 	}
 	if got, want := bands[7], (contract.StatsLevelBand{Name: LevelCapBand, Min: 110}); got != want {
@@ -165,8 +168,8 @@ func TestLevelBandsStopAtTheConfiguredMaximum(t *testing.T) {
 	// A maximum below the last expansion's cap (its levels not released yet)
 	// drops the unreachable bands.
 	bands := LevelBands(DefaultExpansions, 90)
-	if got := bands[len(bands)-2]; got != (contract.StatsLevelBand{Name: "Endwalker", Min: 80, Max: 89}) {
-		t.Errorf("last expansion band = %v, want Endwalker 80-89", got)
+	if got := bands[len(bands)-2]; got != (contract.StatsLevelBand{Name: "Endwalker", Min: 81, Max: 89}) {
+		t.Errorf("last expansion band = %v, want Endwalker 81-89", got)
 	}
 	if got := bands[len(bands)-1]; got != (contract.StatsLevelBand{Name: LevelCapBand, Min: 90}) {
 		t.Errorf("cap band = %v, want level cap from 90", got)

@@ -905,8 +905,8 @@
       "active": 1,
       "max_level": 1,
       "levels": [
-        0,
         1,
+        0,
         0,
         0,
         0,
@@ -927,8 +927,8 @@
         0,
         0,
         0,
-        0,
         1,
+        0,
         2
       ],
       "no_levels": 1
@@ -1138,8 +1138,8 @@
       "max_level": 1,
       "unchecked": 1,
       "levels": [
-        0,
         1,
+        0,
         0,
         0,
         0,
@@ -1178,8 +1178,8 @@
         0,
         0,
         0,
-        0,
         1,
+        0,
         2
       ],
       "no_levels": 1
@@ -1245,8 +1245,8 @@
         0,
         0,
         0,
-        0,
         1,
+        0,
         1
       ],
       "no_levels": 1
@@ -1295,8 +1295,8 @@
       "active": 1,
       "max_level": 1,
       "levels": [
-        0,
         1,
+        0,
         0,
         0,
         0,
@@ -1331,12 +1331,12 @@
     "max_level": 4,
     "unchecked": 2,
     "levels": [
-      0,
       1,
       0,
       0,
       0,
       1,
+      0,
       4
     ],
     "no_levels": 2
@@ -1773,31 +1773,31 @@
     {
       "name": "A Realm Reborn",
       "min": 1,
-      "max": 49
+      "max": 50
     },
     {
       "name": "Heavensward",
-      "min": 50,
-      "max": 59
+      "min": 51,
+      "max": 60
     },
     {
       "name": "Stormblood",
-      "min": 60,
-      "max": 69
+      "min": 61,
+      "max": 70
     },
     {
       "name": "Shadowbringers",
-      "min": 70,
-      "max": 79
+      "min": 71,
+      "max": 80
     },
     {
       "name": "Endwalker",
-      "min": 80,
-      "max": 89
+      "min": 81,
+      "max": 90
     },
     {
       "name": "Dawntrail",
-      "min": 90,
+      "min": 91,
       "max": 99
     },
     {

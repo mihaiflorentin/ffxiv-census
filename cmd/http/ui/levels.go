@@ -21,7 +21,7 @@ func levelStep(i, n int) int {
 	return max(1, levelSteps-(n-1-i))
 }
 
-// levelRange prints a band's levels: "1–49", or "100" for the open cap band.
+// levelRange prints a band's levels: "1–50", or "100" for the open cap band.
 func levelRange(b contract.StatsLevelBand) string {
 	if b.Open() {
 		return fmt.Sprintf("%d", b.Min)
@@ -33,7 +33,7 @@ func levelRange(b contract.StatsLevelBand) string {
 type LevelBandKey struct {
 	Step        int
 	Name, Range string
-	// HighestLevel is the band's highest level ("49"; the cap band's own
+	// HighestLevel is the band's highest level ("50"; the cap band's own
 	// level).
 	HighestLevel string
 }
@@ -75,7 +75,7 @@ type LevelRowView struct {
 
 // LevelLede reads "<Share> of characters <Text>. <Aside>": Share is the
 // largest band's, Text what that band means ("never took a job past level
-// 49", "have a job at the level cap", "peaked in Endwalker, levels 80–89"),
+// 50", "have a job at the level cap", "peaked in Endwalker's levels, 81–90"),
 // and Aside the other end of the range.
 type LevelLede struct {
 	Share, Text, Aside string
@@ -97,7 +97,7 @@ func levelLede(row LevelRowView) LevelLede {
 	case len(row.Bands) - 1:
 		return LevelLede{Share: b.Share, Text: atCap, Aside: row.LowestBand.Share + " " + never + "."}
 	}
-	return LevelLede{Share: b.Share, Text: "peaked in " + b.Name + ", levels " + b.Range, Aside: row.CapBand.Share + " " + atCap + "."}
+	return LevelLede{Share: b.Share, Text: "peaked in " + b.Name + "'s levels, " + b.Range, Aside: row.CapBand.Share + " " + atCap + "."}
 }
 
 // RegionLink is a link that narrows a page to one region.

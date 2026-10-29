@@ -84,14 +84,14 @@ func TestLevelsPageShowsTheDistributionByBand(t *testing.T) {
 			t.Errorf("band row %d = %q, want it to start with %q", i, got, want)
 		}
 	}
-	if got := flatText(bands[0]); !strings.Contains(got, "1–49") || !strings.Contains(got, "600") || !strings.Contains(got, "75.0%") {
-		t.Errorf("first band row = %q, want levels 1–49, 600 characters, 75.0%%", got)
+	if got := flatText(bands[0]); !strings.Contains(got, "1–50") || !strings.Contains(got, "600") || !strings.Contains(got, "75.0%") {
+		t.Errorf("first band row = %q, want levels 1–50, 600 characters, 75.0%%", got)
 	}
 	if got := flatText(bands[6]); !strings.Contains(got, "100") || !strings.Contains(got, "5.0%") {
 		t.Errorf("cap band row = %q, want level 100 at 5.0%%", got)
 	}
-	if !strings.Contains(main, "75.0%") || !strings.Contains(main, "never took a job past level 49") {
-		t.Error("the lede must say how many never took a job past level 49")
+	if !strings.Contains(main, "75.0%") || !strings.Contains(main, "never took a job past level 50") {
+		t.Error("the lede must say how many never took a job past level 50")
 	}
 	if !strings.Contains(main, "200 characters with no job levels yet") {
 		t.Error("characters with no job levels are counted apart")
@@ -219,7 +219,7 @@ func TestWorldDetailShowsItsLevelBand(t *testing.T) {
 		t.Error("the block links to the Levels page filtered to the world")
 	}
 	if !strings.Contains(renderedMain(t, doc), "71.4%") {
-		t.Error("the block names the share that never took a job past level 49")
+		t.Error("the block names the share that never took a job past level 50")
 	}
 }
 
@@ -234,9 +234,9 @@ func TestLevelsLedeNamesTheLargestBand(t *testing.T) {
 		row                LevelRowView
 		share, lede, aside string
 	}{
-		{"first", row(60, 10, 5, 5, 5, 5, 10), "60.0%", "never took a job past level 49", "10.0% have a job at the level cap."},
-		{"cap", row(5, 5, 5, 5, 5, 5, 70), "70.0%", "have a job at the level cap", "5.0% never took a job past level 49."},
-		{"middle", row(5, 5, 5, 5, 50, 20, 10), "50.0%", "peaked in Endwalker, levels 80–89", "10.0% have a job at the level cap."},
+		{"first", row(60, 10, 5, 5, 5, 5, 10), "60.0%", "never took a job past level 50", "10.0% have a job at the level cap."},
+		{"cap", row(5, 5, 5, 5, 5, 5, 70), "70.0%", "have a job at the level cap", "5.0% never took a job past level 50."},
+		{"middle", row(5, 5, 5, 5, 50, 20, 10), "50.0%", "peaked in Endwalker's levels, 81–90", "10.0% have a job at the level cap."},
 	} {
 		if tc.row.Lede.Share != tc.share || tc.row.Lede.Text != tc.lede || tc.row.Lede.Aside != tc.aside {
 			t.Errorf("%s lede = %+v, want %s %q %q", tc.name, tc.row.Lede, tc.share, tc.lede, tc.aside)
@@ -272,7 +272,7 @@ func TestLevelsInNavSitemapAndMethodology(t *testing.T) {
 		t.Fatal("Methodology needs a Levels section")
 	}
 	main := renderedMain(t, method)
-	for _, text := range []string{"Heavensward", "50–59", "No job levels yet", "nightly", "after their first census"} {
+	for _, text := range []string{"Heavensward", "51–60", "No job levels yet", "nightly", "after their first census", "not how far the character has got in the main scenario"} {
 		if !strings.Contains(main, text) {
 			t.Errorf("Methodology Levels section must explain %q", text)
 		}

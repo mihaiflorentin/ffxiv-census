@@ -46,7 +46,7 @@ func TestUIStatsFullRefreshCountsLevelBandsPerLocation(t *testing.T) {
 	now := time.Now().UTC()
 	old := now.Add(-90 * 24 * time.Hour)
 
-	for i, level := range []int{0, 1, 49, 50, 99, 100} {
+	for i, level := range []int{0, 1, 50, 51, 99, 100} {
 		seedStatsCharacter(t, driver, i+1, "Balmung", "Crystal", "NA", "Hyur", 1, old, nil, level)
 	}
 	seedStatsCharacter(t, driver, 7, "Ragnarok", "Chaos", "EU", "Elezen", 2, old, nil, 100)
@@ -69,11 +69,11 @@ func TestUIStatsFullRefreshCountsLevelBandsPerLocation(t *testing.T) {
 	if !loaded.LevelsBuiltAt.Equal(loaded.GeneratedAt) {
 		t.Errorf("levels built at %v, want the full rebuild's %v", loaded.LevelsBuiltAt, loaded.GeneratedAt)
 	}
-	if got, want := levelsOf(loaded.Summary.NoLevels, loaded.Summary.Levels), (levelCounts{1, 2, 1, 0, 0, 0, 2, 2}); got != want {
+	if got, want := levelsOf(loaded.Summary.NoLevels, loaded.Summary.Levels), (levelCounts{1, 2, 1, 0, 0, 1, 1, 2}); got != want {
 		t.Errorf("summary levels = %v, want %v", got, want)
 	}
 	balmung := levelCounts{1, 2, 1, 0, 0, 0, 1, 1}
-	ragnarok := levelCounts{0, 0, 0, 0, 0, 0, 1, 1}
+	ragnarok := levelCounts{0, 0, 0, 0, 0, 1, 0, 1}
 	for _, tc := range []struct {
 		dimension, key string
 		want           levelCounts
@@ -133,7 +133,7 @@ func TestUIStatsIncrementalCarriesLevelBandsForwardUnchanged(t *testing.T) {
 	}
 	// The level bands are nightly only: new, deleted and levelled
 	// characters all wait for the nightly rebuild, while the total moves.
-	want := levelCounts{0, 1, 0, 0, 1, 0, 0, 1}
+	want := levelCounts{0, 1, 0, 1, 0, 0, 0, 1}
 	if inc.Snapshot.Summary.Total != 5 {
 		t.Errorf("incremental summary total = %d, want 5 (the total still moves by the delta)", inc.Snapshot.Summary.Total)
 	}
@@ -156,7 +156,7 @@ func TestUIStatsIncrementalCarriesLevelBandsForwardUnchanged(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := levelsOf(rebuilt.Snapshot.Summary.NoLevels, rebuilt.Snapshot.Summary.Levels), (levelCounts{1, 0, 0, 1, 1, 0, 2, 0}); got != want {
+	if got, want := levelsOf(rebuilt.Snapshot.Summary.NoLevels, rebuilt.Snapshot.Summary.Levels), (levelCounts{1, 0, 1, 1, 0, 1, 1, 0}); got != want {
 		t.Errorf("nightly rebuild summary levels = %v, want %v (the drift corrected)", got, want)
 	}
 }
