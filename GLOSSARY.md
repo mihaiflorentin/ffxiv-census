@@ -251,7 +251,7 @@ The split of combat jobs at the level cap into tanks, healers and DPS for a data
 _Avoid_: role ratio, role distribution
 
 **Level band**:
-The expansion a character's highest job level falls in: each expansion's band runs from the previous expansion's level cap (level 1 for A Realm Reborn) to just below its own, and the last band, "Level cap", is the game's current maximum level. Derived from the configured expansions. Characters with no stored job levels are counted apart as "No job levels yet" and left out of the shares.
+The expansion a character's highest job level falls in: each expansion's band runs from just above the previous expansion's level cap (level 1 for A Realm Reborn) up to its own cap (A Realm Reborn 1–50, Heavensward 51–60, …), and the last band, "Level cap", is the game's current maximum level on its own, so the newest expansion's band stops one short of it (Dawntrail 91–99). A band reflects job levels, not main scenario progress: owning an expansion raises the cap without its story, so a character can level a job past an expansion's cap while still in an earlier story. Derived from the configured expansions. Characters with no stored job levels are counted apart as "No job levels yet" and left out of the shares.
 _Avoid_: level bracket, tier, max level (bare)
 
 **Members seen**:

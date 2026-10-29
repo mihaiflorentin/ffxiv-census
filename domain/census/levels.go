@@ -12,9 +12,12 @@ import (
 const LevelCapBand = "Level cap"
 
 // LevelBands are the level bands of the Levels figures, in expansion order.
-// Each expansion's band runs from the previous expansion's level cap (1 for
-// the first) to just below its own; the last band is the configured maximum
-// level and above. Expansions whose band would start at or past the maximum
+// Each expansion's band runs from just above the previous expansion's level
+// cap (1 for the first) up to its own cap, the highest level that expansion
+// allows; the last band is the configured maximum level and above, so the
+// band of the expansion that raised the cap to it stops one level short.
+// Bands follow level caps, not story progress: a job can be levelled past an
+// expansion's cap without its main scenario. Expansions whose band would start at or past the maximum
 // are left out, so an announced expansion with no released levels adds no
 // band. A new expansion in the configuration adds its band with no code
 // change. No expansions means DefaultExpansions and a zero maximum
@@ -31,10 +34,10 @@ func LevelBands(expansions []ExpansionConfig, maxLevel uint32) []contract.StatsL
 	var bands []contract.StatsLevelBand
 	from := uint32(1)
 	for _, e := range sorted {
-		if e.LevelCap <= from || from >= maxLevel {
+		if e.LevelCap < from || from >= maxLevel {
 			continue
 		}
-		to := min(e.LevelCap, maxLevel) - 1
+		to := min(e.LevelCap, maxLevel-1)
 		bands = append(bands, contract.StatsLevelBand{Name: e.Name, Min: from, Max: to})
 		from = to + 1
 	}

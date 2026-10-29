@@ -105,7 +105,8 @@
 
     <section class="prose-section" aria-labelledby="levels">
         <h2 id="levels">Levels</h2>
-        <p>The Levels page places every character in the expansion its <strong>highest job level</strong> reached. Each expansion’s band runs from the previous expansion’s level cap up to just below its own, so a character whose best job is level 50 has moved past A Realm Reborn and sits in Heavensward. The last band is the game’s current level cap.</p>
+        <p>The Levels page places every character in the expansion whose level range holds its <strong>highest job level</strong>. Each expansion’s band runs from just above the previous expansion’s level cap up to its own: levels 1 to 50 are open to every player, levels 51 to 60 need Heavensward’s higher cap, and so on. The last band is the game’s current level cap on its own, so the band of the expansion that raised the cap to it stops one level short.</p>
+        <p>A band shows how high a character’s jobs have been levelled, not how far the character has got in the main scenario. Owning an expansion raises the level cap whether or not its story has been played, and jobs can be levelled through dungeons, deep dungeons, PvP, FATEs, crafting and gathering. A character with a level 64 job can still be partway through A Realm Reborn’s story. Story progress is counted from the expansion achievements on the <a href="/ui/expansions">Expansions</a> page.</p>
         <dl class="prose-definition">
             {{range .Data.LevelBands}}<dt>{{.Name}}</dt>
             <dd>Highest job level {{.Range}}</dd>

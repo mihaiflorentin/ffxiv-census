@@ -96,7 +96,7 @@
         <ul class="level-strip-key">
             {{range .Bands}}<li><span class="swatch level-swatch level-step-{{.Step}}" aria-hidden="true"></span><span class="level-strip-name">{{.Name}}</span> <span class="level-strip-share">{{.Share}}</span></li>{{end}}
         </ul>
-        <p class="chart-summary">Characters on {{.Name}} with job levels, by the expansion their highest job reached.{{if .NoLevels}} {{formatNumber .NoLevels}} more have no job levels yet.{{end}}</p>
+        <p class="chart-summary">Characters on {{.Name}} with job levels, by the expansion level range their highest job falls in.{{if .NoLevels}} {{formatNumber .NoLevels}} more have no job levels yet.{{end}}</p>
         {{end}}
         {{else}}
         {{template "empty-state" (emptyStateLink "No job levels for this world yet." "They appear after the next nightly rebuild." "/ui/levels" "See every level band")}}
