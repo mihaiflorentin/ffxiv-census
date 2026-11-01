@@ -56,7 +56,7 @@ The character census budget goes where characters are likely to have changed. Ea
 - **Change.** A character census of a stored character changes it when its job list has a job at a higher level than the stored one, or a job it had not unlocked (`levelledCharactersTx`, read before the jobs are replaced); its highest job level rises; or its name, world, Free Company or Grand Company differs, with the new profile non-empty (a profile read with no name or jobs is not a change); or its current job (`active_job`) differs while both the stored and the new one are known, so filling in the job of a character stored before it was parsed is not a change. An achievement census changes it when the latest achievement is newer than the stored one. A change sets `last_change_at` to the census time. A first sighting is never a change.
 - **Tier.** A character write sets tier 1 when the character is public, 2 when it is private and `last_change_at` is within the window, and 3 otherwise. A private achievement result recomputes 2 or 3 the same way; a public one sets 1. A tier-3 character that changes moves to tier 2 at that census; a tier-2 character with no change in the window drops to tier 3 at its next census. No background job runs.
 - **Seed.** Migration `00031` put live public characters in tier 1 and live private characters with a job at 91 or above (levelled since Dawntrail) in tier 2, without a `last_change_at`. Their next census keeps them in tier 2 only if it finds a change, a one-time trial.
-- **Why these signals.** On 2026-11-01, 97.5% of live characters hid their achievements (a Lodestone sample of 60 was 60/60 genuinely private), so the latest achievement says nothing about most characters. The profile's job levels, current job, name, world and companies are public for everyone. `item_level` is not parsed (0 everywhere), so it is not used.
+- **Why these signals.** On 2026-11-01, 97.5% of live characters hid their achievements (a Lodestone sample of 60 was 60/60 genuinely private), so the latest achievement says nothing about most characters. The profile's job levels, current job, name, world and companies are public for everyone, and the character census reads them all from the one profile page it already fetches.
 
 ### `character_jobs`
 
@@ -74,10 +74,6 @@ Rows stored before the columns existed stay NULL until the operator runs the bac
 ```
 
 It walks characters by ascending ID in keyset batches, one short transaction per batch, filling only NULL masks from the stored jobs (already-set masks are left alone) and storing its cursor in `job_mask_backfill_state` with each batch. Stopping it (Ctrl-C) is safe: a rerun resumes from the cursor. It is not a migration and never runs at boot; characters re-censused meanwhile get their masks from the normal write path.
-
-### `character_gear`
-
-One row per equipped gear slot: `(character_id, slot)` primary key, `item_id`, `name`, `item_level`, `dye`, `materia` (JSON array of materia names/tiers), `updated_at`. Stores equipped gear pieces scraped from character profiles.
 
 ### `milestone_achievements`
 
@@ -128,7 +124,7 @@ that have not earned the first missing milestone produce no new row.
 
 Four contracts in `port/contract`, each with a PostgreSQL implementation in `infrastructure/postgres/repository/` and an in-memory fake in `mock/repository/`:
 
-- **`CharacterRepository`** — `Upsert` (one character + jobs atomically; a thin wrapper over `StoreResult`, kept for tests, tools and fixtures — no census handler calls it), `StoreResult`, `Get`, `GetJobs`, `UpsertGear`, `GetGear`, `FindIDGaps`, `MarkDeleted`, `ListStaleIDs`, `ListStaleIDsInTier`, `ListDeletedIDs`, `List`, `Count`, `CountActive`, `Breakdown`, `NewPerDay`, `MaxID`. The complete persistence and query contract for character data.
+- **`CharacterRepository`** — `Upsert` (one character + jobs atomically; a thin wrapper over `StoreResult`, kept for tests, tools and fixtures — no census handler calls it), `StoreResult`, `Get`, `GetJobs`, `FindIDGaps`, `MarkDeleted`, `ListStaleIDs`, `ListStaleIDsInTier`, `ListDeletedIDs`, `List`, `Count`, `CountActive`, `Breakdown`, `NewPerDay`, `MaxID`. The complete persistence and query contract for character data.
 - **`CharacterRepository.StoreResult`** — stores a whole `contract.CensusResult` in one transaction (all or nothing): the characters and jobs (one multi-row upsert for all characters, one jobs delete and one jobs upsert, shared by the whole batch; the last record of a repeated ID wins), then each `AchievementWrite` (milestones upserted additively, then the latest-achievement summary; a private profile only flips `achievements_private`, records `achievements_checked_at` and keeps earlier milestones). `StoreResult` is the only way census data reaches the database: the batching writer calls it, and `Upsert` delegates to it. A character with its jobs, and an achievement census with its milestones and latest achievement, always commit together. The `character-census` and `achievement-census` handlers store through the writer (`Service.PrepareCharacter` / `Service.PrepareMilestoneResults` build the write) and return only after the batch commits; a handler built without a writer fails its job with `handler.ErrNoWriter` (and so retries) instead of writing on its own, so there is no second, per-job write path. Marking a character deleted (Lodestone 404) is a single-row update and stays direct.
 - **`AchievementRepository`** — `SyncMilestones` (idempotent registry upsert), `ListMilestones`, `UpsertCharacterMilestones` (batch multi-row INSERT, single round-trip), `ListCharacterMilestones`, `CountExpansions`, `CountExpansionsFiltered`, `NewCharactersPerDay`, `CountChocoboMilestones`.
 - **`CensusRunRepository`** — `Start`, `Finish`.

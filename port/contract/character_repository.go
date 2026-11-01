@@ -62,10 +62,6 @@ type CharacterRepository interface {
 	// Atomic: on error nothing in the result is committed. An empty result is
 	// a no-op.
 	StoreResult(ctx context.Context, result CensusResult) error
-	// UpsertGear replaces all gear slots for a character in one transaction.
-	UpsertGear(ctx context.Context, charID uint32, gear []CharacterGearRecord) error
-	// GetGear returns the character's equipped gear slots (empty if none).
-	GetGear(ctx context.Context, charID uint32) ([]CharacterGearRecord, error)
 	// FindIDGapsAfter returns missing/unscanned ID ranges [[start, end], ...]
 	// strictly after afterID and up to maxID, ordered ascending. A gap that
 	// straddles afterID is trimmed so only its portion above afterID returns.

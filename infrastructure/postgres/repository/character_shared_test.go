@@ -78,7 +78,7 @@ func TestCharacterRepository_StoreResultStoresSameRowsAsOneByOne(t *testing.T) {
 		{Record: contract.CharacterRecord{
 			ID: 9402, Name: "Full", World: "Balmung", Datacenter: "Crystal", Region: "NA", Race: "Elezen", Tribe: "Wildwood",
 			Gender: 1, GrandCompany: "Maelstrom", FreeCompanyID: &fcID, FreeCompanyName: &fcName, Bio: "hi", ActiveJob: "PLD",
-			ItemLevel: 700, AchievementsPrivate: true, LatestAchievementID: &latestID, LatestAchievementAt: &now,
+			AchievementsPrivate: true, LatestAchievementID: &latestID, LatestAchievementAt: &now,
 			FirstSeenAt: now, LastCensusAt: &now,
 		}, Jobs: []contract.ClassJobRecord{{CharacterID: 9402, ClassJobID: 19, Name: "Paladin", Level: 100, ExpLevel: 3}, {CharacterID: 9402, ClassJobID: 1, Name: "Gladiator", Level: 60}}},
 		batchWrite(9401, "Bare", contract.ClassJobRecord{ClassJobID: 30, Name: "Ninja", Level: 80}),

@@ -21,7 +21,6 @@ type CharacterRecord struct {
 	FreeCompanyName     *string
 	Bio                 string
 	ActiveJob           string
-	ItemLevel           int
 	AchievementsPrivate bool
 	// AchievementsCheckedAt is when an achievement census last found the
 	// character private, so the private flag was last verified. Nil until it
@@ -32,18 +31,6 @@ type CharacterRecord struct {
 	FirstSeenAt           time.Time
 	LastCensusAt          *time.Time
 	DeletedAt             *time.Time
-}
-
-// CharacterGearRecord is one equipped gear slot snapshot for a character.
-type CharacterGearRecord struct {
-	CharacterID uint32
-	Slot        string
-	ItemID      uint32
-	Name        string
-	ItemLevel   int
-	Dye         *string
-	Materia     []string
-	UpdatedAt   time.Time
 }
 
 // ClassJobRecord is one job/class level snapshot for a character.

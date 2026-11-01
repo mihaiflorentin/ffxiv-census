@@ -58,7 +58,7 @@ func NewCharacterRepository(driver contract.DatabaseDriver, opts ...CharacterRep
 }
 
 const characterColumns = `id, name, world, datacenter, region, race, tribe, gender, grand_company,
-		        fc_id, fc_name, bio, active_job, item_level,
+		        fc_id, fc_name, bio, active_job,
 		        achievements_private, achievements_checked_at, latest_achievement_id, latest_achievement_at,
 		        first_seen_at, last_census_at, deleted_at`
 
@@ -238,7 +238,7 @@ func storeAchievementTx(ctx context.Context, tx *sql.Tx, a contract.AchievementW
 // arrays, the shape unnest turns back into rows. Nullable columns are pointer
 // slices so a nil element binds as SQL NULL.
 type characterColumnArrays struct {
-	ids, itemLevels                                    []int64
+	ids                                                []int64
 	genders, private, maxLevels                        []int32
 	names, worlds, datacenters, regions, races, tribes []string
 	companies, bios, activeJobs                        []string
@@ -266,7 +266,6 @@ func toCharacterColumns(writes []contract.CharacterWrite, maxLevel uint32) chara
 		c.fcNames = append(c.fcNames, rec.FreeCompanyName)
 		c.bios = append(c.bios, rec.Bio)
 		c.activeJobs = append(c.activeJobs, rec.ActiveJob)
-		c.itemLevels = append(c.itemLevels, int64(rec.ItemLevel))
 		c.private = append(c.private, int32(boolInt(rec.AchievementsPrivate)))
 		var latestID *int64
 		if rec.LatestAchievementID != nil {
@@ -293,32 +292,33 @@ func toCharacterColumns(writes []contract.CharacterWrite, maxLevel uint32) chara
 // has a levelled or newly unlocked job (levelled, see levelledCharactersTx),
 // a higher highest job level, another non-empty name, world, Free Company or
 // Grand Company, or another current job (when both are known) has changed:
-// last_change_at becomes this census. A first sighting is never a change. A public character is in the public tier; a
-// private one is in the active tier while its last change is within
-// activeDays, and in the other private tier otherwise.
+// last_change_at becomes this census. A first sighting is never a change. A
+// public character is in the public tier; a private one is in the active tier
+// while its last change is within activeDays, and in the other private tier
+// otherwise.
 func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.CharacterWrite, maxLevel uint32, activeDays int, levelled []int64) error {
 	c := toCharacterColumns(writes, maxLevel)
 	const query = `INSERT INTO characters (
 			id, name, world, datacenter, region, race, tribe, gender, grand_company,
-			fc_id, fc_name, bio, active_job, item_level,
+			fc_id, fc_name, bio, active_job,
 			achievements_private, latest_achievement_id, latest_achievement_at,
 			first_seen_at, last_census_at, deleted_at, max_job_level,
 			jobs_levelled_mask, jobs_at_cap_mask, last_change_at, census_tier
 		)
 		SELECT t.id, t.name, t.world, t.datacenter, t.region, t.race, t.tribe, t.gender, t.grand_company,
-			t.fc_id, t.fc_name, t.bio, t.active_job, t.item_level,
+			t.fc_id, t.fc_name, t.bio, t.active_job,
 			t.achievements_private, t.latest_achievement_id, t.latest_achievement_at,
 			t.first_seen_at, t.last_census_at, t.deleted_at, t.max_job_level,
 			t.jobs_levelled_mask, t.jobs_at_cap_mask, ch.last_change_at,
-			CASE WHEN ch.private = 0 THEN $25::smallint
-			     WHEN ch.last_change_at >= NOW() - make_interval(days => $28::integer) THEN $26::smallint
-			     ELSE $27::smallint END
+			CASE WHEN ch.private = 0 THEN $24::smallint
+			     WHEN ch.last_change_at >= NOW() - make_interval(days => $27::integer) THEN $25::smallint
+			     ELSE $26::smallint END
 		  FROM unnest($1::bigint[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[],
-			$8::smallint[], $9::text[], $10::text[], $11::text[], $12::text[], $13::text[], $14::integer[],
-			$15::smallint[], $16::integer[], $17::timestamptz[], $18::timestamptz[], $19::timestamptz[],
-			$20::timestamptz[], $21::smallint[], $22::bigint[], $23::bigint[])
+			$8::smallint[], $9::text[], $10::text[], $11::text[], $12::text[], $13::text[],
+			$14::smallint[], $15::integer[], $16::timestamptz[], $17::timestamptz[], $18::timestamptz[],
+			$19::timestamptz[], $20::smallint[], $21::bigint[], $22::bigint[])
 		       AS t(id, name, world, datacenter, region, race, tribe, gender, grand_company,
-			fc_id, fc_name, bio, active_job, item_level,
+			fc_id, fc_name, bio, active_job,
 			achievements_private, latest_achievement_id, latest_achievement_at,
 			first_seen_at, last_census_at, deleted_at, max_job_level,
 			jobs_levelled_mask, jobs_at_cap_mask)
@@ -326,7 +326,7 @@ func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.Chara
 		 CROSS JOIN LATERAL (SELECT
 			CASE WHEN t.achievements_private = 1 THEN 1 ELSE COALESCE(c.achievements_private, 0) END AS private,
 			CASE WHEN c.id IS NOT NULL AND (
-			          t.id = ANY($24::bigint[])
+			          t.id = ANY($23::bigint[])
 			       OR t.max_job_level > c.max_job_level
 			       OR (t.name <> '' AND t.name IS DISTINCT FROM c.name)
 			       OR (t.world <> '' AND t.world IS DISTINCT FROM c.world)
@@ -349,7 +349,6 @@ func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.Chara
 			fc_name = excluded.fc_name,
 			bio = excluded.bio,
 			active_job = excluded.active_job,
-			item_level = excluded.item_level,
 			achievements_private = CASE WHEN excluded.achievements_private = 1 THEN 1 ELSE characters.achievements_private END,
 			latest_achievement_id = COALESCE(excluded.latest_achievement_id, characters.latest_achievement_id),
 			latest_achievement_at = COALESCE(excluded.latest_achievement_at, characters.latest_achievement_at),
@@ -363,7 +362,7 @@ func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.Chara
 
 	if _, err := tx.ExecContext(ctx, query,
 		c.ids, c.names, c.worlds, c.datacenters, c.regions, c.races, c.tribes, c.genders, c.companies,
-		c.fcIDs, c.fcNames, c.bios, c.activeJobs, c.itemLevels,
+		c.fcIDs, c.fcNames, c.bios, c.activeJobs,
 		c.private, c.latestIDs, c.latestAts, c.firstSeens, c.lastCensuses, c.deleteds, c.maxLevels,
 		c.levelledMasks, c.atCapMasks, levelled,
 		contract.CensusTierPublic, contract.CensusTierActivePrivate, contract.CensusTierPrivate, activeDays); err != nil {
@@ -490,73 +489,6 @@ func maxJobLevel(jobs []contract.ClassJobRecord) uint8 {
 		}
 	}
 	return maxLevel
-}
-
-func (r *CharacterRepository) UpsertGear(ctx context.Context, charID uint32, gear []contract.CharacterGearRecord) error {
-	db, err := r.driver.Acquire(ctx)
-	if err != nil {
-		return err
-	}
-	tx, err := db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("gear upsert begin: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-
-	if _, err := tx.ExecContext(ctx, `DELETE FROM character_gear WHERE character_id = $1`, charID); err != nil {
-		return fmt.Errorf("gear upsert delete: %w", err)
-	}
-
-	now := time.Now().UTC()
-	for _, g := range gear {
-		upAt := g.UpdatedAt
-		if upAt.IsZero() {
-			upAt = now
-		}
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO character_gear (character_id, slot, item_id, name, item_level, dye, materia, updated_at)
-			 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-			 ON CONFLICT (character_id, slot) DO UPDATE SET
-				item_id = excluded.item_id,
-				name = excluded.name,
-				item_level = excluded.item_level,
-				dye = excluded.dye,
-				materia = excluded.materia,
-				updated_at = excluded.updated_at`,
-			charID, g.Slot, g.ItemID, g.Name, g.ItemLevel, nullableString(g.Dye), strings.Join(g.Materia, ","), upAt); err != nil {
-			return fmt.Errorf("gear upsert insert: %w", err)
-		}
-	}
-	return tx.Commit()
-}
-
-func (r *CharacterRepository) GetGear(ctx context.Context, id uint32) ([]contract.CharacterGearRecord, error) {
-	rows, err := r.driver.FetchMany(ctx,
-		`SELECT character_id, slot, item_id, name, item_level, dye, materia, updated_at
-		   FROM character_gear WHERE character_id = $1 ORDER BY slot`, id)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var out []contract.CharacterGearRecord
-	for rows.Next() {
-		var g contract.CharacterGearRecord
-		var dye, materia sql.NullString
-		var upAt time.Time
-		if err := rows.Scan(&g.CharacterID, &g.Slot, &g.ItemID, &g.Name, &g.ItemLevel, &dye, &materia, &upAt); err != nil {
-			return nil, fmt.Errorf("gear scan: %w", err)
-		}
-		g.Dye = sqlStringPtr(dye)
-		if materia.Valid && materia.String != "" {
-			g.Materia = strings.Split(materia.String, ",")
-		} else {
-			g.Materia = []string{}
-		}
-		g.UpdatedAt = upAt
-		out = append(out, g)
-	}
-	return out, rows.Err()
 }
 
 // FindIDGapsAfter returns missing/unscanned ID ranges strictly after afterID
@@ -1254,7 +1186,6 @@ func scanCharacter(row rowScanner) (*contract.CharacterRecord, error) {
 	var c contract.CharacterRecord
 	var race, tribe, grandCompany, fcID, fcName sql.NullString
 	var bio, activeJob sql.NullString
-	var itemLevel sql.NullInt64
 	var achievementsPrivate int
 	var latestAchievementID sql.NullInt64
 	var latestAchievementAt, achievementsCheckedAt, lastCensusAt, deletedAt sql.NullTime
@@ -1263,7 +1194,7 @@ func scanCharacter(row rowScanner) (*contract.CharacterRecord, error) {
 	err := row.Scan(
 		&c.ID, &c.Name, &c.World, &c.Datacenter, &c.Region,
 		&race, &tribe, &c.Gender, &grandCompany,
-		&fcID, &fcName, &bio, &activeJob, &itemLevel,
+		&fcID, &fcName, &bio, &activeJob,
 		&achievementsPrivate, &achievementsCheckedAt, &latestAchievementID, &latestAchievementAt,
 		&firstSeenAt, &lastCensusAt, &deletedAt,
 	)
@@ -1278,9 +1209,6 @@ func scanCharacter(row rowScanner) (*contract.CharacterRecord, error) {
 	c.FreeCompanyName = sqlStringPtr(fcName)
 	c.Bio = bio.String
 	c.ActiveJob = activeJob.String
-	if itemLevel.Valid {
-		c.ItemLevel = int(itemLevel.Int64)
-	}
 	c.AchievementsPrivate = achievementsPrivate == 1
 	c.AchievementsCheckedAt = sqlTimePtr(achievementsCheckedAt)
 	c.LatestAchievementID = sqlUint32Ptr(latestAchievementID)
