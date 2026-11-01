@@ -32,7 +32,6 @@ func TestCharacterRepository_UpsertAndGet(t *testing.T) {
 		FreeCompanyName:     &fcName,
 		Bio:                 "Accounting master",
 		ActiveJob:           "MIN",
-		ItemLevel:           650,
 		AchievementsPrivate: false,
 		FirstSeenAt:         time.Now().UTC().Truncate(time.Millisecond),
 	}

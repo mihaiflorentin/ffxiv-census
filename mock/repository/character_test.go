@@ -117,35 +117,10 @@ func TestMockCharacterRepository_ListFilter(t *testing.T) {
 	}
 }
 
-func TestMockCharacterRepository_GearAndGaps(t *testing.T) {
+func TestMockCharacterRepository_FindIDGapsAfter(t *testing.T) {
 	repo := NewCharacterFake()
 	ctx := context.Background()
 	now := time.Now().UTC()
-
-	dye := "Jet Black"
-	gear := []contract.CharacterGearRecord{
-		{
-			CharacterID: 50,
-			Slot:        "MainHand",
-			ItemID:      1234,
-			Name:        "Test Sword",
-			ItemLevel:   660,
-			Dye:         &dye,
-			Materia:     []string{"Materia A"},
-			UpdatedAt:   now,
-		},
-	}
-
-	if err := repo.UpsertGear(ctx, 50, gear); err != nil {
-		t.Fatalf("UpsertGear: %v", err)
-	}
-	gotGear, err := repo.GetGear(ctx, 50)
-	if err != nil {
-		t.Fatalf("GetGear: %v", err)
-	}
-	if len(gotGear) != 1 || gotGear[0].Name != "Test Sword" || gotGear[0].Dye == nil || *gotGear[0].Dye != dye {
-		t.Fatalf("GetGear mismatch: %+v", gotGear)
-	}
 
 	// Test FindIDGapsAfter (from after the cursor at 6)
 	_ = repo.Upsert(ctx, contract.CharacterRecord{ID: 3, FirstSeenAt: now}, nil)

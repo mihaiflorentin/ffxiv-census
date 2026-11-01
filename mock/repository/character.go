@@ -19,7 +19,6 @@ type CharacterRepository struct {
 	mu         sync.Mutex
 	characters map[uint32]contract.CharacterRecord
 	jobs       map[uint32][]contract.ClassJobRecord
-	gear       map[uint32][]contract.CharacterGearRecord
 	// tiers holds the census tiers set by SetCensusTier; a character without
 	// one is public (tier 1) or, when private, in tier 3.
 	tiers            map[uint32]int
@@ -32,8 +31,6 @@ type CharacterRepository struct {
 	OnUpsertBatch func(call int) error
 	// StoredAchievements records the achievement writes applied by StoreResult.
 	StoredAchievements       []contract.AchievementWrite
-	UpsertGearErr            error
-	GetGearErr               error
 	FindIDGapsAfterErr       error
 	FillGapsCursorErr        error
 	AdvanceFillGapsCursorErr error
@@ -56,14 +53,12 @@ type CharacterRepository struct {
 	idSweepCursor            uint32
 	fillGapsCursor           uint32
 	UpsertCalls              int
-	UpsertGearCalls          int
 }
 
 func NewCharacterFake() *CharacterRepository {
 	return &CharacterRepository{
 		characters: map[uint32]contract.CharacterRecord{},
 		jobs:       map[uint32][]contract.ClassJobRecord{},
-		gear:       map[uint32][]contract.CharacterGearRecord{},
 	}
 }
 
@@ -149,35 +144,6 @@ func (f *CharacterRepository) StoreResult(ctx context.Context, result contract.C
 		f.mu.Unlock()
 	}
 	return nil
-}
-
-func (f *CharacterRepository) UpsertGear(ctx context.Context, charID uint32, gear []contract.CharacterGearRecord) error {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	f.UpsertGearCalls++
-	if f.UpsertGearErr != nil {
-		return f.UpsertGearErr
-	}
-	cloned := make([]contract.CharacterGearRecord, len(gear))
-	for i, g := range gear {
-		cloned[i] = cloneGear(g)
-	}
-	f.gear[charID] = cloned
-	return nil
-}
-
-func (f *CharacterRepository) GetGear(ctx context.Context, id uint32) ([]contract.CharacterGearRecord, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.GetGearErr != nil {
-		return nil, f.GetGearErr
-	}
-	items := f.gear[id]
-	cloned := make([]contract.CharacterGearRecord, len(items))
-	for i, g := range items {
-		cloned[i] = cloneGear(g)
-	}
-	return cloned, nil
 }
 
 func (f *CharacterRepository) FindIDGapsAfter(ctx context.Context, afterID, maxID uint32, limit int) ([][2]uint32, error) {

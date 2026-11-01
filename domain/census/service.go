@@ -417,7 +417,6 @@ var ErrInvalidDimension = errors.New("invalid breakdown dimension: want race|wor
 type CharacterDetail struct {
 	Character  contract.CharacterRecord
 	Jobs       []contract.ClassJobRecord
-	Gear       []contract.CharacterGearRecord
 	Milestones []contract.CharacterMilestone
 }
 
@@ -491,15 +490,11 @@ func (s *Service) CharacterDetail(ctx context.Context, id uint32) (*CharacterDet
 	if err != nil {
 		return nil, err
 	}
-	gear, err := s.characters.GetGear(ctx, id)
-	if err != nil {
-		return nil, err
-	}
 	milestones, err := s.achievements.ListCharacterMilestones(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	detail := &CharacterDetail{Character: *rec, Jobs: jobs, Gear: gear, Milestones: milestones}
+	detail := &CharacterDetail{Character: *rec, Jobs: jobs, Milestones: milestones}
 	return detail, nil
 }
 
