@@ -16,10 +16,13 @@ import (
 // deleted_at clearing, jobs replacement, stale ordering) so handler tests don't
 // drift from production behavior.
 type CharacterRepository struct {
-	mu               sync.Mutex
-	characters       map[uint32]contract.CharacterRecord
-	jobs             map[uint32][]contract.ClassJobRecord
-	gear             map[uint32][]contract.CharacterGearRecord
+	mu         sync.Mutex
+	characters map[uint32]contract.CharacterRecord
+	jobs       map[uint32][]contract.ClassJobRecord
+	gear       map[uint32][]contract.CharacterGearRecord
+	// tiers holds the census tiers set by SetCensusTier; a character without
+	// one is public (tier 1) or, when private, in tier 3.
+	tiers            map[uint32]int
 	UpsertErr        error
 	UpsertBatchErr   error
 	UpsertBatchCalls int
@@ -283,15 +286,50 @@ func (f *CharacterRepository) MarkDeleted(ctx context.Context, id uint32, at tim
 	return nil
 }
 
+func (f *CharacterRepository) ListStaleIDsInTier(ctx context.Context, tier int, cutoff time.Time, limit int) ([]uint32, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.ListStaleErr != nil {
+		return nil, f.ListStaleErr
+	}
+	return f.staleIDs(cutoff, limit, func(rec contract.CharacterRecord) bool { return f.tierOf(rec) == tier }), nil
+}
+
+// SetCensusTier places a character in a census tier.
+func (f *CharacterRepository) SetCensusTier(id uint32, tier int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.tiers == nil {
+		f.tiers = map[uint32]int{}
+	}
+	f.tiers[id] = tier
+}
+
+func (f *CharacterRepository) tierOf(rec contract.CharacterRecord) int {
+	if tier, ok := f.tiers[rec.ID]; ok {
+		return tier
+	}
+	if rec.AchievementsPrivate {
+		return contract.CensusTierPrivate
+	}
+	return contract.CensusTierPublic
+}
+
 func (f *CharacterRepository) ListStaleIDs(ctx context.Context, cutoff time.Time, limit int) ([]uint32, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.ListStaleErr != nil {
 		return nil, f.ListStaleErr
 	}
+	return f.staleIDs(cutoff, limit, func(contract.CharacterRecord) bool { return true }), nil
+}
+
+// staleIDs is the oldest-first live selection of ListStaleIDs over the
+// characters keep accepts. The caller holds f.mu.
+func (f *CharacterRepository) staleIDs(cutoff time.Time, limit int, keep func(contract.CharacterRecord) bool) []uint32 {
 	var stale []contract.CharacterRecord
 	for _, rec := range f.characters {
-		if rec.DeletedAt != nil {
+		if rec.DeletedAt != nil || !keep(rec) {
 			continue
 		}
 		if cutoff.IsZero() || rec.LastCensusAt == nil || rec.LastCensusAt.Before(cutoff) {
@@ -322,7 +360,7 @@ func (f *CharacterRepository) ListStaleIDs(ctx context.Context, cutoff time.Time
 	for i, rec := range stale {
 		ids[i] = rec.ID
 	}
-	return ids, nil
+	return ids
 }
 
 func (f *CharacterRepository) ListDeletedIDs(ctx context.Context, deletedBefore time.Time, limit int) ([]uint32, error) {

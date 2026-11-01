@@ -113,7 +113,7 @@ ID; past that frontier it rewinds to `MAX(characters.id) + 1`, so newly created
 characters keep being found.
 
 #### `publish character-census`
-Enqueues the oldest `last_census_at` live characters (NULL first) for re-census. Deleted characters are skipped. By default (`--older-than 0`), all live characters are eligible and results are ordered oldest-first; pass a positive `--older-than` to filter by age. Each run also re-probes a small batch of deleted characters so that ones that come back are found: `--deleted-limit` (default 10, `0` disables) caps the batch and `--deleted-older-than` (default `720h`) is how long a character must have been deleted before it is re-probed.
+Enqueues the oldest `last_census_at` live characters (NULL first) for re-census. Deleted characters are skipped. By default (`--older-than 0`), all live characters are eligible and results are ordered oldest-first; pass a positive `--older-than` to filter by age. Each run also re-probes a small batch of deleted characters so that ones that come back are found: `--deleted-limit` (default 10, `0` disables) caps the batch and `--deleted-older-than` (default `720h`) is how long a character must have been deleted before it is re-probed. With `[census] tier_shares` set (production: `[30, 20, 50]`), `--limit` is split across the census tiers: public characters, private characters that changed recently, and every other private character (see `docs/census.md`, Census tiers).
 ```bash
 # Enqueue the 1000 oldest live characters (no age filter)
 ./bin/ffxiv-census publish character-census --limit 1000

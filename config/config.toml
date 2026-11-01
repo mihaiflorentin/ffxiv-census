@@ -140,6 +140,14 @@ new_characters_window_days = 90
 # Days a character found private is left alone before its achievement census
 # runs again.
 private_recheck_days = 30
+# How publish-character splits its --limit across the census tiers: public
+# characters, private characters that changed within active_window_days, and
+# every other private character. Shares are relative; a tier with fewer
+# characters than its share passes the rest to the others.
+tier_shares = [30, 20, 50]
+# Days after its last change (a job levelled, a new name, world, Free Company
+# or Grand Company) that a private character stays in the active tier.
+active_window_days = 90
 max_level = 100
 
 [census.ui_stats]

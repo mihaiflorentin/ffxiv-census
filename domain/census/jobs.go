@@ -22,6 +22,10 @@ const (
 // DefaultMaxLevel is the level cap used when none is configured.
 const DefaultMaxLevel uint32 = 100
 
+// DefaultActiveWindowDays is how many days after its last change a private
+// character stays in the active census tier when none is configured.
+const DefaultActiveWindowDays = 90
+
 // BlueMageLevelCap is the level cap of Blue Mage, a limited job that stays
 // below the game's level cap (80 since patch 6.45, unchanged in Dawntrail).
 const BlueMageLevelCap uint32 = 80

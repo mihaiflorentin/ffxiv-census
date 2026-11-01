@@ -1,6 +1,9 @@
 package config
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 func TestCensusConfig_Defaults(t *testing.T) {
 	cfg, err := NewConfig()
@@ -90,5 +93,24 @@ func TestCensusConfig_MaxLevelAndExpansions(t *testing.T) {
 	dt := cfg.Census.Expansions[5]
 	if dt.Name != "Dawntrail" || dt.Version != "Patch 7.0" || dt.FinalQuest != "In the Glow of a New Dawn" || dt.Icon != "☀️" || dt.LevelCap != 100 || dt.AchievementID != 3496 {
 		t.Errorf("unexpected Dawntrail config: %+v", dt)
+	}
+}
+
+func TestCensusConfig_CensusTiersDefaultAndEnv(t *testing.T) {
+	cfg, err := NewConfig()
+	if err != nil {
+		t.Fatalf("NewConfig: %v", err)
+	}
+	if cfg.Census == nil || !slices.Equal(cfg.Census.TierShares, []int{30, 20, 50}) {
+		t.Fatalf("tier_shares = %+v, want [30 20 50]", cfg.Census)
+	}
+	if cfg.Census.ActiveWindowDays != 90 {
+		t.Fatalf("active_window_days = %d, want 90", cfg.Census.ActiveWindowDays)
+	}
+
+	t.Setenv("CENSUS_ACTIVE_WINDOW_DAYS", "30")
+	cfg, _ = NewConfig()
+	if cfg.Census.ActiveWindowDays != 30 {
+		t.Fatalf("CENSUS_ACTIVE_WINDOW_DAYS override: got %v, want 30", cfg.Census.ActiveWindowDays)
 	}
 }

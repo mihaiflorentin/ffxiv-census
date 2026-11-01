@@ -28,6 +28,10 @@ _Avoid_: fill-gaps (bare), 404 ledger
 The persistent last-queued ID for gap fills, separate from the ID sweep cursor. It wraps back to 0 once no gaps remain after it (or it reaches the highest stored character ID), and the same run searches again from the lowest ID, so the gap fill cycles for ever.
 _Avoid_: fill_gaps_state, gap cursor
 
+**Census tier**:
+One of three groups that split each character census run's budget: public characters, private characters that changed within the active window (a job levelled, or a new name, world, Free Company or Grand Company), and every other private character. Every census recomputes a character's tier, so one that changes moves up and one that stays unchanged drops back.
+_Avoid_: priority, bucket, hot/cold list
+
 **Achievement census**:
 A character's achievement refresh. It runs against The Lodestone exclusively, updates the character's latest earned achievement and earned milestones, and triggers nothing further.
 _Avoid_: milestone check, achievement refresh
