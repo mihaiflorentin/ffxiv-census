@@ -977,3 +977,36 @@ func TestParseClassJobs_RogueAndLevelledBeastmaster(t *testing.T) {
 		t.Errorf("job[1] = %+v, want Beastmaster 43 at 50", jobs[1])
 	}
 }
+
+// activeJobProfile mirrors the Lodestone profile markup: the current job's
+// icon has an empty alt, and the same icon URL marks the job in the level
+// list, whose tooltip names it.
+func activeJobProfile(icon string) string {
+	return `<p class="frame__chara__name"><a href="/lodestone/character/1">Tataru Taru</a></p>
+	<div class="character__class__data"><p>LEVEL 100 </p><div class="character__class_icon"><img src="https://lds-img.finalfantasyxiv.com/h/` + icon + `.png" width="24" height="24" alt=""></div><img src="https://lds-img.finalfantasyxiv.com/h/z/bar.png" width="266" height="28" alt="" class="character__classjob"></div>
+	<div class="js__character_toggle"><div class="character__level clearfix"><div class="character__level__list"><ul>` +
+		`<li><img src="https://lds-img.finalfantasyxiv.com/h/E/pld.png" width="24" height="24" alt="" class="js__tooltip"data-tooltip="Paladin / Gladiator">100</li>` +
+		`<li><img src="https://lds-img.finalfantasyxiv.com/h/C/vpr.png" width="24" height="24" alt="" class="js__tooltip"data-tooltip="Viper">100</li>` +
+		`<li><img src="https://lds-img.finalfantasyxiv.com/h/B/blu.png" width="24" height="24" alt="" class="js__tooltip"data-tooltip="Blue Mage (Limited Job)">80</li>` +
+		`</ul></div></div></div>`
+}
+
+func TestParseCharacterProfile_ActiveJobFromTheLevelList(t *testing.T) {
+	for _, tc := range []struct{ icon, want string }{
+		{"C/vpr", "Viper"},
+		// Named like the stored jobs: the job of a combined entry, and no
+		// limited-job suffix.
+		{"E/pld", "Paladin"},
+		{"B/blu", "Blue Mage"},
+		// An icon the list doesn't have leaves the job unknown.
+		{"X/unknown", ""},
+	} {
+		profile, err := parseCharacterProfile(activeJobProfile(tc.icon), 1)
+		if err != nil {
+			t.Fatalf("parseCharacterProfile: %v", err)
+		}
+		if profile.ActiveJob != tc.want {
+			t.Errorf("icon %s: ActiveJob = %q, want %q", tc.icon, profile.ActiveJob, tc.want)
+		}
+	}
+}

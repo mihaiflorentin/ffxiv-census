@@ -899,8 +899,9 @@ func parseCharacterProfile(html string, id uint32) (*contract.CharacterProfile, 
 		profile.FreeCompanyID = m[1]
 	}
 
-	// Active Job: .character__class_icon img alt
-	profile.ActiveJob = extractAlt(html, `class="character__class_icon"`)
+	// Active Job: the current job's icon (its alt is empty) matched to the
+	// level list entry with the same icon, which names the job.
+	profile.ActiveJob = parseActiveJob(html)
 
 	// ClassJobs: .character__level__list entries
 	profile.ClassJobs = parseClassJobs(html, id)
@@ -972,11 +973,6 @@ func extractAttr(html, containerMarker, tagName, attr string) string {
 	return extractAttribute(tagHTML, attr)
 }
 
-// extractAlt extracts the alt attribute from an img within a container.
-func extractAlt(html, containerMarker string) string {
-	return extractAttr(html, containerMarker, "img", "alt")
-}
-
 // extractHref extracts the href attribute from an anchor within a container.
 func extractHref(html, containerMarker string) string {
 	return extractAttr(html, containerMarker, "a", "href")
@@ -1000,6 +996,47 @@ func extractAttribute(tagHTML, attr string) string {
 // parseClassJobs extracts class/job entries from the character profile HTML.
 // The Lodestone renders jobs as <li><img data-tooltip="JobName">Level</li>
 // inside a <div class="character__level__list"><ul>...</ul></div>.
+// classJobName turns a level list tooltip into the stored job name: the job
+// of a combined entry ("Paladin / Gladiator" → "Paladin"), without the
+// "(Limited Job)" suffix of Blue Mage and Beastmaster.
+func classJobName(tooltip string) string {
+	name := strings.TrimSuffix(tooltip, " (Limited Job)")
+	if idx := strings.Index(name, " / "); idx != -1 {
+		name = name[:idx]
+	}
+	return strings.TrimSpace(name)
+}
+
+// parseActiveJob names the character's current job. Its icon in
+// .character__class_icon carries an empty alt, so the name comes from the
+// level list entry showing the same icon; "" when no entry matches.
+func parseActiveJob(html string) string {
+	icon := extractAttr(html, `class="character__class_icon"`, "img", "src")
+	if icon == "" {
+		return ""
+	}
+	listIdx := strings.Index(html, `class="character__level__list"`)
+	if listIdx == -1 {
+		return ""
+	}
+	rest := html[listIdx:]
+	for {
+		liIdx := strings.Index(rest, "<li>")
+		if liIdx == -1 {
+			return ""
+		}
+		liEnd := strings.Index(rest[liIdx:], "</li>")
+		if liEnd == -1 {
+			return ""
+		}
+		entry := rest[liIdx : liIdx+liEnd]
+		if extractAttribute(entry, "src") == icon {
+			return classJobName(extractAttribute(entry, "data-tooltip"))
+		}
+		rest = rest[liIdx+liEnd:]
+	}
+}
+
 func parseClassJobs(html string, charID uint32) []contract.ClassJobRecord {
 	var jobs []contract.ClassJobRecord
 
@@ -1030,14 +1067,7 @@ func parseClassJobs(html string, charID uint32) []contract.ClassJobRecord {
 			continue
 		}
 
-		// Strip "(Limited Job)" suffix (Blue Mage, Beastmaster).
-		jobName = strings.TrimSuffix(jobName, " (Limited Job)")
-
-		// Handle combined names like "Paladin / Gladiator" — use the first part.
-		if idx := strings.Index(jobName, " / "); idx != -1 {
-			jobName = jobName[:idx]
-		}
-		jobName = strings.TrimSpace(jobName)
+		jobName = classJobName(jobName)
 
 		// Level is the text content after </img> (or after the last > of the img tag).
 		// Format is either a plain number ("100") or "-" (unleveled).
