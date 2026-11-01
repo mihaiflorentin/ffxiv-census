@@ -81,6 +81,11 @@ func TestCharacterTier_PrivateCharacterThatChangesMovesToTheActiveTier(t *testin
 			w.Record.World = "Gilgamesh"
 			return w
 		}()},
+		{"switched job", func() contract.CharacterWrite {
+			w := privateWrite(9101, "Same", paladin(90))
+			w.Record.ActiveJob = "Warrior"
+			return w
+		}()},
 		{"joined a Free Company", func() contract.CharacterWrite {
 			w := privateWrite(9101, "Same", paladin(90))
 			fc := "9229001536389012345"
@@ -91,7 +96,9 @@ func TestCharacterTier_PrivateCharacterThatChangesMovesToTheActiveTier(t *testin
 		t.Run(tc.name, func(t *testing.T) {
 			driver := newTestDriver(t)
 			repo := repository.NewCharacterRepository(driver)
-			storeCharacter(t, repo, privateWrite(9101, "Same", paladin(90)))
+			before := privateWrite(9101, "Same", paladin(90))
+			before.Record.ActiveJob = "Paladin"
+			storeCharacter(t, repo, before)
 
 			storeCharacter(t, repo, tc.changed)
 
@@ -135,6 +142,21 @@ func TestCharacterTier_ActiveWindowIsConfigurable(t *testing.T) {
 
 	if tier, _ := censusTier(t, driver, 9301); tier != 3 {
 		t.Errorf("tier = %d, want 3 once the change is older than a 7-day window", tier)
+	}
+}
+
+func TestCharacterTier_FirstKnownActiveJobIsNotAChange(t *testing.T) {
+	driver := newTestDriver(t)
+	repo := repository.NewCharacterRepository(driver)
+	// Stored before the active job was parsed: empty.
+	storeCharacter(t, repo, privateWrite(9361, "Same", paladin(90)))
+
+	w := privateWrite(9361, "Same", paladin(90))
+	w.Record.ActiveJob = "Paladin"
+	storeCharacter(t, repo, w)
+
+	if tier, changed := censusTier(t, driver, 9361); tier != 3 || changed != nil {
+		t.Errorf("tier=%d changed=%v, want tier 3 and no change when the job was not known before", tier, changed)
 	}
 }
 

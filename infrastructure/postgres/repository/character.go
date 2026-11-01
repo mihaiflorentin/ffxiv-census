@@ -291,9 +291,9 @@ func toCharacterColumns(writes []contract.CharacterWrite, maxLevel uint32) chara
 //
 // Each row also gets its census tier. A stored character whose new profile
 // has a levelled or newly unlocked job (levelled, see levelledCharactersTx),
-// a higher highest job level, or another non-empty name, world, Free Company
-// or Grand Company has changed: last_change_at becomes this census. A first
-// sighting is never a change. A public character is in the public tier; a
+// a higher highest job level, another non-empty name, world, Free Company or
+// Grand Company, or another current job (when both are known) has changed:
+// last_change_at becomes this census. A first sighting is never a change. A public character is in the public tier; a
 // private one is in the active tier while its last change is within
 // activeDays, and in the other private tier otherwise.
 func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.CharacterWrite, maxLevel uint32, activeDays int, levelled []int64) error {
@@ -331,7 +331,8 @@ func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.Chara
 			       OR (t.name <> '' AND t.name IS DISTINCT FROM c.name)
 			       OR (t.world <> '' AND t.world IS DISTINCT FROM c.world)
 			       OR (t.name <> '' AND t.fc_id IS DISTINCT FROM c.fc_id)
-			       OR (t.name <> '' AND t.grand_company IS DISTINCT FROM c.grand_company))
+			       OR (t.name <> '' AND t.grand_company IS DISTINCT FROM c.grand_company)
+			       OR (t.active_job <> '' AND c.active_job <> '' AND t.active_job <> c.active_job))
 			     THEN COALESCE(t.last_census_at, NOW())
 			     ELSE c.last_change_at END AS last_change_at) ch
 		 ORDER BY t.id
