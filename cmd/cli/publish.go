@@ -386,6 +386,81 @@ type characterCensusOptions struct {
 	// DeletedOlderThan is how long a character must have been deleted
 	// (since the last time it was confirmed missing) before it is re-probed.
 	DeletedOlderThan time.Duration
+	// TierShares splits Limit across the census tiers.
+	TierShares []int
+}
+
+// validTierShares checks that shares give every census tier a positive
+// share: a tier left out would never be censused again.
+func validTierShares(shares []int) error {
+	if len(shares) != contract.CensusTierPrivate {
+		return fmt.Errorf("tier shares %v: want one share per census tier (%d)", shares, contract.CensusTierPrivate)
+	}
+	for _, s := range shares {
+		if s <= 0 {
+			return fmt.Errorf("tier shares %v: every census tier needs a positive share", shares)
+		}
+	}
+	return nil
+}
+
+// tierQuotas splits limit across the census tiers by share: tier i (1-based
+// census tier i+1) gets limit*shares[i]/sum(shares), rounded down, and the
+// rounding remainder goes to the last tier, so the quotas sum to limit.
+func tierQuotas(limit int, shares []int) []int {
+	quotas := make([]int, len(shares))
+	total := 0
+	for _, s := range shares {
+		total += s
+	}
+	if total <= 0 || len(shares) == 0 {
+		return quotas
+	}
+	given := 0
+	for i, s := range shares {
+		quotas[i] = limit * s / total
+		given += quotas[i]
+	}
+	quotas[len(quotas)-1] += limit - given
+	return quotas
+}
+
+// listTieredStaleIDs selects up to limit live characters split across the
+// census tiers by shares (shares[0] is tier 1), each tier oldest first. A
+// tier with fewer characters than its quota passes the rest on to the
+// following tiers, and what the last tiers cannot use goes back to the
+// earlier ones, so the run fills limit whenever the characters exist. The
+// result lists tier 1 first.
+func listTieredStaleIDs(ctx context.Context, repo contract.CharacterRepository, cutoff time.Time, limit int, shares []int) ([][]uint32, error) {
+	quotas := tierQuotas(limit, shares)
+	picked := make([][]uint32, len(quotas))
+	carry := 0
+	for i, quota := range quotas {
+		want := quota + carry
+		ids, err := repo.ListStaleIDsInTier(ctx, i+1, cutoff, want)
+		if err != nil {
+			return nil, fmt.Errorf("list stale tier %d: %w", i+1, err)
+		}
+		picked[i] = ids
+		carry = want - len(ids)
+	}
+	// Hand what is still unused back to the earlier tiers: ask each for its
+	// picks plus the carry and keep only the new tail.
+	for i := 0; i < len(quotas) && carry > 0; i++ {
+		have := len(picked[i])
+		if have < quotas[i] {
+			continue // this tier ran out already
+		}
+		ids, err := repo.ListStaleIDsInTier(ctx, i+1, cutoff, have+carry)
+		if err != nil {
+			return nil, fmt.Errorf("list stale tier %d: %w", i+1, err)
+		}
+		if len(ids) > have {
+			carry -= len(ids) - have
+			picked[i] = ids
+		}
+	}
+	return picked, nil
 }
 
 // publishCharacterCensus publishes character-census jobs for the oldest live
@@ -403,9 +478,25 @@ func publishCharacterCensus(
 	opts characterCensusOptions,
 ) error {
 	cutoff := characterCensusCutoff(now, opts.OlderThan)
-	ids, err := repo.ListStaleIDs(ctx, cutoff, opts.Limit)
-	if err != nil {
-		return fmt.Errorf("list stale: %w", err)
+	var ids []uint32
+	var tiers []any
+	if len(opts.TierShares) > 0 {
+		if err := validTierShares(opts.TierShares); err != nil {
+			return err
+		}
+		picked, err := listTieredStaleIDs(ctx, repo, cutoff, opts.Limit, opts.TierShares)
+		if err != nil {
+			return err
+		}
+		for i, tierIDs := range picked {
+			ids = append(ids, tierIDs...)
+			tiers = append(tiers, slog.Int(fmt.Sprintf("tier_%d", i+1), len(tierIDs)))
+		}
+	} else {
+		var err error
+		if ids, err = repo.ListStaleIDs(ctx, cutoff, opts.Limit); err != nil {
+			return fmt.Errorf("list stale: %w", err)
+		}
 	}
 	stale := len(ids)
 	deleted, err := repo.ListDeletedIDs(ctx, now.UTC().Add(-opts.DeletedOlderThan), opts.DeletedLimit)
@@ -426,6 +517,7 @@ func publishCharacterCensus(
 		slog.String("older_than", opts.OlderThan.String()),
 		slog.Int("limit", opts.Limit),
 		slog.Int("stale", stale),
+		slog.Group("tiers", tiers...),
 		slog.Int("deleted_limit", opts.DeletedLimit),
 		slog.Int("deleted", len(deleted)),
 		slog.Int("count", len(jobs)),
@@ -460,11 +552,16 @@ var publishCharacterCensusCmd = &cobra.Command{
 				container.Load.Logger().ErrorContext(cmd.Context(), "queue.close_error", slog.Any("error", err))
 			}
 		}()
+		var shares []int
+		if c := container.Load.Config().Census; c != nil {
+			shares = c.TierShares
+		}
 		return publishCharacterCensus(cmd.Context(), repo, q, container.Load.Logger(), time.Now(), characterCensusOptions{
 			OlderThan:        olderThan,
 			Limit:            limit,
 			DeletedLimit:     deletedLimit,
 			DeletedOlderThan: deletedOlderThan,
+			TierShares:       shares,
 		})
 	},
 }

@@ -31,6 +31,18 @@ type DemographicCounts struct {
 	RaceGenders []GroupCount // Key format: "Race|Gender"
 }
 
+// Census tiers split the character census publish budget. Every character
+// and achievement write recomputes a character's tier.
+const (
+	// CensusTierPublic holds the characters whose achievements are public.
+	CensusTierPublic = 1
+	// CensusTierActivePrivate holds the private characters a census found
+	// changed within the active window.
+	CensusTierActivePrivate = 2
+	// CensusTierPrivate holds every other private character.
+	CensusTierPrivate = 3
+)
+
 // CharacterWrite is one finished character result: the profile row and the
 // full set of jobs the character currently has.
 type CharacterWrite struct {
@@ -78,6 +90,9 @@ type CharacterRepository interface {
 	// in both modes). Deleted characters are never returned; see
 	// ListDeletedIDs for their re-probe selection.
 	ListStaleIDs(ctx context.Context, cutoff time.Time, limit int) ([]uint32, error)
+	// ListStaleIDsInTier is ListStaleIDs restricted to one census tier
+	// (CensusTierPublic, CensusTierActivePrivate or CensusTierPrivate).
+	ListStaleIDsInTier(ctx context.Context, tier int, cutoff time.Time, limit int) ([]uint32, error)
 	// ListDeletedIDs returns the IDs of up to limit deleted characters whose
 	// deleted_at is before deletedBefore, longest-deleted first (deleted_at ASC,
 	// id ASC). It is the deleted-character re-probe selection: a re-probe that

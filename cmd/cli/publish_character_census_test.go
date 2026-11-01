@@ -166,3 +166,111 @@ func TestPublishCharacterCensusCmd_DeletedReprobeFlagDefaults(t *testing.T) {
 		t.Errorf("deleted-older-than default = %v, want 720h", age)
 	}
 }
+
+func TestTierQuotasSplitTheLimitByShare(t *testing.T) {
+	for _, tc := range []struct {
+		limit  int
+		shares []int
+		want   []int
+	}{
+		{1200, []int{30, 20, 50}, []int{360, 240, 600}},
+		{10, []int{30, 20, 50}, []int{3, 2, 5}},
+		// Rounding leftovers go to the last tier, so the quotas sum to limit.
+		{7, []int{30, 20, 50}, []int{2, 1, 4}},
+		// Shares are relative, not percentages.
+		{6, []int{1, 1, 1}, []int{2, 2, 2}},
+	} {
+		if got := tierQuotas(tc.limit, tc.shares); !slices.Equal(got, tc.want) {
+			t.Errorf("tierQuotas(%d, %v) = %v, want %v", tc.limit, tc.shares, got, tc.want)
+		}
+	}
+}
+
+// seedTieredCharacters stores live characters in each census tier, every one
+// censused a different number of days ago: tier 1 (public) 101-104, tier 2
+// 201-202, tier 3 301-306. A higher id within a tier was censused more
+// recently.
+func seedTieredCharacters(t *testing.T, now time.Time) *mockrepo.CharacterRepository {
+	t.Helper()
+	repo := mockrepo.NewCharacterFake()
+	ctx := context.Background()
+	seed := func(tier int, ids ...uint32) {
+		for i, id := range ids {
+			at := now.Add(-time.Duration(len(ids)-i) * day)
+			rec := contract.CharacterRecord{ID: id, Name: "C", World: "W", FirstSeenAt: at, LastCensusAt: &at, AchievementsPrivate: tier != contract.CensusTierPublic}
+			if err := repo.Upsert(ctx, rec, nil); err != nil {
+				t.Fatal(err)
+			}
+			repo.SetCensusTier(id, tier)
+		}
+	}
+	seed(contract.CensusTierPublic, 101, 102, 103, 104)
+	seed(contract.CensusTierActivePrivate, 201, 202)
+	seed(contract.CensusTierPrivate, 301, 302, 303, 304, 305, 306)
+	return repo
+}
+
+func TestPublishCharacterCensus_SplitsTheLimitAcrossCensusTiers(t *testing.T) {
+	now := time.Now().UTC()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for _, tc := range []struct {
+		name  string
+		limit int
+		want  []uint32
+	}{
+		// 30/20/50 of 10: 3 public, 2 active private, 5 other private.
+		{"every tier fills its share", 10, []uint32{101, 102, 103, 201, 202, 301, 302, 303, 304, 305}},
+		// 30/20/50 of 20: 6, 4 and 10. Tier 1 has 4 and tier 2 has 2, so
+		// their 4 left over go to tier 3, which has only 6: the 4 that remain
+		// go back to the earlier tiers, and none has more.
+		{"leftover moves to the other tiers", 20, []uint32{101, 102, 103, 104, 201, 202, 301, 302, 303, 304, 305, 306}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := seedTieredCharacters(t, now)
+			q := &errorQueue{}
+			opts := characterCensusOptions{Limit: tc.limit, TierShares: []int{30, 20, 50}}
+			if err := publishCharacterCensus(context.Background(), repo, q, logger, now, opts); err != nil {
+				t.Fatalf("publishCharacterCensus: %v", err)
+			}
+			if got := publishedCharacterIDs(t, q.jobs); !slices.Equal(got, tc.want) {
+				t.Errorf("published = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestPublishCharacterCensus_LeftoverFromALaterTierGoesToAnEarlierOne(t *testing.T) {
+	now := time.Now().UTC()
+	repo := mockrepo.NewCharacterFake()
+	ctx := context.Background()
+	for i, id := range []uint32{101, 102, 103, 104, 105, 106} {
+		at := now.Add(-time.Duration(6-i) * day)
+		if err := repo.Upsert(ctx, contract.CharacterRecord{ID: id, Name: "C", World: "W", FirstSeenAt: at, LastCensusAt: &at}, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+	q := &errorQueue{}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+
+	// Only public characters: tiers 2 and 3 are empty, so the public tier
+	// takes the whole limit of 5.
+	opts := characterCensusOptions{Limit: 5, TierShares: []int{30, 20, 50}}
+	if err := publishCharacterCensus(ctx, repo, q, logger, now, opts); err != nil {
+		t.Fatalf("publishCharacterCensus: %v", err)
+	}
+	if got, want := publishedCharacterIDs(t, q.jobs), []uint32{101, 102, 103, 104, 105}; !slices.Equal(got, want) {
+		t.Errorf("published = %v, want %v", got, want)
+	}
+}
+
+func TestPublishCharacterCensus_RejectsSharesThatLeaveATierOut(t *testing.T) {
+	now := time.Now().UTC()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for _, shares := range [][]int{{30, 70}, {30, 20, 50, 10}, {30, 0, 70}, {-10, 60, 50}} {
+		q := &errorQueue{}
+		opts := characterCensusOptions{Limit: 10, TierShares: shares}
+		if err := publishCharacterCensus(context.Background(), seedTieredCharacters(t, now), q, logger, now, opts); err == nil {
+			t.Errorf("shares %v published %d jobs, want an error", shares, len(q.jobs))
+		}
+	}
+}

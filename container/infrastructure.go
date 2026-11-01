@@ -251,10 +251,13 @@ func (s *ServiceContainer) CharacterRepository() contract.CharacterRepository {
 		return nil
 	}
 	var maxLevel uint32
+	var activeDays int
 	if c := s.configUnlocked().Census; c != nil {
 		maxLevel = c.MaxLevel
+		activeDays = c.ActiveWindowDays
 	}
-	s.infrastructure.characterRepository = repository.NewCharacterRepository(driver, repository.WithMaxLevel(maxLevel))
+	s.infrastructure.characterRepository = repository.NewCharacterRepository(driver,
+		repository.WithMaxLevel(maxLevel), repository.WithActiveWindowDays(activeDays))
 	return s.infrastructure.characterRepository
 }
 

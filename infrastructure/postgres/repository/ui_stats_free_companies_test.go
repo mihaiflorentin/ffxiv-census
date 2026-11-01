@@ -386,6 +386,12 @@ func TestFreeCompanyNamesAreOneIndexLookupPerCompany(t *testing.T) {
 	// An empty test table would be read sequentially; production's is not.
 	mustExecTx(t, tx, `SET LOCAL enable_seqscan = off`)
 	mustExecTx(t, tx, `SET LOCAL enable_bitmapscan = off`)
+	// With no rows every index on live characters costs the same and the
+	// planner picks one by tie-break; members spread over many companies give
+	// it production-like statistics (rolled back with the transaction).
+	mustExecTx(t, tx, `INSERT INTO characters (id, name, fc_id, fc_name, first_seen_at)
+		SELECT i, 'C', (i % 500)::text, 'FC', NOW() FROM generate_series(1, 5000) AS i`)
+	mustExecTx(t, tx, `ANALYZE characters`)
 	rows, err := tx.QueryContext(ctx, "EXPLAIN "+repository.FreeCompanyNamesQueryForTest, []string{"100", "200"})
 	if err != nil {
 		t.Fatal(err)
