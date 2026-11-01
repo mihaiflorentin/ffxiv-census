@@ -55,6 +55,7 @@ func (q *fakeProxyQueue) Consume(ctx context.Context, _ []string, _ int, fn func
 }
 
 func (q *fakeProxyQueue) ConsumeFailed(context.Context, []string, int) error { return nil }
+func (q *fakeProxyQueue) Depth(context.Context, string) (int, error)         { return 0, nil }
 func (q *fakeProxyQueue) Close() error                                       { return nil }
 
 // noopCensusHandler handles census events without doing real work.

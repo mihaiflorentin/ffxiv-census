@@ -388,6 +388,9 @@ type characterCensusOptions struct {
 	DeletedOlderThan time.Duration
 	// TierShares splits Limit across the census tiers.
 	TierShares []int
+	// MaxBacklog skips the run while this many character-census jobs still
+	// wait in the queue; zero disables the guard.
+	MaxBacklog int
 }
 
 // validTierShares checks that shares give every census tier a positive
@@ -477,6 +480,21 @@ func publishCharacterCensus(
 	now time.Time,
 	opts characterCensusOptions,
 ) error {
+	backlog := 0
+	if opts.MaxBacklog > 0 {
+		var err error
+		backlog, err = q.Depth(ctx, handler.EventCharacterCensus)
+		if err != nil {
+			return fmt.Errorf("character-census backlog: %w", err)
+		}
+		// The queued jobs are the oldest characters, the very ones this run
+		// would select again: publishing now would census them twice.
+		if backlog >= opts.MaxBacklog {
+			logger.InfoContext(ctx, "publish.character_census.backlog_skip",
+				slog.Int("backlog", backlog), slog.Int("max_backlog", opts.MaxBacklog))
+			return nil
+		}
+	}
 	cutoff := characterCensusCutoff(now, opts.OlderThan)
 	var ids []uint32
 	var tiers []any
@@ -516,6 +534,7 @@ func publishCharacterCensus(
 		ctx, "publish.character_census",
 		slog.String("older_than", opts.OlderThan.String()),
 		slog.Int("limit", opts.Limit),
+		slog.Int("backlog", backlog),
 		slog.Int("stale", stale),
 		slog.Group("tiers", tiers...),
 		slog.Int("deleted_limit", opts.DeletedLimit),
@@ -533,6 +552,7 @@ var publishCharacterCensusCmd = &cobra.Command{
 		limit, _ := cmd.Flags().GetInt("limit")
 		deletedLimit, _ := cmd.Flags().GetInt("deleted-limit")
 		deletedOlderThan, _ := cmd.Flags().GetDuration("deleted-older-than")
+		maxBacklog, _ := cmd.Flags().GetInt("max-backlog")
 		if limit <= 0 {
 			return fmt.Errorf("--limit must be positive")
 		}
@@ -562,6 +582,7 @@ var publishCharacterCensusCmd = &cobra.Command{
 			DeletedLimit:     deletedLimit,
 			DeletedOlderThan: deletedOlderThan,
 			TierShares:       shares,
+			MaxBacklog:       maxBacklog,
 		})
 	},
 }
@@ -645,6 +666,7 @@ func init() {
 	publishCharacterCensusCmd.Flags().Int("limit", 1000, "max live characters to enqueue")
 	publishCharacterCensusCmd.Flags().Int("deleted-limit", 10, "max deleted characters to re-probe per run (0 disables the re-probe)")
 	publishCharacterCensusCmd.Flags().Duration("deleted-older-than", 30*24*time.Hour, "re-probe a deleted character only once it has been deleted this long")
+	publishCharacterCensusCmd.Flags().Int("max-backlog", 0, "skip the run while this many character-census jobs still wait in the queue (0 disables)")
 	publishCmd.AddCommand(publishAchievementCensusCmd)
 	publishAchievementCensusCmd.Flags().Uint32("character-id", 0, "specific character ID to census")
 	publishAchievementCensusCmd.Flags().Int("limit", 1000, "max characters to enqueue")

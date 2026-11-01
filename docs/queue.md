@@ -124,9 +124,12 @@ Consumption is **push-based**. The worker calls `queue.Consume` which blocks unt
 type Queue interface {
     Publish(ctx context.Context, job QueueJob) error
     Consume(ctx context.Context, eventTypes []string, concurrency int, handler func(ctx context.Context, job QueueJob) error) error
+    Depth(ctx context.Context, eventType string) (int, error)
     Close() error
 }
 ```
+
+**`Depth`** returns the ready-message count of `census.<eventType>` from a passive queue declare, on a short-lived channel of its own (a passive declare of a missing queue closes its channel, so it never touches the shared publishing channel). Unacknowledged deliveries and delay-tier messages are not counted. `publish character-census --max-backlog` uses it to skip a run while earlier jobs still wait (see `docs/census.md`).
 
 **`Publish`** sends a single job to the `census` exchange with routing key = `job.Type`. The payload is JSON bytes. It uses deferred publisher confirms (`PublishWithDeferredConfirmWithContext`) so a successful return guarantees the durable target queue accepted the message. After confirmation, `Publish` drains the mandatory return channel — if RabbitMQ reports the message as unroutable, the call returns an error with the AMQP reply code and routing key. This fail-fast behaviour means callers never silently lose messages to misconfigured bindings.
 
@@ -371,7 +374,7 @@ expose `from_id`, `to_id`, and `next_id`.
 
 ## Contract
 
-`port/contract.Queue` (see `port/contract/queue.go`) is implemented by `infrastructure/rabbitmq` and `mock/queue` (in-memory fake for tests). The interface has four methods: `Publish`, `Consume`, `ConsumeFailed`, and `Close`. All retry and dead-letter logic is internal to the adapter — callers only see success or error from the handler. The tier and dead-queue decisions are pure functions in `port/contract/retry.go` (`DecideRetry`, `DecideLegacyDrain`, `IsProxyAttributable`, `ProxyFaultError`), shared by both adapters so they cannot diverge.
+`port/contract.Queue` (see `port/contract/queue.go`) is implemented by `infrastructure/rabbitmq` and `mock/queue` (in-memory fake for tests). The interface has five methods: `Publish`, `Consume`, `ConsumeFailed`, `Depth`, and `Close`. All retry and dead-letter logic is internal to the adapter — callers only see success or error from the handler. The tier and dead-queue decisions are pure functions in `port/contract/retry.go` (`DecideRetry`, `DecideLegacyDrain`, `IsProxyAttributable`, `ProxyFaultError`), shared by both adapters so they cannot diverge.
 
 The in-memory fake models the tiers: a failed job lands in the tier `DecideRetry` picks and becomes deliverable once the tier delay has passed on a clock injected with `mockqueue.WithClock`. `Retries()` reports the attempt count, tier and proxy-fault flag per failure, `Waiting(tier)` the jobs in a tier, `Dead()` the dead queue, and `PublishLegacyFailed` plus `ConsumeFailed` model the legacy drain. Worker tests assert tier selection and attempt counting against it.
 

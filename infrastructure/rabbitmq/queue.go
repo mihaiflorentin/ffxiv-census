@@ -249,6 +249,30 @@ func (q *Queue) Publish(ctx context.Context, job contract.QueueJob) error {
 	})
 }
 
+// Depth reads the ready-message count of eventType's main queue with a
+// passive declare. A passive declare of a missing queue closes its channel,
+// so it runs on a short-lived channel of its own, never the shared
+// publishing one.
+func (q *Queue) Depth(ctx context.Context, eventType string) (int, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.conn.IsClosed() {
+		if err := q.reconnect(); err != nil {
+			return 0, fmt.Errorf("depth reconnect: %w", err)
+		}
+	}
+	ch, err := q.conn.Channel()
+	if err != nil {
+		return 0, fmt.Errorf("depth channel: %w", err)
+	}
+	defer func() { _ = ch.Close() }()
+	info, err := ch.QueueDeclarePassive(queuePrefix+eventType, true, false, false, false, nil)
+	if err != nil {
+		return 0, fmt.Errorf("depth of %s: %w", queuePrefix+eventType, err)
+	}
+	return info.Messages, nil
+}
+
 // publishConfirmed publishes one message on the shared publishing channel
 // and waits for the broker confirmation. A successful return means a durable
 // queue accepted the message; an unroutable mandatory publish (missing

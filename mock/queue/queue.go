@@ -219,6 +219,19 @@ func (f *Fake) Consume(ctx context.Context, _ []string, concurrency int, handler
 }
 
 // Close is a no-op.
+// Depth counts the published jobs of eventType not yet taken by Consume.
+func (f *Fake) Depth(_ context.Context, eventType string) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	n := 0
+	for _, e := range f.jobs {
+		if e.job.Type == eventType {
+			n++
+		}
+	}
+	return n, nil
+}
+
 func (f *Fake) Close() error { return nil }
 
 // ConsumeFailed drains the legacy failed queue like the real retry worker:

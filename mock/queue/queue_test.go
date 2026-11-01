@@ -105,3 +105,18 @@ func TestFake_ConsumeWaitsForInFlightHandlersOnCancel(t *testing.T) {
 		t.Fatalf("acked = %d, want 1", len(q.Acked()))
 	}
 }
+
+func TestFake_DepthCountsTheReadyJobsOfOneEventType(t *testing.T) {
+	q := NewFake()
+	ctx := context.Background()
+	for _, typ := range []string{"character-census", "character-census", "achievement-census"} {
+		if err := q.Publish(ctx, contract.QueueJob{Type: typ}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for typ, want := range map[string]int{"character-census": 2, "achievement-census": 1, "id-sweep": 0} {
+		if got, err := q.Depth(ctx, typ); err != nil || got != want {
+			t.Errorf("Depth(%q) = %d, %v; want %d", typ, got, err, want)
+		}
+	}
+}
