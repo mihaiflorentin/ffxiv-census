@@ -234,7 +234,7 @@ workers:
           value: "2"
     - name: proxy-achievement-census
       metricsPort: 9090
-      replicaCount: 1
+      replicaCount: 3
       command:
         - /app/ffxiv-census
         - consume
