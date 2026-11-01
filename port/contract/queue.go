@@ -55,6 +55,10 @@ type Queue interface {
 	// type is unknown, are dead-parked for inspection — never discarded.
 	// If eventTypes is empty, consumes from all failed queues.
 	ConsumeFailed(ctx context.Context, eventTypes []string, concurrency int) error
+	// Depth returns how many jobs of eventType wait in its main queue, ready
+	// for delivery: jobs a consumer holds unacknowledged and jobs waiting in a
+	// delay tier are not counted.
+	Depth(ctx context.Context, eventType string) (int, error)
 	// Close closes the underlying connection.
 	Close() error
 }

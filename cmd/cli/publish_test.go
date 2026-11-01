@@ -177,6 +177,15 @@ type errorQueue struct {
 	failOn int // 1-based position to fail on
 	calls  int
 	jobs   []contract.QueueJob
+	// depth is what Depth reports; depthAsked records the event type asked.
+	depth      int
+	depthErr   error
+	depthAsked string
+}
+
+func (q *errorQueue) Depth(_ context.Context, eventType string) (int, error) {
+	q.depthAsked = eventType
+	return q.depth, q.depthErr
 }
 
 func (q *errorQueue) Publish(_ context.Context, job contract.QueueJob) error {

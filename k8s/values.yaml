@@ -318,6 +318,10 @@ cronjobs:
         - "1200"
         - --older-than
         - "0"
+        # Skip a run while half a run still waits: the queued jobs are the
+        # oldest characters, which the run would publish a second time.
+        - --max-backlog
+        - "600"
 
     - name: publish-id-sweep
       schedule: "*/1 * * * *"

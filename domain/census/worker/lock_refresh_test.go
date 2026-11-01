@@ -60,6 +60,8 @@ type continuingQueue struct {
 }
 
 func (q *continuingQueue) Publish(context.Context, contract.QueueJob) error { return nil }
+func (q *continuingQueue) Depth(context.Context, string) (int, error)       { return 0, nil }
+
 func (q *continuingQueue) ConsumeFailed(context.Context, []string, int) error {
 	return nil
 }

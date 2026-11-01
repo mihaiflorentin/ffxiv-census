@@ -274,3 +274,44 @@ func TestPublishCharacterCensus_RejectsSharesThatLeaveATierOut(t *testing.T) {
 		}
 	}
 }
+
+func TestPublishCharacterCensus_SkipsTheRunWhileTheQueueIsBackedUp(t *testing.T) {
+	now := time.Now().UTC()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	for _, tc := range []struct {
+		name              string
+		depth, maxBacklog int
+		wantPublished     bool
+	}{
+		// Still-queued jobs are the oldest characters, the ones the run would
+		// select again: publishing now would census them twice.
+		{"backlog at the limit", 5, 5, false},
+		{"backlog above the limit", 50, 5, false},
+		{"small backlog", 4, 5, true},
+		{"guard disabled", 50, 0, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			q := &errorQueue{depth: tc.depth}
+			opts := characterCensusOptions{Limit: 3, MaxBacklog: tc.maxBacklog, DeletedLimit: 10, DeletedOlderThan: 30 * day}
+			if err := publishCharacterCensus(context.Background(), seedCensusCharacters(t, now), q, logger, now, opts); err != nil {
+				t.Fatalf("publishCharacterCensus: %v", err)
+			}
+			if got := len(q.jobs) > 0; got != tc.wantPublished {
+				t.Errorf("published %d jobs at depth %d with max backlog %d, want published=%v", len(q.jobs), tc.depth, tc.maxBacklog, tc.wantPublished)
+			}
+			if tc.maxBacklog > 0 && q.depthAsked != handler.EventCharacterCensus {
+				t.Errorf("depth asked for %q, want %q", q.depthAsked, handler.EventCharacterCensus)
+			}
+		})
+	}
+}
+
+func TestPublishCharacterCensus_FailsWhenTheBacklogCannotBeRead(t *testing.T) {
+	now := time.Now().UTC()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	q := &errorQueue{depthErr: errors.New("channel closed")}
+	opts := characterCensusOptions{Limit: 3, MaxBacklog: 5}
+	if err := publishCharacterCensus(context.Background(), seedCensusCharacters(t, now), q, logger, now, opts); err == nil || len(q.jobs) != 0 {
+		t.Errorf("err=%v published=%d, want an error and nothing published", err, len(q.jobs))
+	}
+}
