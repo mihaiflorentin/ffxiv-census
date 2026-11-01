@@ -60,7 +60,7 @@ func NewCharacterRepository(driver contract.DatabaseDriver, opts ...CharacterRep
 const characterColumns = `id, name, world, datacenter, region, race, tribe, gender, grand_company,
 		        fc_id, fc_name, bio, active_job,
 		        achievements_private, achievements_checked_at, latest_achievement_id, latest_achievement_at,
-		        first_seen_at, last_census_at, deleted_at`
+		        first_seen_at, last_census_at, deleted_at, last_change_at`
 
 // Upsert stores one character and its jobs through StoreResult, the only write
 // path for characters.
@@ -792,7 +792,8 @@ func characterFilterWhereWithStart(f contract.CharacterFilter, startIdx int) (st
 		addParam("name ILIKE $%d", "%"+f.Name+"%")
 	}
 	if f.Since != nil {
-		addParam("latest_achievement_at >= $%d", *f.Since)
+		// census.ActiveSince: a recent achievement or an observed change.
+		addParam("(latest_achievement_at >= $%[1]d OR last_change_at >= $%[1]d)", *f.Since)
 	}
 	if f.ActiveOnly {
 		where = append(where, "deleted_at IS NULL")
@@ -898,7 +899,7 @@ func (r *CharacterRepository) Count(ctx context.Context, f contract.CharacterFil
 func (r *CharacterRepository) CountActive(ctx context.Context, since time.Time) (int64, error) {
 	row, err := r.driver.FetchOne(ctx,
 		`SELECT COUNT(*) FROM characters
-		  WHERE latest_achievement_at >= $1 AND deleted_at IS NULL`, since)
+		  WHERE (latest_achievement_at >= $1 OR last_change_at >= $1) AND deleted_at IS NULL`, since)
 	if err != nil {
 		return 0, err
 	}
@@ -1188,7 +1189,7 @@ func scanCharacter(row rowScanner) (*contract.CharacterRecord, error) {
 	var bio, activeJob sql.NullString
 	var achievementsPrivate int
 	var latestAchievementID sql.NullInt64
-	var latestAchievementAt, achievementsCheckedAt, lastCensusAt, deletedAt sql.NullTime
+	var latestAchievementAt, achievementsCheckedAt, lastCensusAt, deletedAt, lastChangeAt sql.NullTime
 	var firstSeenAt time.Time
 
 	err := row.Scan(
@@ -1196,7 +1197,7 @@ func scanCharacter(row rowScanner) (*contract.CharacterRecord, error) {
 		&race, &tribe, &c.Gender, &grandCompany,
 		&fcID, &fcName, &bio, &activeJob,
 		&achievementsPrivate, &achievementsCheckedAt, &latestAchievementID, &latestAchievementAt,
-		&firstSeenAt, &lastCensusAt, &deletedAt,
+		&firstSeenAt, &lastCensusAt, &deletedAt, &lastChangeAt,
 	)
 	if err != nil {
 		return nil, err
@@ -1216,6 +1217,7 @@ func scanCharacter(row rowScanner) (*contract.CharacterRecord, error) {
 	c.FirstSeenAt = firstSeenAt
 	c.LastCensusAt = sqlTimePtr(lastCensusAt)
 	c.DeletedAt = sqlTimePtr(deletedAt)
+	c.LastChangeAt = sqlTimePtr(lastChangeAt)
 
 	return &c, nil
 }

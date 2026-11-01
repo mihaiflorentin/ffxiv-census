@@ -332,13 +332,14 @@ func (s *Service) PrepareMilestoneResults(ctx context.Context, charID uint32, su
 	return w, nil
 }
 
-// IsActive reports whether a latest-achievement timestamp falls within the
-// census activity window (default 90 days, overridable via SetActivityWindow).
-func (s *Service) IsActive(latestAt time.Time) bool {
+// IsActive reports whether the character is active (ActiveSince) within the
+// census activity window (default 90 days, overridable via
+// SetActivityWindow).
+func (s *Service) IsActive(rec contract.CharacterRecord) bool {
 	s.mu.RLock()
 	window := s.activityWindow
 	s.mu.RUnlock()
-	return !latestAt.IsZero() && time.Since(latestAt) <= window
+	return ActiveSince(rec, time.Now().Add(-window))
 }
 
 // SetActivityWindow overrides the activity window used by IsActive, Summary,

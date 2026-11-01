@@ -225,7 +225,7 @@ func (r *UIStatsRepository) readCharacterStats(ctx context.Context, tx *sql.Tx, 
 	roll, err := queryFineGrainWithExtraColumns(ctx, tx, jobs, len(snapshot.LevelBands), `
 		SELECT `+fineGrainKeyColumns+`,
 		       COUNT(*) AS total,
-		       COUNT(*) FILTER (WHERE latest_achievement_at >= $1) AS active,
+		       COUNT(*) FILTER (WHERE latest_achievement_at >= $1 OR last_change_at >= $1) AS active,
 		       COUNT(*) FILTER (WHERE max_job_level >= $2) AS max_level,
 		       `+privacyCountColumns+`,
 		       `+inFreeCompanyColumn+`,
@@ -412,12 +412,12 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 	live, err := queryFineGrain(ctx, tx, bands, `
 		SELECT `+fineGrainKeyColumns+`,
 		       COUNT(*) AS total,
-		       COUNT(*) FILTER (WHERE latest_achievement_at >= $1) AS active,
+		       COUNT(*) FILTER (WHERE latest_achievement_at >= $1 OR last_change_at >= $1) AS active,
 		       COUNT(*) FILTER (WHERE max_job_level >= $2) AS max_level,
 		       0 AS private, 0 AS unchecked, 0 AS in_free_company, `+zeroLevelColumns(bands)+`
 		FROM characters
 		WHERE deleted_at IS NULL
-		  AND (latest_achievement_at >= $1 OR max_job_level >= $2)
+		  AND (latest_achievement_at >= $1 OR last_change_at >= $1 OR max_job_level >= $2)
 		GROUP BY `+fineGrainGroupBy, snapshot.ActivitySince, snapshot.MaxLevel)
 	if err != nil {
 		return false, fmt.Errorf("query UI active statistics: %w", err)

@@ -318,24 +318,29 @@ func TestService_PrepareMilestoneResults_PrivateAndErrors(t *testing.T) {
 	}
 }
 
+// achievedAt is a character whose latest public achievement is at.
+func achievedAt(at time.Time) contract.CharacterRecord {
+	return contract.CharacterRecord{LatestAchievementAt: &at}
+}
+
 func TestService_IsActive(t *testing.T) {
 	svc, _ := newTestService(t)
 	now := time.Now().UTC()
-	if !svc.IsActive(now.Add(-time.Hour)) {
+	if !svc.IsActive(achievedAt(now.Add(-time.Hour))) {
 		t.Error("achievement 1h ago should be active within the default 90d window")
 	}
-	if !svc.IsActive(now.Add(-60 * 24 * time.Hour)) {
+	if !svc.IsActive(achievedAt(now.Add(-60 * 24 * time.Hour))) {
 		t.Error("achievement 60d ago should be active within the default 90d window")
 	}
-	if svc.IsActive(now.Add(-91 * 24 * time.Hour)) {
+	if svc.IsActive(achievedAt(now.Add(-91 * 24 * time.Hour))) {
 		t.Error("achievement 91d ago should not be active")
 	}
 }
 
-func TestService_IsActive_ZeroTime(t *testing.T) {
+func TestService_IsActive_NothingKnown(t *testing.T) {
 	svc, _ := newTestService(t)
-	if svc.IsActive(time.Time{}) {
-		t.Error("zero time should not be active")
+	if svc.IsActive(contract.CharacterRecord{}) {
+		t.Error("a character with no achievement and no change should not be active")
 	}
 }
 
@@ -654,7 +659,7 @@ func TestService_SetActivityWindow_Noop(t *testing.T) {
 	svc, _ := newTestService(t)
 	svc.SetActivityWindow(0)
 	svc.SetActivityWindow(-time.Hour)
-	if !svc.IsActive(time.Now().UTC().Add(-15 * 24 * time.Hour)) {
+	if !svc.IsActive(achievedAt(time.Now().UTC().Add(-15 * 24 * time.Hour))) {
 		t.Error("no-op SetActivityWindow should keep the default 30-day window")
 	}
 }
@@ -757,10 +762,10 @@ func TestService_IsActive_ConfiguredWindow(t *testing.T) {
 	svc, _ := newTestService(t)
 	svc.SetActivityWindow(7 * 24 * time.Hour)
 	now := time.Now().UTC()
-	if !svc.IsActive(now.Add(-6 * 24 * time.Hour)) {
+	if !svc.IsActive(achievedAt(now.Add(-6 * 24 * time.Hour))) {
 		t.Error("achievement 6d ago should be active within a 7d window")
 	}
-	if svc.IsActive(now.Add(-8 * 24 * time.Hour)) {
+	if svc.IsActive(achievedAt(now.Add(-8 * 24 * time.Hour))) {
 		t.Error("achievement 8d ago should not be active within a 7d window")
 	}
 }

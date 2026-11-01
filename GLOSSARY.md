@@ -222,8 +222,12 @@ _Avoid_: aggregation scope, scope (bare)
 The population axis a group is counted along: race, tribe, gender, race-by-gender, or world.
 _Avoid_: dimension (bare), grouping
 
+**Active character**:
+A character with a public achievement or an observed change (a job levelled or unlocked, another current job, a new name, world, Free Company or Grand Company) within the activity window. Private characters count through observed changes. Changes are recorded since 2026-11-01.
+_Avoid_: active player (for one character), online, subscribed
+
 **Activity window**:
-The bounded trailing period, 90 days by default (`[census] activity_window_days`), that defines which characters count as active. It is wide because a full census pass takes months. Copy states its length from the snapshot, never as a literal.
+The bounded trailing period, 90 days by default (`[census] activity_window_days`), that defines which characters count as active. It is wide because a change is only seen at the census's next visit, which for most private characters is weeks away. Copy states its length from the snapshot, never as a literal.
 _Avoid_: 30-day window, 90-day window (the length is configurable)
 
 **New character**:

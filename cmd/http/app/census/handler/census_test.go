@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -532,4 +533,40 @@ func querySuffix(q string) string {
 		return ""
 	}
 	return "?" + q
+}
+
+func TestCensusController_List_ActiveCountsAnObservedChange(t *testing.T) {
+	rig := newRig(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	recent, old := now.Add(-10*24*time.Hour), now.Add(-200*24*time.Hour)
+	for _, rec := range []contract.CharacterRecord{
+		{ID: 1, Name: "Achiever", World: "Ultros", FirstSeenAt: old, LatestAchievementAt: &recent},
+		{ID: 2, Name: "Private Leveller", World: "Ultros", FirstSeenAt: old, AchievementsPrivate: true, LastChangeAt: &recent},
+		{ID: 3, Name: "Long Gone", World: "Ultros", FirstSeenAt: old, AchievementsPrivate: true, LastChangeAt: &old},
+	} {
+		if err := rig.chars.Upsert(ctx, rec, nil); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var all response.PaginatedCharacters
+	decodeJSON(t, doGET(t, rig.c.List, "/api/v1/census/characters"), &all)
+	active := map[uint32]bool{}
+	for _, item := range all.Items {
+		active[item.ID] = item.IsActive
+	}
+	if want := map[uint32]bool{1: true, 2: true, 3: false}; !reflect.DeepEqual(active, want) {
+		t.Errorf("is_active = %v, want %v", active, want)
+	}
+
+	var filtered response.PaginatedCharacters
+	decodeJSON(t, doGET(t, rig.c.List, "/api/v1/census/characters?active=true"), &filtered)
+	var ids []uint32
+	for _, item := range filtered.Items {
+		ids = append(ids, item.ID)
+	}
+	if filtered.Total != 2 || !reflect.DeepEqual(ids, []uint32{1, 2}) {
+		t.Errorf("active=true returned %v (total %d), want [1 2]", ids, filtered.Total)
+	}
 }

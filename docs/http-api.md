@@ -40,7 +40,7 @@ Times are RFC 3339 UTC (Go `time.Time` marshaling). The exception is `NewCharact
 
 ### Activity window
 
-"Active" means the character's globally latest public achievement (`latest_achievement_at`) falls within the activity window. It is an achievement-based signal rather than a direct login or subscription measurement. Characters without a visible achievement (`latest_achievement_at` NULL) are never active. The window is configured under `[census]`:
+"Active" means the character's latest public achievement (`latest_achievement_at`) **or** the last change the census observed (`last_change_at`: a job levelled or unlocked, another current job, a new name, world, Free Company or Grand Company) falls within the activity window, so characters who hide their achievements can be active too. It is a signal of play, not a login or subscription measurement; changes are recorded since 2026-11-01. `is_active` on characters and the `active=true` list filter use this definition (before v1.24.0, `is_active` counted achievements only and `active=true` only excluded deleted characters). The window is configured under `[census]`:
 
 ```toml
 [census]

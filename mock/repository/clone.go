@@ -38,6 +38,7 @@ func cloneCharacter(rec contract.CharacterRecord) contract.CharacterRecord {
 	rec.FreeCompanyName = cloneString(rec.FreeCompanyName)
 	rec.LatestAchievementID = cloneUint32(rec.LatestAchievementID)
 	rec.LatestAchievementAt = cloneTime(rec.LatestAchievementAt)
+	rec.LastChangeAt = cloneTime(rec.LastChangeAt)
 	rec.AchievementsCheckedAt = cloneTime(rec.AchievementsCheckedAt)
 	rec.LastCensusAt = cloneTime(rec.LastCensusAt)
 	rec.DeletedAt = cloneTime(rec.DeletedAt)
@@ -47,4 +48,9 @@ func cloneCharacter(rec contract.CharacterRecord) contract.CharacterRecord {
 func cloneMilestone(m contract.MilestoneAchievement) contract.MilestoneAchievement {
 	m.Expansion = cloneString(m.Expansion)
 	return m
+}
+
+// atOrAfter reports whether t is set and not before since.
+func atOrAfter(t *time.Time, since time.Time) bool {
+	return t != nil && !t.Before(since)
 }
