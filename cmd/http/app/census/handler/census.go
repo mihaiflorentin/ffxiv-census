@@ -131,6 +131,10 @@ func (c *CensusController) List(w http.ResponseWriter, r *http.Request) {
 		SortBy:        query.Get("sort_by"),
 		SortOrder:     query.Get("sort_order"),
 	}
+	if activeOnly {
+		since := c.svc.ActivitySince()
+		f.Since = &since
+	}
 	chars, total, err := c.svc.ListCharacters(r.Context(), f, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -335,10 +339,11 @@ func (c *CensusController) Expansion(w http.ResponseWriter, r *http.Request) {
 
 // toCharacterListItem maps a persisted character record to the API list item.
 // Every field the DTO declares is copied; pointer fields pass through as-is.
-// A character is active when its latest achievement is at or after
-// activeSince, the start of the census activity window.
+// A character is active (census.ActiveSince) when its latest achievement or
+// its last observed change is at or after activeSince, the start of the
+// census activity window.
 func toCharacterListItem(rec *contract.CharacterRecord, activeSince time.Time) response.CharacterListItem {
-	isActive := rec.LatestAchievementAt != nil && !rec.LatestAchievementAt.Before(activeSince)
+	isActive := census.ActiveSince(*rec, activeSince)
 	return response.CharacterListItem{
 		ID:                  rec.ID,
 		Name:                rec.Name,

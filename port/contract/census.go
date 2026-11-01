@@ -28,9 +28,12 @@ type CharacterRecord struct {
 	AchievementsCheckedAt *time.Time
 	LatestAchievementID   *uint32
 	LatestAchievementAt   *time.Time
-	FirstSeenAt           time.Time
-	LastCensusAt          *time.Time
-	DeletedAt             *time.Time
+	// LastChangeAt is when a census last observed the character change (see
+	// census.ActiveSince); nil when none has.
+	LastChangeAt *time.Time
+	FirstSeenAt  time.Time
+	LastCensusAt *time.Time
+	DeletedAt    *time.Time
 }
 
 // ClassJobRecord is one job/class level snapshot for a character.

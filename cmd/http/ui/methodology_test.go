@@ -37,17 +37,22 @@ func TestMethodologyHandler(t *testing.T) {
 	for _, want := range []string{
 		"My Little Chocobo",
 		"Achievement ID 590",
-		"globally latest public achievement",
+		// Active: a public achievement or a change the census saw, private
+		// characters included, tracked since the census started recording.
+		"or the census saw them change",
+		"private characters count as active too",
+		"Changes are tracked since 1 November 2026",
+		"can’t be detected",
 		"members seen by the census",
 		"top 100",
 		"at least 2 members",
 		"renamed",
 		// No snapshot is loaded, so the window is the service's default.
-		"earned in the last 90 days",
+		"in the last 90 days",
 		// Why the window is wide, and what it can't fix.
 		"Why 90 days",
-		"A full census pass takes months",
-		"still undercounts",
+		"five to six weeks",
+		"still a lower bound",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("expected body to contain %q", want)

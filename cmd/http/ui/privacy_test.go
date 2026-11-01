@@ -119,7 +119,7 @@ func TestPrivacyPageDrawsTheVeil(t *testing.T) {
 	}
 	main := renderedMain(t, doc)
 	for _, want := range []string{
-		"can’t count as active",
+		"counts as active once the census sees",
 		"lower bound",
 		"Show the numbers",
 	} {
@@ -181,7 +181,6 @@ func TestPrivacyPageOnAVersion2SnapshotWaitsForTheNextRefresh(t *testing.T) {
 func TestPrivacyNotesOnTheDashboardAndExpansions(t *testing.T) {
 	mux := privacyMux(t, privacyPageSnapshot(3))
 	for path, want := range map[string]string{
-		"/":              "15.0% of characters hide their achievements, so they can’t count as active. How privacy is counted.",
 		"/ui/expansions": "15.0% of characters hide their achievements, so these completions are a lower bound. How privacy is counted.",
 	} {
 		doc := parseHTML(t, serveMuxGet(t, mux, path).Body.String())
@@ -223,5 +222,29 @@ func TestMethodologyExplainsAchievementPrivacy(t *testing.T) {
 	}
 	if !linksTo(doc, "/ui/privacy") {
 		t.Error("methodology links to the Private achievements page")
+	}
+}
+
+// The dashboard's Active players tile says what counts as activity and since
+// when changes are tracked, in place of the old privacy note: hidden
+// achievements no longer keep a character from counting as active.
+func TestActivityNoteOnTheDashboard(t *testing.T) {
+	mux := privacyMux(t, privacyPageSnapshot(3))
+	doc := parseHTML(t, serveMuxGet(t, mux, "/").Body.String())
+	if n := len(findAll(doc, byClass("privacy-note"))); n != 0 {
+		t.Errorf("dashboard still has %d privacy notes", n)
+	}
+	notes := findAll(doc, byClass("activity-note"))
+	if len(notes) != 1 {
+		t.Fatalf("want one activity note, got %d", len(notes))
+	}
+	text := flatText(notes[0])
+	for _, want := range []string{"public achievement or a change the census saw", "since 1 November 2026"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("activity note %q lacks %q", text, want)
+		}
+	}
+	if !linksTo(notes[0], "/ui/methodology#active-players") {
+		t.Error("the activity note links to the methodology")
 	}
 }

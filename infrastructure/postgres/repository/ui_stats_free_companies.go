@@ -15,8 +15,8 @@ import (
 )
 
 // The Free Company boards of the full refresh. One streaming, index-only
-// grouped pass over idx_characters_fc_live (fc_id, including world and
-// latest_achievement_at, live members only) yields one row per Free Company;
+// grouped pass over idx_characters_fc_live (fc_id, including world,
+// latest_achievement_at and last_change_at, live members only) yields one row per Free Company;
 // Go keeps two bounded top lists per world, one per measure, so memory stays
 // constant however many Free Companies exist. Each list also keeps the
 // entries tied with its 100th on both counts (at most
@@ -33,7 +33,7 @@ const freeCompaniesSnapshotKey = "free_companies"
 // is stale.
 const freeCompanyPassQuery = `
 	SELECT fc_id, MIN(world) AS world, COUNT(*) AS members,
-	       COUNT(*) FILTER (WHERE latest_achievement_at >= $1) AS active
+	       COUNT(*) FILTER (WHERE latest_achievement_at >= $1 OR last_change_at >= $1) AS active
 	FROM characters
 	WHERE deleted_at IS NULL AND fc_id IS NOT NULL
 	GROUP BY fc_id

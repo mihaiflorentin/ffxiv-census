@@ -383,13 +383,13 @@ func matchesFilter(rec contract.CharacterRecord, jobs []contract.ClassJobRecord,
 	if f.FreeCompanyID != "" && (rec.FreeCompanyID == nil || *rec.FreeCompanyID != f.FreeCompanyID) {
 		return false
 	}
-	if f.ActiveOnly && rec.LatestAchievementAt == nil {
+	if f.ActiveOnly && rec.DeletedAt != nil {
 		return false
 	}
-	if f.Since != nil {
-		if rec.LatestAchievementAt == nil || rec.LatestAchievementAt.Before(*f.Since) {
-			return false
-		}
+	// Since mirrors census.ActiveSince: a recent achievement or an observed
+	// change (the domain package is not imported, its tests import this one).
+	if f.Since != nil && !atOrAfter(rec.LatestAchievementAt, *f.Since) && !atOrAfter(rec.LastChangeAt, *f.Since) {
+		return false
 	}
 	if f.MinLevel > 0 {
 		hasLevel := false

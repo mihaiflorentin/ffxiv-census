@@ -62,8 +62,7 @@ type PrivacyViewData struct {
 	Excluded                  int
 }
 
-// PrivacyNote is the one-sentence privacy note on the dashboard and the
-// Expansions page. Share is the census-wide private share.
+// PrivacyNote is the one-sentence privacy note on the Expansions page. Share is the census-wide private share.
 type PrivacyNote struct {
 	Ready bool
 	Share string
@@ -104,7 +103,7 @@ func (c *UIController) Privacy(w http.ResponseWriter, r *http.Request) {
 // PrivacyNoteLine is a PrivacyNote with the page's consequence clause, for
 // the shared privacy-note component:
 //
-//	{{template "privacy-note" (privacyNoteFor .Data.PrivacyNote "they can’t count as active")}}
+//	{{template "privacy-note" (privacyNoteFor .Data.PrivacyNote "these completions are a lower bound")}}
 type PrivacyNoteLine struct {
 	PrivacyNote
 	Consequence string
@@ -114,7 +113,7 @@ func privacyNoteFor(note PrivacyNote, consequence string) PrivacyNoteLine {
 	return PrivacyNoteLine{PrivacyNote: note, Consequence: consequence}
 }
 
-// privacyNote builds the dashboard and Expansions privacy note.
+// privacyNote builds the Expansions privacy note.
 func (c *UIController) privacyNote(snapshot *contract.UIStatsSnapshot) PrivacyNote {
 	if !census.PrivacyReady(snapshot) {
 		return PrivacyNote{}

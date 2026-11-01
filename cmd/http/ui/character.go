@@ -128,10 +128,7 @@ func (c *UIController) CharacterDetail(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Active status
-	isActive := false
-	if detail.Character.LatestAchievementAt != nil && c.svc != nil {
-		isActive = c.svc.IsActive(*detail.Character.LatestAchievementAt)
-	}
+	isActive := c.svc != nil && c.svc.IsActive(detail.Character)
 
 	maxLevel := c.maxLevel()
 
@@ -268,10 +265,7 @@ func (c *UIController) CharacterList(w http.ResponseWriter, r *http.Request) {
 
 	var rows []CharacterRow
 	for _, ch := range chars {
-		isActive := false
-		if ch.LatestAchievementAt != nil && c.svc != nil {
-			isActive = c.svc.IsActive(*ch.LatestAchievementAt)
-		}
+		isActive := c.svc != nil && c.svc.IsActive(ch)
 
 		fcName := ""
 		if ch.FreeCompanyName != nil {

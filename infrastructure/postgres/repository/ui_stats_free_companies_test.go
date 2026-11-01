@@ -44,7 +44,7 @@ func TestFreeCompanyIndexMigration_ReplacesTheFullIndexWithASlimPartialOne(t *te
 	}
 	for _, part := range []string{
 		"(fc_id)",
-		"INCLUDE (world, latest_achievement_at)",
+		"INCLUDE (world, latest_achievement_at, last_change_at)",
 		"WHERE ((deleted_at IS NULL) AND (fc_id IS NOT NULL))",
 	} {
 		if !strings.Contains(def, part) {
@@ -61,6 +61,7 @@ type fcMember struct {
 	id                  int
 	world, fcID, fcName string
 	latestAchievementAt *time.Time
+	lastChangeAt        *time.Time
 	lastCensusAt        time.Time
 	deleted             bool
 }
@@ -81,10 +82,10 @@ func seedFCMembers(t *testing.T, driver contract.DatabaseDriver, members ...fcMe
 			last = time.Now().UTC().Add(-time.Hour)
 		}
 		mustExec(t, driver, `INSERT INTO characters (id, name, world, datacenter, region, race, tribe, gender,
-			fc_id, fc_name, latest_achievement_at, first_seen_at, last_census_at, deleted_at)
-			VALUES ($1, 'C', $2, $3, $4, 'Hyur', 'Midlander', 1, $5, $6, $7, NOW() - INTERVAL '90 days', $8, $9)`,
+			fc_id, fc_name, latest_achievement_at, first_seen_at, last_census_at, deleted_at, last_change_at)
+			VALUES ($1, 'C', $2, $3, $4, 'Hyur', 'Midlander', 1, $5, $6, $7, NOW() - INTERVAL '90 days', $8, $9, $10)`,
 			m.id, m.world, census.WorldDatacenter(m.world), census.RegionForDatacenter(census.WorldDatacenter(m.world)),
-			fcID, fcName, m.latestAchievementAt, last, deleted)
+			fcID, fcName, m.latestAchievementAt, last, deleted, m.lastChangeAt)
 	}
 }
 

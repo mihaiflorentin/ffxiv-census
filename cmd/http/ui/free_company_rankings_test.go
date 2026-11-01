@@ -139,8 +139,8 @@ func TestFreeCompanyRankingsDefaultToTheLargestCompanies(t *testing.T) {
 			t.Errorf("board lacks %q", line)
 		}
 	}
-	if strings.Contains(text, "hide their achievements") {
-		t.Error("the hidden-achievements note belongs to the active board")
+	if strings.Contains(text, "a change the census saw") {
+		t.Error("the note on what counts as active belongs to the active board")
 	}
 }
 
@@ -161,8 +161,8 @@ func TestFreeCompanyRankingsByActiveMembersKeepTheFilter(t *testing.T) {
 	if !strings.Contains(flatText(board), "40.0% of characters on Balmung belong to a Free Company.") {
 		t.Error("the board gives the share of characters in a Free Company")
 	}
-	if !strings.Contains(flatText(board), "hide their achievements") {
-		t.Error("the active board notes that hidden achievements can't count as active")
+	if !strings.Contains(flatText(board), "a change the census saw") {
+		t.Error("the active board says what counts as active")
 	}
 
 	options := switchOptions(t, doc, "Rank Free Companies by")
@@ -234,7 +234,7 @@ func TestFreeCompanyActiveCopyUsesTheBoardsActivityWindow(t *testing.T) {
 	boards.ActivitySince = fcBuiltAt.Add(-75 * 24 * time.Hour)
 	mux := fcRankingsMux(t, 3, boards)
 	body := serveMuxGet(t, mux, "/ui/rankings/free-companies?measure=active").Body.String()
-	if !strings.Contains(body, "public achievement in the last 75 days") {
+	if !strings.Contains(body, "a change the census saw in the last 75 days") {
 		t.Errorf("active members copy must read the boards' 75-day window; body:\n%s", body)
 	}
 }
