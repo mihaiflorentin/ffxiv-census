@@ -13,12 +13,11 @@ import (
 
 // WorldsViewData holds world demographics, filter state, and lists for /ui/worlds.
 type WorldsViewData struct {
-	TotalCharacters    int64
-	ActiveCharacters   int64
-	NewCharacters      int64
-	NewCharactersTrend Trend
-	SelectedRegion     string
-	SelectedDC         string
+	TotalCharacters   int64
+	ActiveCharacters  int64
+	NewCharactersCard NewCharactersCard
+	SelectedRegion    string
+	SelectedDC        string
 	// Scope reads like "across every region" or "in Europe".
 	Scope   string
 	Worlds  []WorldDetailRow
@@ -80,7 +79,7 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 			Total:         row.Total,
 			Active:        row.Active,
 			ActiveRatio:   formatPercent(row.Active, row.Total),
-			NewCharacters: c.memo.WorldNewCharacters(snapshot, wName).Current,
+			NewCharacters: newCharactersCount(snapshot, c.memo.WorldNewCharacters(snapshot, wName)),
 		})
 	}
 
@@ -132,17 +131,16 @@ func (c *UIController) Worlds(w http.ResponseWriter, r *http.Request) {
 	newWindow := census.NewCharactersTotals(snapshot, contract.StatsScope{Region: selectedRegion, Datacenter: selectedDC})
 
 	data := statsPageData("Worlds Census", "worlds", "/ui/worlds", fmt.Sprintf("Final Fantasy XIV world rankings: total characters and players active in the last %s for every world and datacenter, with region filters.", Window{Days: state.ActivityWindowDays}.Long()), state, WorldsViewData{
-		TotalCharacters:    totalChars,
-		ActiveCharacters:   activeChars,
-		NewCharacters:      newWindow.Current,
-		NewCharactersTrend: newTrend(newWindow),
-		Scope:              placeScope(selectedRegion, selectedDC, ""),
-		SelectedRegion:     selectedRegion,
-		SelectedDC:         selectedDC,
-		Worlds:             filteredWorlds,
-		Filters:            worldsFilterBar(regionList, dcList, selectedRegion, selectedDC),
-		Rank:               rank,
-		RankSwitch:         worldsRankSwitch(selectedRegion, selectedDC, rank),
+		TotalCharacters:   totalChars,
+		ActiveCharacters:  activeChars,
+		NewCharactersCard: newCharactersCard(snapshot, newWindow),
+		Scope:             placeScope(selectedRegion, selectedDC, ""),
+		SelectedRegion:    selectedRegion,
+		SelectedDC:        selectedDC,
+		Worlds:            filteredWorlds,
+		Filters:           worldsFilterBar(regionList, dcList, selectedRegion, selectedDC),
+		Rank:              rank,
+		RankSwitch:        worldsRankSwitch(selectedRegion, selectedDC, rank),
 	})
 	if wantsSwitchRegion(r, worldRankingsRegion) {
 		c.renderRegion(w, "templates/worlds.html", "world-rankings", data)

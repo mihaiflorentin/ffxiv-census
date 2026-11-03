@@ -127,14 +127,14 @@ func TestNewCharacterCopyStatesTheSnapshotWindow(t *testing.T) {
 		mux  *http.ServeMux
 		want []string
 	}{
-		// The tile, its trend sentence and the timeline title and summary.
-		{"/", seeded, []string{"New characters, last 60 days", "on the previous 60 days", "new characters in the last 60 days", "Last 60 days"}},
-		{"/ui/races", seeded, []string{"New characters, last 60 days"}},
+		// The tile and its trend sentence.
+		{"/", seeded, []string{"New characters, last 60 days", "on the previous 60 days"}},
 		{"/ui/worlds", seeded, []string{"New characters, last 60 days", "New, 60 days"}},
 		{"/ui/partials/world-breakdown?region=NA", seeded, []string{"New, 60 days"}},
 		{"/ui/worlds/Balmung", seeded, []string{"New characters, last 60 days"}},
 		{"/ui/methodology", seeded, []string{"in the last 60 days", "the 60 days before"}},
-		{"/ui/rankings?metric=growth", windowedFixtureMux(t, rankingsSnapshot(contract.UIStatsSchemaVersion), 45), []string{"New characters in the last 60 days for every 1,000 characters"}},
+		{"/ui/rankings?metric=growth", windowedFixtureMux(t, rankingsSnapshot(contract.UIStatsSchemaVersion), 45), []string{"Characters created in the last 60 days for every 1,000 characters"}},
+		{"/ui/rankings?metric=chocobo", windowedFixtureMux(t, rankingsSnapshot(contract.UIStatsSchemaVersion), 45), []string{"Characters who earned their first company chocobo in the last 60 days for every 1,000 characters"}},
 		{"/ui/rankings?metric=growth-count", windowedFixtureMux(t, rankingsSnapshot(contract.UIStatsSchemaVersion), 45), []string{"in the last 60 days"}},
 	}
 	for _, page := range pages {

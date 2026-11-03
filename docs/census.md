@@ -169,13 +169,14 @@ The `CharacterFilter` struct (`port/contract/character_repository.go`) controls 
 
 A change is seen at the census's next visit (every few days for public and recently changed private characters, about every 39 days for the rest), and changes are recorded since 2026-11-01 (v1.22.0): active figures grow as the census revisits characters until the whole window falls after that date. Play that changes nothing visible (same job levels, job, world and companies, hidden achievements) cannot be detected, so the figures remain a lower bound. Before #90 a character was active only through a public achievement, so the 97.5% who hide their achievements never were.
 - `SetActivityWindow(d)` — overrides the activity window; a no-op for `d <= 0`.
+- `CreatedExactFromID()` / `SetCreatedExactFromID(id)` — the first character ID the [created characters](#created-characters) date by its first sighting (default `census.DefaultCreatedExactFromID`, `[census] new_characters_exact_from_id`; a no-op for `id <= 0`). The snapshot refresh reads it.
 - `NewCharactersWindow()` / `SetNewCharactersWindow(d)` — the new-characters window (default 90 days, `[census] new_characters_window_days`; a no-op for `d <= 0`). New-character figures count its complete UTC days before today and compare them with the window of the same length before it. The snapshot refresh records it (`new_characters_window_days`), and `census.SnapshotNewCharactersWindowDays(snapshot)` reads it back (30 for snapshots from before it was recorded).
 - `ActivityWindow()` / `ActivitySince()` — the window length and its start (now minus the window). Every "active" figure reads the window from here: the snapshot refresh, the character API's and the exports' `is_active` flag (CLI and HTTP), and the character list's active filter. `census.WindowDays(d)` rounds a window to whole days, and `census.SnapshotActivityWindowDays(snapshot)` reads the window a snapshot was built with (generation time minus `activity_since`).
 - `Summary(ctx)` — total, active, and max-level character counts (`total, active, maxLevelCount, err`) for internal/direct callers. Public aggregate routes use `UIStatsService` instead.
 - `ListCharacters(ctx, filter, limit, offset)` — one page of characters matching `filter` plus the matching count (the HTTP pagination/filtering source).
 - `CharacterDetail(ctx, id)` — character plus jobs and milestones, with the free company when the character is in one; `nil` when the id is unknown.
 - `Breakdown(ctx, by)` — per-`race`/`world`/`datacenter`/`region` totals and active counts; any other dimension returns `ErrInvalidDimension`.
-- `NewCharacters(ctx, since, until)` — characters who earned the Chocobo milestone (achievement 590) per UTC day in `[since, until)`. The Chocobo milestone is the canonical definition for "new character" as it indicates the character has started playing.
+- `NewCharacters(ctx, since, until)` — characters who earned the Chocobo milestone (achievement 590) per UTC day in `[since, until)`: the new characters who reached their company chocobo. The headline new-character figure, the [created characters](#created-characters), comes from the snapshot only.
 - `ExpansionCompletions(ctx)` — distinct characters per expansion that completed that expansion's MSQ.
 
 
@@ -195,7 +196,21 @@ If a hidden profile later becomes public, the next census of that character stor
 
 `domain/census/ui_stats_service.go` is the only aggregate-data source wired into production UI and statistics API routes. It validates schema version and metadata, caches an immutable snapshot for the configured TTL, coalesces concurrent reloads, and defensively clones data for callers. A failed warm reload serves the last known-good snapshot and reports it stale until a reload succeeds; a routine background reload after `cache_ttl` serves the cached copy without marking it stale (only a failed reload or an age of at least `stale_warning` does). A missing cold snapshot becomes a fast 503 rather than triggering raw fallback queries.
 
-The snapshot contains only the dimensions consumed by routes: global summary; global/region/datacenter/world population groups; scoped race, tribe, gender, and race×gender groups; scoped expansion completions; whole-game daily new-character counts over two new-characters windows; and per-world new-character totals for both windows on the world groups. Adding a new aggregate page requires extending the versioned snapshot and refresh query, not adding census-wide SQL to a request handler.
+The snapshot contains only the dimensions consumed by routes: global summary; global/region/datacenter/world population groups; scoped race, tribe, gender, and race×gender groups; scoped expansion completions; whole-game daily new-character counts over two new-characters windows, both the company chocobos and the [created characters](#created-characters); and per-world totals for both windows and weekly series of both on the world groups. Adding a new aggregate page requires extending the versioned snapshot and refresh query, not adding census-wide SQL to a request handler.
+
+### Created characters
+
+The headline new-character figure (#94) counts every live character, public or private, by the UTC day its character ID was handed out. Lodestone IDs rise in creation order, and since 2026-10-19 the automatic ID sweep has followed the frontier as new IDs appear. Its first two days (19 and 20 Oct) caught up with the IDs handed out since the bulk sweep ended on 13 Oct. From 21 Oct (ID 62,745,092, `[census] new_characters_exact_from_id`, env `CENSUS_NEW_CHARACTERS_EXACT_FROM_ID`) a character's `first_seen_at` is its creation day, to within hours.
+
+Lower IDs were found by the bulk sweep, so their `first_seen_at` says nothing about creation. The refresh dates them by a calibration curve (`domain/census/creation.go`):
+
+1. It reads the company chocobos (achievement 590) of the IDs below the cut in bands of 100,000. Each band with at least 30 chocobos (`census.DefaultCreationMinSamples`) anchors its midpoint at the band's 10th-percentile chocobo date. Fast players earn the chocobo within days, so the early dates approach creation.
+2. The anchors never go back in time as the IDs rise, and the cut itself (its first sighting's day) ends the curve.
+3. Each day's first ID is interpolated linearly between anchors (`census.CreationBoundaries`). One pass over the live characters from the window's first boundary up counts each day's IDs with `width_bucket`, and the IDs from the cut up by their first sighting's day.
+
+The calibration reads 2 million IDs at a time down from the cut until the curve reaches the previous window's first day. On production the bands hold 80 to 500 chocobos each and the curve is smooth: about 100,000 IDs every 8 to 10 days in 2026. An estimated day can still be out by a week or two, so the snapshot records the exact cut's day (`created_exact_from`), and the UI and the API flag every earlier day as estimated.
+
+Counting reads the whole ID range of both windows (about 2 million characters, around 15 s on production), so only a full refresh, or the first incremental refresh of a new UTC day, counts them. The other incremental refreshes carry the counts forward with their build time (`created_built_at`). A changed cut counts again at once.
 
 **DC→region mapping** (`domain/census/region.go`):
 

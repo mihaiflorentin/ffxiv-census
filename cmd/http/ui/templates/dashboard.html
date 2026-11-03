@@ -52,11 +52,7 @@
         <p class="stat-value">{{formatNumber .Data.MaxLevelCharacters}}</p>
         <p class="stat-subtext">{{.Data.MaxLevelPercent}} of the census have a job at the level cap</p>
     </div>
-    <div class="stat-card">
-        <p class="stat-label">New characters, last {{$.NewCharactersWindow.Long}}</p>
-        <p class="stat-value">{{formatNumber .Data.NewCharacters}}</p>
-        {{template "trend" .Data.NewCharactersTrend}}
-    </div>
+    {{template "new-characters-card" .Data.NewCharactersCard}}
 </section>
 
 <div class="dashboard-grid">
@@ -118,33 +114,7 @@
     </section>
 </div>
 
-<section class="panel" aria-labelledby="timeline-heading">
-    <div class="panel-header">
-        <h2 id="timeline-heading" class="panel-title">New characters per day</h2>
-        <p class="panel-meta">Last {{$.NewCharactersWindow.Long}}</p>
-    </div>
-    <div class="panel-body">
-        <div class="chart-container">
-            <canvas id="newCharactersChart" role="img" aria-label="Line chart of new characters per day over the last {{$.NewCharactersWindow.Long}}" aria-describedby="timeline-summary"></canvas>
-        </div>
-        <p id="timeline-summary" class="chart-summary">{{formatNumber .Data.Timeline.Total}} new characters in the last {{$.NewCharactersWindow.Long}}{{if .Data.Timeline.PeakCount}}, peaking at {{formatNumber .Data.Timeline.PeakCount}} on {{.Data.Timeline.PeakDate}}{{end}}.</p>
-        <details class="chart-data">
-            <summary>Show the numbers</summary>
-            <div class="table-responsive">
-                <table class="data-table">
-                    <caption class="visually-hidden">New characters per day</caption>
-                    <thead><tr><th scope="col">Date</th><th scope="col" class="text-right">New characters</th></tr></thead>
-                    <tbody>
-                        {{$counts := .Data.ChartData}}{{$labels := .Data.ChartLabels}}
-                        {{range $i, $day := .Data.ChartDates}}
-                        <tr><th scope="row"><time datetime="{{$day}}">{{index $labels $i}}</time></th><td class="text-right">{{formatNumber (index $counts $i)}}</td></tr>
-                        {{end}}
-                    </tbody>
-                </table>
-            </div>
-        </details>
-    </div>
-</section>
+{{template "new-characters-weekly" .Data.Weekly}}
 
 <section class="panel" aria-labelledby="regions-heading">
     <div class="panel-header">
@@ -224,44 +194,6 @@ document.addEventListener("DOMContentLoaded", function () {
                 scales: {
                     x: { beginAtZero: true, ticks: { callback: theme.compact, maxTicksLimit: 5 } },
                     y: { grid: { display: false }, border: { display: false } }
-                }
-            }
-        });
-    }
-
-    var lineCanvas = document.getElementById("newCharactersChart");
-    if (lineCanvas && window.Chart && theme) {
-        var dates = {{jsonSafe .Data.ChartDates}};
-        var primary = theme.primary();
-        new Chart(lineCanvas, {
-            type: "line",
-            data: {
-                labels: {{jsonSafe .Data.ChartLabels}},
-                datasets: [{
-                    label: "New characters",
-                    data: {{jsonSafe .Data.ChartData}},
-                    borderColor: primary,
-                    backgroundColor: theme.wash(primary),
-                    pointBackgroundColor: primary,
-                    pointBorderColor: theme.surface(),
-                    fill: true
-                }]
-            },
-            options: {
-                interaction: { mode: "index", intersect: false },
-                plugins: {
-                    legend: { display: false },
-                    censusCrosshair: { enabled: true },
-                    tooltip: {
-                        callbacks: {
-                            title: function (items) { return items.length ? theme.formatDate(dates[items[0].dataIndex]) : ""; },
-                            label: function (ctx) { return theme.format(ctx.parsed.y) + " new characters"; }
-                        }
-                    }
-                },
-                scales: {
-                    x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 16 } },
-                    y: { beginAtZero: true, ticks: { precision: 0, callback: theme.compact, maxTicksLimit: 5 } }
                 }
             }
         });

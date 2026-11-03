@@ -19,11 +19,15 @@ const (
 	MetricVeterans RankingMetric = "veterans"
 	// MetricPrivacy is achievements private ÷ total.
 	MetricPrivacy RankingMetric = "privacy"
-	// MetricGrowth is new characters in the new-characters window (see
+	// MetricGrowth is characters created in the new-characters window (see
 	// NewCharactersTotals) per 1,000 residents.
 	MetricGrowth RankingMetric = "growth"
-	// MetricGrowthCount is new characters in the new-characters window.
+	// MetricGrowthCount is characters created in the new-characters window.
 	MetricGrowthCount RankingMetric = "growth-count"
+	// MetricChocobo and MetricChocoboCount are the same for the characters
+	// who earned their first company chocobo in the window.
+	MetricChocobo      RankingMetric = "chocobo"
+	MetricChocoboCount RankingMetric = "chocobo-count"
 	// MetricLeanMaelstrom, MetricLeanTwinAdder and MetricLeanImmortalFlames
 	// are one Grand Company's members over everyone (including no company).
 	MetricLeanMaelstrom      RankingMetric = "gc-maelstrom"
@@ -52,8 +56,15 @@ func countOf(read func(LocationCounts) int64) rankingPart {
 	}
 }
 
-// newCharacters is a candidate's new characters in the new-characters window.
-func newCharacters(snapshot *contract.UIStatsSnapshot, level LocationLevel, c LocationCounts) (int64, int64) {
+// createdCharacters is a candidate's characters created in the
+// new-characters window.
+func createdCharacters(snapshot *contract.UIStatsSnapshot, level LocationLevel, c LocationCounts) (int64, int64) {
+	return NewCharactersTotals(snapshot, ScopeAt(level, c.Key)).Created, c.Total
+}
+
+// chocoboCharacters is a candidate's characters who earned their first
+// company chocobo in the new-characters window.
+func chocoboCharacters(snapshot *contract.UIStatsSnapshot, level LocationLevel, c LocationCounts) (int64, int64) {
 	return NewCharactersTotals(snapshot, ScopeAt(level, c.Key)).Current, c.Total
 }
 
@@ -76,12 +87,14 @@ func grandCompaniesReady(snapshot *contract.UIStatsSnapshot) bool {
 }
 
 var rankingMetrics = map[RankingMetric]rankingMetric{
-	MetricPopulation:  {part: countOf(func(c LocationCounts) int64 { return c.Total })},
-	MetricActivity:    {rate: true, part: countOf(func(c LocationCounts) int64 { return c.Active })},
-	MetricVeterans:    {rate: true, ready: PrivacyReady, part: countOf(func(c LocationCounts) int64 { return c.AtCap })},
-	MetricPrivacy:     {rate: true, ready: PrivacyReady, part: countOf(func(c LocationCounts) int64 { return c.Private })},
-	MetricGrowth:      {rate: true, scale: 1000, part: newCharacters},
-	MetricGrowthCount: {part: newCharacters},
+	MetricPopulation:   {part: countOf(func(c LocationCounts) int64 { return c.Total })},
+	MetricActivity:     {rate: true, part: countOf(func(c LocationCounts) int64 { return c.Active })},
+	MetricVeterans:     {rate: true, ready: PrivacyReady, part: countOf(func(c LocationCounts) int64 { return c.AtCap })},
+	MetricPrivacy:      {rate: true, ready: PrivacyReady, part: countOf(func(c LocationCounts) int64 { return c.Private })},
+	MetricGrowth:       {rate: true, scale: 1000, ready: CreatedReady, part: createdCharacters},
+	MetricGrowthCount:  {ready: CreatedReady, part: createdCharacters},
+	MetricChocobo:      {rate: true, scale: 1000, part: chocoboCharacters},
+	MetricChocoboCount: {part: chocoboCharacters},
 
 	MetricLeanMaelstrom:      {rate: true, ready: grandCompaniesReady, part: companyMembers(GrandCompanyMaelstrom)},
 	MetricLeanTwinAdder:      {rate: true, ready: grandCompaniesReady, part: companyMembers(GrandCompanyTwinAdder)},

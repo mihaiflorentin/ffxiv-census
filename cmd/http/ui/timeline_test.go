@@ -15,9 +15,8 @@ import (
 )
 
 // timelineSnapshot is generated mid-morning on Oct 24, so Oct 24 is a
-// partial day. With a 90-day window the complete days are Jul 26 to Oct 23;
-// a snapshot without a recorded window (windowDays 0) used 30 days, Sep 24
-// to Oct 23.
+// partial day. With a 90-day window the complete days are Jul 26 to Oct 23,
+// and the 13 weeks Jul 25 to Oct 23.
 func timelineSnapshot(windowDays int) *contract.UIStatsSnapshot {
 	generated := time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC)
 	snapshot := &contract.UIStatsSnapshot{
@@ -39,67 +38,40 @@ func timelineSnapshot(windowDays int) *contract.UIStatsSnapshot {
 	return snapshot
 }
 
-func timelineTableRows(t *testing.T, doc *html.Node) []*html.Node {
-	t.Helper()
-	for _, table := range findAll(doc, byAtom(atom.Table)) {
-		captions := findAll(table, byAtom(atom.Caption))
-		if len(captions) == 1 && strings.HasPrefix(textOf(captions[0]), "New characters per day") {
-			return findAll(table, func(n *html.Node) bool {
-				scope, _ := attr(n, "scope")
-				return n.DataAtom == atom.Th && scope == "row"
-			})
+// TestDashboardChartsTheWindowPerWeek renders the dashboard's
+// new-character chart: 7-day weeks ending with the last complete UTC day,
+// enough to cover the window, and a summary of them. A snapshot without a
+// recorded window has no weekly series, so no chart.
+func TestDashboardChartsTheWindowPerWeek(t *testing.T) {
+	serve := func(windowDays int) *html.Node {
+		stats := census.NewUIStatsService(mockrepo.NewUIStatsFake(timelineSnapshot(windowDays)), time.Minute, 24*365*time.Hour)
+		mux := http.NewServeMux()
+		NewUIController(nil, mockqueue.NewFake(), stats, testBaseURL).RegisterRoutes(mux)
+		rec := serveMuxGet(t, mux, "/")
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d", rec.Code)
 		}
+		return parseHTML(t, rec.Body.String())
 	}
-	t.Fatal("no 'New characters per day' table")
-	return nil
-}
 
-// TestTimelineSpansOneWindowEndingOnTheLastCompleteDay renders the
-// dashboard's new-character chart: it covers the snapshot's window, one
-// row per complete UTC day, and its summary states the window.
-func TestTimelineSpansOneWindowEndingOnTheLastCompleteDay(t *testing.T) {
-	cases := []struct {
-		name        string
-		windowDays  int
-		wantDays    int
-		wantFirst   string
-		wantSummary string
-	}{
-		{"90-day window", 90, 90, "Jul 26", "12 new characters in the last 90 days, peaking at 5 on Oct 23."},
-		{"snapshot without a window", 0, 30, "Sep 24", "8 new characters in the last 30 days, peaking at 5 on Oct 23."},
+	doc := serve(90)
+	if got, want := flatText(byID(doc, "weekly-summary")), "19 new characters in the last 13 weeks, peaking at 11 in the week of Jul 25."; got != want {
+		t.Errorf("summary = %q, want %q", got, want)
 	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			stats := census.NewUIStatsService(mockrepo.NewUIStatsFake(timelineSnapshot(tc.windowDays)), time.Minute, 24*365*time.Hour)
-			mux := http.NewServeMux()
-			NewUIController(nil, mockqueue.NewFake(), stats, testBaseURL).RegisterRoutes(mux)
-			rec := serveMuxGet(t, mux, "/")
-			if rec.Code != http.StatusOK {
-				t.Fatalf("status = %d", rec.Code)
-			}
-			doc := parseHTML(t, rec.Body.String())
+	rows := tableBodyRows(tableCaptioned(t, doc, "New characters per week"))
+	if len(rows) != 13 || rows[0][0] != "Jul 25 – Jul 31" || rows[0][1] != "11" || rows[12][0] != "Oct 17 – Oct 23" || rows[12][1] != "5" {
+		t.Fatalf("weekly rows = %v, want 13 weeks from Jul 25 (11) to Oct 23 (5)", rows)
+	}
+	times := findAll(doc, byAtom(atom.Time))
+	if len(times) == 0 {
+		t.Fatal("each week should be a <time> element")
+	}
+	if dt, _ := attr(times[len(times)-1], "datetime"); dt != "2026-10-17" {
+		t.Errorf("last week datetime = %q, want 2026-10-17", dt)
+	}
 
-			summary := byID(doc, "timeline-summary")
-			if summary == nil || textOf(summary) != tc.wantSummary {
-				t.Errorf("summary = %q, want %q", textOf(summary), tc.wantSummary)
-			}
-
-			rows := timelineTableRows(t, doc)
-			if len(rows) != tc.wantDays {
-				t.Fatalf("timeline has %d days, want %d", len(rows), tc.wantDays)
-			}
-			first, last := rows[0], rows[len(rows)-1]
-			if textOf(first) != tc.wantFirst || textOf(last) != "Oct 23" {
-				t.Errorf("timeline runs %q to %q, want %s to Oct 23", textOf(first), textOf(last), tc.wantFirst)
-			}
-			times := findAll(last, byAtom(atom.Time))
-			if len(times) != 1 {
-				t.Fatal("each day should be a <time> element")
-			}
-			if dt, _ := attr(times[0], "datetime"); dt != "2026-10-23" {
-				t.Errorf("last day datetime = %q, want 2026-10-23", dt)
-			}
-		})
+	if byID(serve(0), "weekly-summary") != nil {
+		t.Error("a snapshot without a recorded window has no weekly chart")
 	}
 }
 

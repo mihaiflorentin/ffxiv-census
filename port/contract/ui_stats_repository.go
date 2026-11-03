@@ -13,8 +13,10 @@ import (
 // windows at whole-game scope only, and the world groups carry their window
 // totals. Readers treat a snapshot without a window as the fixed 30-day
 // window of schema 3 and earlier (census.SnapshotNewCharactersWindowDays).
+// Schema 5 adds the created characters, dated by character ID
+// (UIStatsSnapshot.Created).
 const (
-	UIStatsSchemaVersion    = 4
+	UIStatsSchemaVersion    = 5
 	UIStatsMinSchemaVersion = 2
 )
 
@@ -72,6 +74,12 @@ type ScopedGroupCount struct {
 	// covering the current window (census.NewCharactersBounds.Weeks). Set on
 	// the global-scope world groups only (schema 4).
 	NewCharactersWeekly []int64 `json:"new_characters_weekly,omitempty"`
+	// Created, CreatedPrevious and CreatedWeekly are the same figures for
+	// the created characters (UIStatsSnapshot.Created), set on the
+	// global-scope world groups only (schema 5).
+	Created         int64   `json:"created,omitempty"`
+	CreatedPrevious int64   `json:"created_previous,omitempty"`
+	CreatedWeekly   []int64 `json:"created_weekly,omitempty"`
 }
 
 // StatsLevelBand is one level band of the Levels figures: the characters
@@ -125,8 +133,20 @@ type UIStatsSnapshot struct {
 	NewCharacters []ScopedDailyCount `json:"new_characters"`
 	// NewCharactersWindowDays is the new-characters window the snapshot was
 	// built with (schema 4); 0 on older snapshots.
-	NewCharactersWindowDays int          `json:"new_characters_window_days,omitempty"`
-	Summary                 StatsSummary `json:"summary"`
+	NewCharactersWindowDays int `json:"new_characters_window_days,omitempty"`
+	// Created is the daily created-character series over the same two
+	// windows at whole-game scope (schema 5): every live character, public
+	// or private, by the UTC day its character ID was handed out. From
+	// CreatedExactFrom (YYYY-MM-DD) on, a character is dated by its first
+	// sighting at the ID frontier, which starts at CreatedExactFromID;
+	// earlier days are estimated from the company chocobo dates of the IDs
+	// around them (census.CreationAnchors). CreatedBuiltAt is when they
+	// were counted; zero means the snapshot has no created figures.
+	Created            []ScopedDailyCount `json:"created,omitempty"`
+	CreatedExactFrom   string             `json:"created_exact_from,omitempty"`
+	CreatedExactFromID int64              `json:"created_exact_from_id,omitempty"`
+	CreatedBuiltAt     time.Time          `json:"created_built_at"`
+	Summary            StatsSummary       `json:"summary"`
 	// Jobs is the job section (schema 3); nil on snapshots built before it.
 	Jobs *StatsJobsSection `json:"jobs,omitempty"`
 	// PrivacyBuiltAt is when the full rebuild that produced the private and
@@ -163,7 +183,13 @@ type UIStatsRefreshOptions struct {
 	// NewCharactersWindowDays is the new-characters window, required (the
 	// census service holds the default).
 	NewCharactersWindowDays int
-	MaxLevel                uint32
+	// CreatedExactFromID is the first character ID the ID frontier saw
+	// within hours of its creation; 0 leaves the created figures out.
+	// CreatedMinSamples is how many company chocobos a band of IDs needs to
+	// anchor the calibration curve below it (0: census.DefaultCreationMinSamples).
+	CreatedExactFromID int64
+	CreatedMinSamples  int64
+	MaxLevel           uint32
 	// LevelBands are the level bands to count (census.LevelBands of the
 	// configured expansions); empty means the default expansions' bands at
 	// MaxLevel.

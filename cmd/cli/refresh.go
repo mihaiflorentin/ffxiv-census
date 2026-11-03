@@ -68,6 +68,7 @@ func uiStatsRefreshOptions(svc *census.Service, timeout time.Duration, mode cont
 	return contract.UIStatsRefreshOptions{
 		ActivitySince:           svc.ActivitySince(),
 		NewCharactersWindowDays: census.WindowDays(svc.NewCharactersWindow()),
+		CreatedExactFromID:      svc.CreatedExactFromID(),
 		MaxLevel:                svc.MaxLevel(),
 		LevelBands:              census.LevelBands(svc.Expansions(), svc.MaxLevel()),
 		Timeout:                 timeout,

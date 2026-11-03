@@ -54,6 +54,17 @@ func TestUIStatsRefreshOptionsCarryTheServiceWindows(t *testing.T) {
 	}
 }
 
+func TestUIStatsRefreshOptionsCarryTheCreatedCut(t *testing.T) {
+	svc := census.NewService(nil, nil, nil)
+	if opts := uiStatsRefreshOptions(svc, time.Hour, contract.UIStatsRefreshFull); opts.CreatedExactFromID != census.DefaultCreatedExactFromID {
+		t.Fatalf("default created cut = %d, want %d", opts.CreatedExactFromID, census.DefaultCreatedExactFromID)
+	}
+	svc.SetCreatedExactFromID(62_800_000)
+	if opts := uiStatsRefreshOptions(svc, time.Hour, contract.UIStatsRefreshFull); opts.CreatedExactFromID != 62_800_000 {
+		t.Fatalf("created cut = %d, want 62800000", opts.CreatedExactFromID)
+	}
+}
+
 func TestUIStatsRefreshOptionsCarryTheConfiguredLevelBands(t *testing.T) {
 	svc := census.NewService(nil, nil, nil)
 	expansions := append(append([]census.ExpansionConfig(nil), census.DefaultExpansions...), census.ExpansionConfig{Name: "Next", LevelCap: 110})

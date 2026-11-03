@@ -219,7 +219,7 @@ func TestUIStatsRefreshEmitsPreviousWindowDailies(t *testing.T) {
 	}
 }
 
-func TestUIStatsSnapshotSchemaV4RoundTripAcceptsV2(t *testing.T) {
+func TestUIStatsSnapshotSchemaV5RoundTripAcceptsV2(t *testing.T) {
 	driver := newTestDriver(t)
 	chars := repository.NewCharacterRepository(driver)
 	achievements := repository.NewAchievementRepository(driver)
@@ -256,8 +256,8 @@ func TestUIStatsSnapshotSchemaV4RoundTripAcceptsV2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.SchemaVersion != 4 {
-		t.Fatalf("stored snapshot schema version = %d, want 4", loaded.SchemaVersion)
+	if loaded.SchemaVersion != 5 {
+		t.Fatalf("stored snapshot schema version = %d, want 5", loaded.SchemaVersion)
 	}
 	// A stored v2 snapshot (written before the upgrade) still loads, so the
 	// existing pages keep working until the next refresh.

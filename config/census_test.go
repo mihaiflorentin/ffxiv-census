@@ -113,11 +113,18 @@ func TestCensusConfig_CensusTiersDefaultAndEnv(t *testing.T) {
 	if cfg.Census.RecentWindowDays != 365 {
 		t.Fatalf("recent_window_days = %d, want 365", cfg.Census.RecentWindowDays)
 	}
+	if cfg.Census.NewCharactersExactFromID != 62745092 {
+		t.Fatalf("new_characters_exact_from_id = %d, want 62745092", cfg.Census.NewCharactersExactFromID)
+	}
 
 	t.Setenv("CENSUS_ACTIVE_WINDOW_DAYS", "30")
 	t.Setenv("CENSUS_RECENT_WINDOW_DAYS", "180")
 	t.Setenv("CENSUS_MIN_REST_SHARE", "60")
+	t.Setenv("CENSUS_NEW_CHARACTERS_EXACT_FROM_ID", "62800000")
 	cfg, _ = NewConfig()
+	if cfg.Census.NewCharactersExactFromID != 62800000 {
+		t.Fatalf("CENSUS_NEW_CHARACTERS_EXACT_FROM_ID override: got %v, want 62800000", cfg.Census.NewCharactersExactFromID)
+	}
 	if cfg.Census.ActiveWindowDays != 30 {
 		t.Fatalf("CENSUS_ACTIVE_WINDOW_DAYS override: got %v, want 30", cfg.Census.ActiveWindowDays)
 	}

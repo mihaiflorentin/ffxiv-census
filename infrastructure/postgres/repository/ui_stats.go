@@ -145,6 +145,13 @@ func (r *UIStatsRepository) Refresh(ctx context.Context, opts contract.UIStatsRe
 	if err := r.readMilestoneStats(ctx, tx, snapshot); err != nil {
 		return nil, err
 	}
+	// Counting the created characters reads the whole ID range: the
+	// incremental refresh carries a count from the same UTC day forward.
+	if usedMode == contract.UIStatsRefreshFull || !createdCarried(snapshot, opts.CreatedExactFromID) {
+		if err := readCreatedStats(ctx, tx, snapshot, opts.CreatedExactFromID, opts.CreatedMinSamples); err != nil {
+			return nil, err
+		}
+	}
 	var freeCompanies *contract.StatsFreeCompanies
 	var freeCompaniesDuration time.Duration
 	if usedMode == contract.UIStatsRefreshFull {
@@ -438,6 +445,7 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 	}
 	summary.Active, summary.MaxLevel = live.summary.Active, live.summary.MaxLevel
 	snapshot.Summary = summary.statsSummary()
+	carryCreatedStats(&prev, snapshot)
 	snapshot.SourceCharacters = summary.Total
 	snapshot.PrivacyBuiltAt = prev.PrivacyBuiltAt
 
@@ -445,6 +453,32 @@ func (r *UIStatsRepository) readIncrementalCharacterStats(ctx context.Context, t
 		return false, nil
 	}
 	return true, nil
+}
+
+// carryCreatedStats copies prev's created figures onto snapshot: the daily
+// series, the cut and its build time, and the world groups' figures.
+func carryCreatedStats(prev, snapshot *contract.UIStatsSnapshot) {
+	snapshot.Created, snapshot.CreatedExactFrom = prev.Created, prev.CreatedExactFrom
+	snapshot.CreatedExactFromID, snapshot.CreatedBuiltAt = prev.CreatedExactFromID, prev.CreatedBuiltAt
+	carried := make(map[string]contract.ScopedGroupCount)
+	for _, g := range prev.Groups {
+		if g.Scope == (contract.StatsScope{}) && g.Dimension == "world" {
+			carried[g.Key] = g
+		}
+	}
+	for i, g := range snapshot.Groups {
+		if c, ok := carried[g.Key]; ok && g.Scope == (contract.StatsScope{}) && g.Dimension == "world" {
+			snapshot.Groups[i].Created, snapshot.Groups[i].CreatedPrevious, snapshot.Groups[i].CreatedWeekly = c.Created, c.CreatedPrevious, c.CreatedWeekly
+		}
+	}
+}
+
+// createdCarried reports whether snapshot carries created figures counted
+// with the cut exactFromID on its own UTC day.
+func createdCarried(snapshot *contract.UIStatsSnapshot, exactFromID int64) bool {
+	built := snapshot.CreatedBuiltAt
+	return !built.IsZero() && snapshot.CreatedExactFromID == exactFromID &&
+		built.UTC().Truncate(24*time.Hour).Equal(snapshot.GeneratedAt.UTC().Truncate(24*time.Hour))
 }
 
 // readMilestoneStats reads the MSQ completions (whole game and per world)

@@ -22,11 +22,7 @@
         <p class="stat-value">{{formatNumber .Data.ActiveCharacters}}</p>
         <p class="stat-subtext">{{formatPercent .Data.ActiveCharacters .Data.TotalCharacters}} of these characters</p>
     </div>
-    <div class="stat-card">
-        <p class="stat-label">New characters, last {{$.NewCharactersWindow.Long}}</p>
-        <p class="stat-value">{{formatNumber .Data.NewCharacters}}</p>
-        {{template "trend" .Data.NewCharactersTrend}}
-    </div>
+    {{template "new-characters-card" .Data.NewCharactersCard}}
 </section>
 
 {{template "world-rankings" .}}

@@ -171,6 +171,9 @@ type CensusConfig struct {
 	// NewCharactersWindowDays is how many days the new-characters figures
 	// count, compared with the same number of days before them.
 	NewCharactersWindowDays int `mapstructure:"new_characters_window_days"`
+	// NewCharactersExactFromID is the first character ID the created-
+	// character figures date by its first sighting; lower IDs are estimated.
+	NewCharactersExactFromID int64 `mapstructure:"new_characters_exact_from_id"`
 	// PrivateRecheckDays is how many days a character found private is left
 	// alone before its achievement census runs again.
 	PrivateRecheckDays int `mapstructure:"private_recheck_days"`

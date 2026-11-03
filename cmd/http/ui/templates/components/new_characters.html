@@ -1,0 +1,130 @@
+{{/*
+New-character components, parsed into every page.
+
+new-characters-card: the "New characters" stat card. The argument is a
+NewCharactersCard (new_characters.go).
+    {{template "new-characters-card" .Data.NewCharactersCard}}
+
+new-characters-weekly: the weekly bar chart, its summary and its "Show the
+numbers" table. The argument is a WeeklyTimeline (timeline.go); the bars
+chart the created characters, estimated weeks drawn lighter, and the company
+chocobos ride along as a line.
+    {{template "new-characters-weekly" .Data.Weekly}}
+*/}}
+{{define "new-characters-card"}}
+<div class="stat-card">
+    <p class="stat-label">New characters, last {{.Window.Long}}</p>
+    <p class="stat-value">{{formatNumber .Count}}</p>
+    {{template "trend" .Trend}}
+    {{if .Created}}
+    <p class="stat-subtext">{{formatNumber .Chocobos}} reached their company chocobo</p>
+    {{if .EstimatedBefore}}<p class="stat-subtext"><a href="/ui/methodology#new-characters">Days before {{.EstimatedBefore}} estimated from character IDs</a></p>{{end}}
+    {{end}}
+</div>
+{{end}}
+
+{{define "new-characters-weekly"}}
+{{if .Counts}}
+<section class="panel" aria-labelledby="weekly-heading">
+    <div class="panel-header">
+        <h2 id="weekly-heading" class="panel-title">New characters per week</h2>
+        <p class="panel-meta">Last {{.Weeks}} weeks{{if .Where}} {{.Where}}{{end}}</p>
+    </div>
+    <div class="panel-body">
+        <div class="chart-container">
+            <canvas id="weeklyNewCharactersChart" role="img" aria-label="Bar chart of new characters per week{{if .Where}} {{.Where}}{{end}} over the last {{.Weeks}} weeks" aria-describedby="weekly-summary"></canvas>
+        </div>
+        {{if .HasCreated}}
+        <p id="weekly-summary" class="chart-summary">{{formatNumber .CreatedTotal}} characters created{{if .Where}} {{.Where}}{{end}} in the last {{.Weeks}} weeks{{if .PeakCount}}, peaking at {{formatNumber .PeakCount}} in the week of {{.PeakLabel}}{{end}}. {{formatNumber .Total}} earned their first company chocobo.{{if .EstimatedBefore}} Weeks before {{.EstimatedBefore}} are estimated from character IDs.{{end}}</p>
+        {{else}}
+        <p id="weekly-summary" class="chart-summary">{{formatNumber .Total}} new characters{{if .Where}} {{.Where}}{{end}} in the last {{.Weeks}} weeks{{if .PeakCount}}, peaking at {{formatNumber .PeakCount}} in the week of {{.PeakLabel}}{{end}}.</p>
+        {{end}}
+        <details class="chart-data">
+            <summary>Show the numbers</summary>
+            <div class="table-scroll" role="region" aria-label="New characters per week{{if .Where}} {{.Where}}{{end}}" tabindex="0">
+                <table class="data-table">
+                    <caption class="visually-hidden">New characters per week{{if .Where}} {{.Where}}{{end}}</caption>
+                    {{if .HasCreated}}
+                    <thead><tr><th scope="col">Week</th><th scope="col" class="text-right">Created</th><th scope="col" class="text-right">Reached company chocobo</th></tr></thead>
+                    {{else}}
+                    <thead><tr><th scope="col">Week</th><th scope="col" class="text-right">New characters</th></tr></thead>
+                    {{end}}
+                    <tbody>
+                        {{$t := .}}
+                        {{range $i, $start := .Starts}}
+                        <tr><th scope="row"><time datetime="{{$start}}">{{index $t.Ranges $i}}</time></th>{{if $t.HasCreated}}<td class="text-right">{{formatNumber (index $t.Created $i)}}{{if index $t.Estimated $i}}<span class="table-note"> estimated</span>{{end}}</td>{{end}}<td class="text-right">{{formatNumber (index $t.Counts $i)}}</td></tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    </div>
+</section>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var theme = window.CensusCharts;
+    var canvas = document.getElementById("weeklyNewCharactersChart");
+    if (!window.Chart || !theme || !canvas) { return; }
+    var weekStarts = {{jsonSafe .Starts}};
+    var weekEnds = {{jsonSafe .Ends}};
+    var hasCreated = {{.HasCreated}};
+    var estimated = {{jsonSafe .Estimated}};
+    var primary = theme.primary();
+    var bars = estimated.map(function (e) { return e ? theme.wash(primary) : primary; });
+    var datasets = [{
+        type: "bar",
+        label: hasCreated ? "Created" : "New characters",
+        data: hasCreated ? {{jsonSafe .Created}} : {{jsonSafe .Counts}},
+        backgroundColor: bars,
+        hoverBackgroundColor: bars,
+        borderColor: primary,
+        borderWidth: estimated.map(function (e) { return e ? 1 : 0; }),
+        borderRadius: 3,
+        maxBarThickness: 40,
+        order: 2
+    }];
+    if (hasCreated) {
+        var comparison = theme.comparison();
+        datasets.push({
+            type: "line",
+            label: "Reached company chocobo",
+            data: {{jsonSafe .Counts}},
+            borderColor: comparison,
+            backgroundColor: comparison,
+            pointBackgroundColor: comparison,
+            pointBorderColor: theme.surface(),
+            fill: false,
+            order: 1
+        });
+    }
+    new Chart(canvas, {
+        data: { labels: {{jsonSafe .Labels}}, datasets: datasets },
+        options: {
+            interaction: { mode: "index", intersect: false },
+            plugins: {
+                legend: { display: hasCreated },
+                tooltip: {
+                    callbacks: {
+                        title: function (items) {
+                            if (!items.length) { return ""; }
+                            var i = items[0].dataIndex;
+                            return "Week of " + theme.formatDate(weekStarts[i]) + " to " + theme.formatDate(weekEnds[i]);
+                        },
+                        label: function (ctx) {
+                            if (!hasCreated) { return theme.format(ctx.parsed.y) + " new characters"; }
+                            if (ctx.dataset.type === "line") { return theme.format(ctx.parsed.y) + " reached their company chocobo"; }
+                            return theme.format(ctx.parsed.y) + " created" + (estimated[ctx.dataIndex] ? " (estimated)" : "");
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 16 } },
+                y: { beginAtZero: true, ticks: { precision: 0, callback: theme.compact, maxTicksLimit: 5 } }
+            }
+        }
+    });
+});
+</script>
+{{end}}
+{{end}}

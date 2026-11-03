@@ -42,7 +42,8 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 			!validLocationCounts(group.Total, group.MaxLevel, group.Private, group.Unchecked) ||
 			!validSubset(group.InFreeCompany, group.Total) ||
 			!validLevelCounts(snapshot, group.NoLevels, group.Levels) ||
-			group.NewCharacters < 0 || group.NewCharactersPrevious < 0 || !nonNegative(group.NewCharactersWeekly) {
+			group.NewCharacters < 0 || group.NewCharactersPrevious < 0 || !nonNegative(group.NewCharactersWeekly) ||
+			group.Created < 0 || group.CreatedPrevious < 0 || !nonNegative(group.CreatedWeekly) {
 			return errors.New("invalid UI statistics group")
 		}
 		key := scopeKey(group.Scope) + "\x00" + group.Dimension + "\x00" + group.Key
@@ -62,8 +63,25 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 		}
 		seenExpansions[key] = struct{}{}
 	}
-	seenDays := make(map[string]struct{}, len(snapshot.NewCharacters))
-	for _, day := range snapshot.NewCharacters {
+	if err := validateDailySeries(snapshot.NewCharacters); err != nil {
+		return err
+	}
+	if err := validateDailySeries(snapshot.Created); err != nil {
+		return err
+	}
+	if snapshot.CreatedExactFrom != "" {
+		if _, err := time.Parse("2006-01-02", snapshot.CreatedExactFrom); err != nil {
+			return fmt.Errorf("invalid UI statistics created cut day %q", snapshot.CreatedExactFrom)
+		}
+	}
+	return validateJobsSection(snapshot.Jobs)
+}
+
+// validateDailySeries rejects a daily series with a negative count, an
+// unparseable day or a day twice in one scope.
+func validateDailySeries(days []contract.ScopedDailyCount) error {
+	seenDays := make(map[string]struct{}, len(days))
+	for _, day := range days {
 		if day.Count < 0 {
 			return errors.New("invalid UI statistics daily count")
 		}
@@ -76,7 +94,7 @@ func ValidateUIStatsSnapshot(snapshot *contract.UIStatsSnapshot) error {
 		}
 		seenDays[key] = struct{}{}
 	}
-	return validateJobsSection(snapshot.Jobs)
+	return nil
 }
 
 // nonNegative reports whether no count is negative.
@@ -166,12 +184,39 @@ func scopeKey(scope contract.StatsScope) string {
 // NewCharacterTotals holds new-character sums for the current and previous
 // new-characters windows, both Days complete UTC days long and ending with
 // the last complete UTC day before the snapshot's generation day. StartDay
-// is the first UTC day (YYYY-MM-DD) of the current window.
+// is the first UTC day (YYYY-MM-DD) of the current window. Current and
+// Previous count the characters who earned their first company chocobo,
+// Created and CreatedPrevious the characters created (by character ID).
 type NewCharacterTotals struct {
-	Current  int64
-	Previous int64
-	StartDay string
-	Days     int
+	Current         int64
+	Previous        int64
+	Created         int64
+	CreatedPrevious int64
+	StartDay        string
+	Days            int
+}
+
+// CreatedWindow returns the created characters as the window's Current and
+// Previous, for the figures that compare two windows.
+func (t NewCharacterTotals) CreatedWindow() NewCharacterTotals {
+	return NewCharacterTotals{Current: t.Created, Previous: t.CreatedPrevious, StartDay: t.StartDay, Days: t.Days}
+}
+
+// CreatedReady reports whether the snapshot carries the created-character
+// figures (schema 5).
+func CreatedReady(snapshot *contract.UIStatsSnapshot) bool {
+	return snapshot != nil && !snapshot.CreatedBuiltAt.IsZero()
+}
+
+// CreatedEstimatedBefore returns the first UTC day whose created characters
+// are dated exactly, by their first sighting; earlier days are estimated.
+// False when the snapshot has no created figures.
+func CreatedEstimatedBefore(snapshot *contract.UIStatsSnapshot) (time.Time, bool) {
+	if !CreatedReady(snapshot) {
+		return time.Time{}, false
+	}
+	day, err := time.Parse("2006-01-02", snapshot.CreatedExactFrom)
+	return day, err == nil
 }
 
 // legacyNewCharactersWindowDays is the fixed window of snapshots built
@@ -210,7 +255,15 @@ func NewCharactersTotals(snapshot *contract.UIStatsSnapshot, scope contract.Stat
 	}
 	bounds := SnapshotNewCharactersBounds(snapshot)
 	totals := emptyNewCharacterTotals(bounds)
-	for _, day := range snapshot.NewCharacters {
+	totals.Current, totals.Previous = windowSums(bounds, snapshot.NewCharacters)
+	totals.Created, totals.CreatedPrevious = windowSums(bounds, snapshot.Created)
+	return totals
+}
+
+// windowSums sums a daily series' whole-game rows over the current and the
+// previous window.
+func windowSums(bounds NewCharactersBounds, days []contract.ScopedDailyCount) (current, previous int64) {
+	for _, day := range days {
 		if day.Scope != (contract.StatsScope{}) {
 			continue
 		}
@@ -220,12 +273,12 @@ func NewCharactersTotals(snapshot *contract.UIStatsSnapshot, scope contract.Stat
 		}
 		switch {
 		case bounds.InCurrent(parsed):
-			totals.Current += day.Count
+			current += day.Count
 		case bounds.InPrevious(parsed):
-			totals.Previous += day.Count
+			previous += day.Count
 		}
 	}
-	return totals
+	return current, previous
 }
 
 // emptyNewCharacterTotals is a zero count over bounds' windows.
@@ -254,6 +307,10 @@ func worldNewCharacters(snapshot *contract.UIStatsSnapshot) map[string]NewCharac
 		for _, group := range snapshot.Groups {
 			if group.Scope == (contract.StatsScope{}) && group.Dimension == "world" {
 				add(group.Key, group.NewCharacters, group.NewCharactersPrevious)
+				totals := index[group.Key]
+				totals.Created += group.Created
+				totals.CreatedPrevious += group.CreatedPrevious
+				index[group.Key] = totals
 			}
 		}
 		return index
@@ -283,17 +340,22 @@ func sumWorlds(base NewCharacterTotals, index map[string]NewCharacterTotals, sel
 	for world := range selected {
 		totals.Current += index[world].Current
 		totals.Previous += index[world].Previous
+		totals.Created += index[world].Created
+		totals.CreatedPrevious += index[world].CreatedPrevious
 	}
 	return totals
 }
 
 // WeeklyCount is one week of a weekly new-character series: the UTC days
-// Start to End (YYYY-MM-DD, both inclusive) and the characters who earned
-// their first company chocobo in them.
+// Start to End (YYYY-MM-DD, both inclusive), the characters who earned
+// their first company chocobo in them (Count) and the characters created in
+// them. Estimated marks a week with a day before CreatedEstimatedBefore.
 type WeeklyCount struct {
-	Start string
-	End   string
-	Count int64
+	Start     string
+	End       string
+	Count     int64
+	Created   int64
+	Estimated bool
 }
 
 // WorldNewCharactersWeekly is a world's weekly new-character series, oldest
@@ -305,23 +367,61 @@ func WorldNewCharactersWeekly(snapshot *contract.UIStatsSnapshot, world string) 
 		return nil
 	}
 	world = CanonicalWorld(world)
-	var counts []int64
+	var chocobos, created []int64
 	for _, group := range snapshot.Groups {
 		if group.Scope == (contract.StatsScope{}) && group.Dimension == "world" && group.Key == world {
-			counts = group.NewCharactersWeekly
+			chocobos, created = group.NewCharactersWeekly, group.CreatedWeekly
 			break
 		}
 	}
+	out := emptyWeeks(snapshot)
+	for i := range out {
+		if i < len(chocobos) {
+			out[i].Count = chocobos[i]
+		}
+		if i < len(created) {
+			out[i].Created = created[i]
+		}
+	}
+	return out
+}
+
+// NewCharactersWeekly is the whole game's weekly new-character series,
+// summed from the daily series, oldest week first; like
+// WorldNewCharactersWeekly.
+func NewCharactersWeekly(snapshot *contract.UIStatsSnapshot) []WeeklyCount {
+	if snapshot == nil || snapshot.NewCharactersWindowDays <= 0 {
+		return nil
+	}
+	out := emptyWeeks(snapshot)
 	bounds := SnapshotNewCharactersBounds(snapshot)
-	weeks := bounds.Weeks()
-	out := make([]WeeklyCount, weeks)
+	add := func(days []contract.ScopedDailyCount, into func(*WeeklyCount, int64)) {
+		for _, day := range days {
+			parsed, err := time.Parse("2006-01-02", day.Day)
+			if err != nil || day.Scope != (contract.StatsScope{}) {
+				continue
+			}
+			if week := bounds.Week(parsed); week >= 0 && week < len(out) {
+				into(&out[week], day.Count)
+			}
+		}
+	}
+	add(snapshot.NewCharacters, func(w *WeeklyCount, n int64) { w.Count += n })
+	add(snapshot.Created, func(w *WeeklyCount, n int64) { w.Created += n })
+	return out
+}
+
+// emptyWeeks lays out the snapshot's weeks (NewCharactersBounds.Weeks),
+// marking those with an estimated created day.
+func emptyWeeks(snapshot *contract.UIStatsSnapshot) []WeeklyCount {
+	bounds := SnapshotNewCharactersBounds(snapshot)
+	exact, hasCreated := CreatedEstimatedBefore(snapshot)
+	out := make([]WeeklyCount, bounds.Weeks())
 	start := bounds.WeeksStart()
 	for i := range out {
 		weekStart := start.AddDate(0, 0, 7*i)
-		out[i] = WeeklyCount{Start: weekStart.Format("2006-01-02"), End: weekStart.AddDate(0, 0, 6).Format("2006-01-02")}
-		if i < len(counts) {
-			out[i].Count = counts[i]
-		}
+		out[i] = WeeklyCount{Start: weekStart.Format("2006-01-02"), End: weekStart.AddDate(0, 0, 6).Format("2006-01-02"),
+			Estimated: hasCreated && weekStart.Before(exact)}
 	}
 	return out
 }

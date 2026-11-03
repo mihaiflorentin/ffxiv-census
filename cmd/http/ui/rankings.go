@@ -87,20 +87,42 @@ var rankingMetricViews = []rankingMetricView{
 		metric: census.MetricGrowth, group: "growth", variant: "Per 1,000 residents",
 		title: func(noun string) string { return "Fastest-growing " + noun },
 		explain: func(place string, facts rankingFacts) string {
-			return fmt.Sprintf("New characters in the last %s for every 1,000 characters on the %s.", facts.NewCharactersWindow.Long(), place)
+			return fmt.Sprintf("Characters created in the last %s for every 1,000 characters on the %s.", facts.NewCharactersWindow.Long(), place)
 		},
 		rung: func(row census.RankingRow, _ int) (string, string, string) {
 			return fmt.Sprintf("%.1f", row.Value), "per 1,000", fmt.Sprintf("%s new of %s characters", formatNumber(row.Part), formatNumber(row.Total))
 		},
+		pending: "Created character figures",
 	},
 	{
 		metric: census.MetricGrowthCount, group: "growth", variant: "New characters",
 		title: func(string) string { return "Most new characters" },
 		explain: func(_ string, facts rankingFacts) string {
-			return fmt.Sprintf("Characters who earned their first company chocobo in the last %s, the census’s count of new characters.", facts.NewCharactersWindow.Long())
+			return fmt.Sprintf("Characters created in the last %s, public or private, dated by their character ID.", facts.NewCharactersWindow.Long())
 		},
 		rung: func(row census.RankingRow, _ int) (string, string, string) {
 			return formatNumber(row.Part), "new", fmt.Sprintf("Of %s characters", formatNumber(row.Total))
+		},
+		pending: "Created character figures",
+	},
+	{
+		metric: census.MetricChocobo, group: "growth", variant: "Chocobos per 1,000",
+		title: func(string) string { return "Most company chocobos per resident" },
+		explain: func(place string, facts rankingFacts) string {
+			return fmt.Sprintf("Characters who earned their first company chocobo in the last %s for every 1,000 characters on the %s.", facts.NewCharactersWindow.Long(), place)
+		},
+		rung: func(row census.RankingRow, _ int) (string, string, string) {
+			return fmt.Sprintf("%.1f", row.Value), "per 1,000", fmt.Sprintf("%s reached of %s characters", formatNumber(row.Part), formatNumber(row.Total))
+		},
+	},
+	{
+		metric: census.MetricChocoboCount, group: "growth", variant: "Company chocobos",
+		title: func(string) string { return "Most company chocobos" },
+		explain: func(_ string, facts rankingFacts) string {
+			return fmt.Sprintf("Characters who earned their first company chocobo, around level 20, in the last %s. Only public achievements count.", facts.NewCharactersWindow.Long())
+		},
+		rung: func(row census.RankingRow, _ int) (string, string, string) {
+			return formatNumber(row.Part), "reached", fmt.Sprintf("Of %s characters", formatNumber(row.Total))
 		},
 	},
 	{

@@ -2,7 +2,6 @@ package ui
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -219,119 +218,5 @@ func TestRacesHandler_DemographicChartsFiltered(t *testing.T) {
 	}
 	if strings.Contains(body, "Highlander") {
 		t.Error("expected filtered body to exclude EU tribe")
-	}
-}
-
-// newCharactersDaysFor builds an override daily new-character series with
-// counts keyed by day offset relative to now: offsets 1-90 fall in the
-// current 90-day window, offsets 91-180 in the previous one.
-func newCharactersDaysFor(offsets map[int]int64) []contract.DailyCount {
-	now := time.Now().UTC()
-	days := make([]contract.DailyCount, 0, len(offsets))
-	for offset, count := range offsets {
-		days = append(days, contract.DailyCount{
-			Day:   now.AddDate(0, 0, -offset).Format("2006-01-02"),
-			Count: count,
-		})
-	}
-	return days
-}
-
-func TestRacesHandler_NewCharactersCard(t *testing.T) {
-	// The rig's NewCharactersResponse override is replicated verbatim into the
-	// global series AND into every world-scoped series, so a filter resolving
-	// to N worlds scales each per-window sum by N. Expected trends therefore
-	// use the same world mappings the handler resolves per scope.
-	regionWorlds := func(region string) []string {
-		var worlds []string
-		for _, dc := range DCsForRegion(region) {
-			worlds = append(worlds, WorldsForDC(dc)...)
-		}
-		return worlds
-	}
-	growthTrend := func(worldCount int) string {
-		// Current 30 (20+10) vs previous 10 (4+6) -> delta 20, 200.0%.
-		return fmt.Sprintf("Up +%s (+200.0%%)", formatNumber(int64(20*worldCount)))
-	}
-	crystalWorlds := len(WorldsForDC("Crystal"))
-	naWorlds := len(regionWorlds("NA"))
-	growthDays := func() []contract.DailyCount {
-		return newCharactersDaysFor(map[int]int64{1: 20, 5: 10, 100: 4, 120: 6})
-	}
-	tests := []struct {
-		name          string
-		query         string
-		newCharacters []contract.DailyCount
-		wantContains  []string
-		wantAbsent    []string
-	}{
-		{
-			name:          "no selection sums the global window",
-			query:         "/ui/races",
-			newCharacters: growthDays(),
-			wantContains:  []string{growthTrend(1)},
-		},
-		{
-			name:          "region filter sums member worlds",
-			query:         "/ui/races?region=NA",
-			newCharacters: growthDays(),
-			wantContains:  []string{growthTrend(naWorlds)},
-		},
-		{
-			name:          "lowercase region still scopes the card",
-			query:         "/ui/races?region=na",
-			newCharacters: growthDays(),
-			wantContains:  []string{growthTrend(naWorlds)},
-		},
-		{
-			name:          "datacenter filter sums dc worlds",
-			query:         "/ui/races?dc=Crystal",
-			newCharacters: growthDays(),
-			wantContains:  []string{growthTrend(crystalWorlds)},
-		},
-		{
-			name:          "world filter sums that world",
-			query:         "/ui/races?world=Balmung",
-			newCharacters: growthDays(),
-			wantContains:  []string{growthTrend(1)},
-		},
-		{
-			name:          "zero previous window renders absolute delta",
-			query:         "/ui/races?dc=Crystal",
-			newCharacters: newCharactersDaysFor(map[int]int64{3: 12}),
-			wantContains:  []string{fmt.Sprintf("Up +%s on the previous 90 days", formatNumber(int64(12*crystalWorlds)))},
-		},
-		{
-			name:         "both windows zero renders fallback",
-			query:        "/ui/races",
-			wantContains: []string{"No new characters recorded"},
-			wantAbsent:   []string{"on the previous 90 days"},
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			rig := newTestRig(t)
-			rig.stats.everyWorld = true // the overridden series reaches every world
-			rig.ach.NewCharactersResponse = tt.newCharacters
-
-			req := httptest.NewRequest(http.MethodGet, tt.query, nil)
-			rec := httptest.NewRecorder()
-			rig.ctrl.Races(rec, req)
-
-			if rec.Code != http.StatusOK {
-				t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
-			}
-			body := textOf(parseHTML(t, rec.Body.String()))
-			for _, want := range tt.wantContains {
-				if !strings.Contains(body, want) {
-					t.Errorf("expected body to contain %q, got:\n%s", want, body)
-				}
-			}
-			for _, absent := range tt.wantAbsent {
-				if strings.Contains(body, absent) {
-					t.Errorf("expected body NOT to contain %q, got:\n%s", absent, body)
-				}
-			}
-		})
 	}
 }
