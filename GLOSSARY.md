@@ -29,7 +29,7 @@ The persistent last-queued ID for gap fills, separate from the ID sweep cursor. 
 _Avoid_: fill_gaps_state, gap cursor
 
 **Census tier**:
-One of three groups that split each character census run's budget: public characters, private characters that changed within the active window (a job levelled, or a new name, world, Free Company or Grand Company), and every other private character. Every census recomputes a character's tier, so one that changes moves up and one that stays unchanged drops back.
+One of three groups that share each character census run's budget, by the character's last activity (latest achievement or last observed change), public or private alike: active (within 90 days, revisited every 36 hours), recent (within a year, revisited every 72 hours) and dormant (the rest, at least half of every run). Every census recomputes a character's tier, so one that changes moves up and one that stays unchanged drops back.
 _Avoid_: priority, bucket, hot/cold list
 
 **Achievement census**:

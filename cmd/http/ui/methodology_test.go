@@ -51,7 +51,7 @@ func TestMethodologyHandler(t *testing.T) {
 		"in the last 90 days",
 		// Why the window is wide, and what it can't fix.
 		"Why 90 days",
-		"five to six weeks",
+		"every other character about every four weeks",
 		"still a lower bound",
 	} {
 		if !strings.Contains(body, want) {

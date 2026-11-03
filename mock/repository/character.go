@@ -20,7 +20,7 @@ type CharacterRepository struct {
 	characters map[uint32]contract.CharacterRecord
 	jobs       map[uint32][]contract.ClassJobRecord
 	// tiers holds the census tiers set by SetCensusTier; a character without
-	// one is public (tier 1) or, when private, in tier 3.
+	// one is placed by its last activity, as the Postgres writes place it.
 	tiers            map[uint32]int
 	UpsertErr        error
 	UpsertBatchErr   error
@@ -275,10 +275,28 @@ func (f *CharacterRepository) tierOf(rec contract.CharacterRecord) int {
 	if tier, ok := f.tiers[rec.ID]; ok {
 		return tier
 	}
-	if rec.AchievementsPrivate {
-		return contract.CensusTierPrivate
+	// The default 90-day active and 365-day recent windows; no import of
+	// census, to avoid a cycle.
+	now := time.Now()
+	switch last := lastActivity(rec); {
+	case last == nil:
+		return contract.CensusTierDormant
+	case !last.Before(now.AddDate(0, 0, -90)):
+		return contract.CensusTierActive
+	case !last.Before(now.AddDate(0, 0, -365)):
+		return contract.CensusTierRecent
 	}
-	return contract.CensusTierPublic
+	return contract.CensusTierDormant
+}
+
+// lastActivity is the later of a character's latest achievement and last
+// change, or nil when it has neither.
+func lastActivity(rec contract.CharacterRecord) *time.Time {
+	last := rec.LatestAchievementAt
+	if last == nil || (rec.LastChangeAt != nil && rec.LastChangeAt.After(*last)) {
+		last = rec.LastChangeAt
+	}
+	return last
 }
 
 func (f *CharacterRepository) ListStaleIDs(ctx context.Context, cutoff time.Time, limit int) ([]uint32, error) {

@@ -174,12 +174,18 @@ type CensusConfig struct {
 	// PrivateRecheckDays is how many days a character found private is left
 	// alone before its achievement census runs again.
 	PrivateRecheckDays int `mapstructure:"private_recheck_days"`
-	// TierShares splits each character census publish across the census
-	// tiers: public, active private and other private characters.
-	TierShares []int `mapstructure:"tier_shares"`
-	// ActiveWindowDays is how many days after its last change a private
-	// character stays in the active census tier.
-	ActiveWindowDays int               `mapstructure:"active_window_days"`
+	// TierRevisitHours is how many hours the active and the recent census
+	// tier wait between two censuses of a character.
+	TierRevisitHours []int `mapstructure:"tier_revisit_hours"`
+	// MinRestShare is the percentage of each character census publish the
+	// dormant census tier always gets.
+	MinRestShare int `mapstructure:"min_rest_share"`
+	// ActiveWindowDays is how many days after its last activity a character
+	// stays in the active census tier.
+	ActiveWindowDays int `mapstructure:"active_window_days"`
+	// RecentWindowDays is how many days after its last activity a character
+	// stays in the recent census tier.
+	RecentWindowDays int               `mapstructure:"recent_window_days"`
 	MaxLevel         uint32            `mapstructure:"max_level"`
 	Expansions       []ExpansionConfig `mapstructure:"expansions"`
 	UIStats          *UIStatsConfig    `mapstructure:"ui_stats"`

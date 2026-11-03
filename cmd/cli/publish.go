@@ -386,84 +386,95 @@ type characterCensusOptions struct {
 	// DeletedOlderThan is how long a character must have been deleted
 	// (since the last time it was confirmed missing) before it is re-probed.
 	DeletedOlderThan time.Duration
-	// TierShares splits Limit across the census tiers.
-	TierShares []int
+	// TierRevisit is how long the active and the recent census tier wait
+	// between two censuses of a character; empty selects the oldest
+	// characters regardless of tier.
+	TierRevisit []time.Duration
+	// MinRestShare is the percentage of Limit the dormant tier always gets.
+	MinRestShare int
 	// MaxBacklog skips the run while this many character-census jobs still
 	// wait in the queue; zero disables the guard.
 	MaxBacklog int
 }
 
-// validTierShares checks that shares give every census tier a positive
-// share: a tier left out would never be censused again.
-func validTierShares(shares []int) error {
-	if len(shares) != contract.CensusTierPrivate {
-		return fmt.Errorf("tier shares %v: want one share per census tier (%d)", shares, contract.CensusTierPrivate)
+// validTierSchedule checks that revisit gives the active and the recent
+// census tier a positive interval each and that minRestShare is a
+// percentage.
+func validTierSchedule(revisit []time.Duration, minRestShare int) error {
+	if len(revisit) != contract.CensusTierDormant-1 {
+		return fmt.Errorf("tier revisit %v: want one interval for the active and one for the recent census tier", revisit)
 	}
-	for _, s := range shares {
-		if s <= 0 {
-			return fmt.Errorf("tier shares %v: every census tier needs a positive share", shares)
+	for _, d := range revisit {
+		if d <= 0 {
+			return fmt.Errorf("tier revisit %v: every interval must be positive", revisit)
 		}
+	}
+	if minRestShare < 0 || minRestShare > 100 {
+		return fmt.Errorf("min rest share %d: want a percentage from 0 to 100", minRestShare)
 	}
 	return nil
 }
 
-// tierQuotas splits limit across the census tiers by share: tier i (1-based
-// census tier i+1) gets limit*shares[i]/sum(shares), rounded down, and the
-// rounding remainder goes to the last tier, so the quotas sum to limit.
-func tierQuotas(limit int, shares []int) []int {
-	quotas := make([]int, len(shares))
-	total := 0
-	for _, s := range shares {
-		total += s
-	}
-	if total <= 0 || len(shares) == 0 {
-		return quotas
-	}
-	given := 0
-	for i, s := range shares {
-		quotas[i] = limit * s / total
-		given += quotas[i]
-	}
-	quotas[len(quotas)-1] += limit - given
-	return quotas
-}
-
-// listTieredStaleIDs selects up to limit live characters split across the
-// census tiers by shares (shares[0] is tier 1), each tier oldest first. A
-// tier with fewer characters than its quota passes the rest on to the
-// following tiers, and what the last tiers cannot use goes back to the
-// earlier ones, so the run fills limit whenever the characters exist. The
-// result lists tier 1 first.
-func listTieredStaleIDs(ctx context.Context, repo contract.CharacterRepository, cutoff time.Time, limit int, shares []int) ([][]uint32, error) {
-	quotas := tierQuotas(limit, shares)
-	picked := make([][]uint32, len(quotas))
-	carry := 0
-	for i, quota := range quotas {
-		want := quota + carry
-		ids, err := repo.ListStaleIDsInTier(ctx, i+1, cutoff, want)
+// listTieredStaleIDs selects up to limit live characters across the census
+// tiers, each tier oldest first. The active and the recent tier take their
+// characters due for a census (not censused for their revisit interval, and
+// older than cutoff), together at most limit minus the dormant tier's
+// minRestShare percent; the dormant tier takes the rest. What the dormant
+// tier cannot use goes back to the active tier, then the recent one, due or
+// not, so the run fills limit whenever the characters exist. The result
+// lists the active tier first.
+func listTieredStaleIDs(ctx context.Context, repo contract.CharacterRepository, now, cutoff time.Time, limit int, revisit []time.Duration, minRestShare int) ([][]uint32, error) {
+	picked := make([][]uint32, contract.CensusTierDormant)
+	left := limit - limit*minRestShare/100
+	for i, every := range revisit {
+		due := now.Add(-every)
+		if !cutoff.IsZero() && cutoff.Before(due) {
+			due = cutoff
+		}
+		ids, err := listStaleInTier(ctx, repo, i+1, due, left)
 		if err != nil {
-			return nil, fmt.Errorf("list stale tier %d: %w", i+1, err)
+			return nil, err
 		}
 		picked[i] = ids
-		carry = want - len(ids)
+		left -= len(ids)
 	}
-	// Hand what is still unused back to the earlier tiers: ask each for its
-	// picks plus the carry and keep only the new tail.
-	for i := 0; i < len(quotas) && carry > 0; i++ {
-		have := len(picked[i])
-		if have < quotas[i] {
-			continue // this tier ran out already
-		}
-		ids, err := repo.ListStaleIDsInTier(ctx, i+1, cutoff, have+carry)
+	rest := limit - len(picked[0]) - len(picked[1])
+	ids, err := listStaleInTier(ctx, repo, contract.CensusTierDormant, cutoff, rest)
+	if err != nil {
+		return nil, err
+	}
+	picked[contract.CensusTierDormant-1] = ids
+	carry := rest - len(ids)
+	for i := 0; i < len(revisit) && carry > 0; i++ {
+		ids, err := listStaleInTier(ctx, repo, i+1, cutoff, len(picked[i])+carry)
 		if err != nil {
-			return nil, fmt.Errorf("list stale tier %d: %w", i+1, err)
+			return nil, err
 		}
-		if len(ids) > have {
-			carry -= len(ids) - have
-			picked[i] = ids
+		have := make(map[uint32]bool, len(picked[i]))
+		for _, id := range picked[i] {
+			have[id] = true
+		}
+		for _, id := range ids {
+			if !have[id] && carry > 0 {
+				picked[i] = append(picked[i], id)
+				carry--
+			}
 		}
 	}
 	return picked, nil
+}
+
+// listStaleInTier is ListStaleIDsInTier that asks for nothing when limit is
+// not positive (a zero limit there means no limit).
+func listStaleInTier(ctx context.Context, repo contract.CharacterRepository, tier int, cutoff time.Time, limit int) ([]uint32, error) {
+	if limit <= 0 {
+		return nil, nil
+	}
+	ids, err := repo.ListStaleIDsInTier(ctx, tier, cutoff, limit)
+	if err != nil {
+		return nil, fmt.Errorf("list stale tier %d: %w", tier, err)
+	}
+	return ids, nil
 }
 
 // publishCharacterCensus publishes character-census jobs for the oldest live
@@ -498,11 +509,11 @@ func publishCharacterCensus(
 	cutoff := characterCensusCutoff(now, opts.OlderThan)
 	var ids []uint32
 	var tiers []any
-	if len(opts.TierShares) > 0 {
-		if err := validTierShares(opts.TierShares); err != nil {
+	if len(opts.TierRevisit) > 0 {
+		if err := validTierSchedule(opts.TierRevisit, opts.MinRestShare); err != nil {
 			return err
 		}
-		picked, err := listTieredStaleIDs(ctx, repo, cutoff, opts.Limit, opts.TierShares)
+		picked, err := listTieredStaleIDs(ctx, repo, now, cutoff, opts.Limit, opts.TierRevisit, opts.MinRestShare)
 		if err != nil {
 			return err
 		}
@@ -572,16 +583,21 @@ var publishCharacterCensusCmd = &cobra.Command{
 				container.Load.Logger().ErrorContext(cmd.Context(), "queue.close_error", slog.Any("error", err))
 			}
 		}()
-		var shares []int
+		var revisit []time.Duration
+		var minRestShare int
 		if c := container.Load.Config().Census; c != nil {
-			shares = c.TierShares
+			for _, h := range c.TierRevisitHours {
+				revisit = append(revisit, time.Duration(h)*time.Hour)
+			}
+			minRestShare = c.MinRestShare
 		}
 		return publishCharacterCensus(cmd.Context(), repo, q, container.Load.Logger(), time.Now(), characterCensusOptions{
 			OlderThan:        olderThan,
 			Limit:            limit,
 			DeletedLimit:     deletedLimit,
 			DeletedOlderThan: deletedOlderThan,
-			TierShares:       shares,
+			TierRevisit:      revisit,
+			MinRestShare:     minRestShare,
 			MaxBacklog:       maxBacklog,
 		})
 	},
