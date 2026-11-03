@@ -22,6 +22,9 @@ type Service struct {
 	activityWindow time.Duration
 	// newCharactersWindow is how far back the new-character figures count.
 	newCharactersWindow time.Duration
+	// createdExactFromID is the first character ID the created-character
+	// figures date by its first sighting (UIStatsRefreshOptions).
+	createdExactFromID int64
 	// privateRecheckWindow is how long a private flag counts as verified.
 	privateRecheckWindow time.Duration
 	maxLevel             uint32
@@ -44,6 +47,7 @@ func NewService(
 		censusRuns:           censusRuns,
 		activityWindow:       defaultActivityWindow,
 		newCharactersWindow:  defaultNewCharactersWindow,
+		createdExactFromID:   DefaultCreatedExactFromID,
 		privateRecheckWindow: defaultPrivateRecheckWindow,
 		maxLevel:             100,
 		expansions:           DefaultExpansions,
@@ -369,6 +373,25 @@ func (s *Service) NewCharactersWindow() time.Duration {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.newCharactersWindow
+}
+
+// SetCreatedExactFromID overrides the first character ID the created-
+// character figures date by its first sighting. Non-positive IDs are
+// ignored, keeping the current cut.
+func (s *Service) SetCreatedExactFromID(id int64) {
+	if id > 0 {
+		s.mu.Lock()
+		s.createdExactFromID = id
+		s.mu.Unlock()
+	}
+}
+
+// CreatedExactFromID returns the first character ID the created-character
+// figures date by its first sighting.
+func (s *Service) CreatedExactFromID() int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.createdExactFromID
 }
 
 // SetPrivateRecheckWindow overrides how long a character found private is left

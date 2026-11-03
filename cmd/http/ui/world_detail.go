@@ -14,12 +14,11 @@ type WorldDetailViewData struct {
 	World      string
 	Datacenter string
 	// Region is the region code (NA, EU, JP, OCE).
-	Region             string
-	TotalCharacters    int64
-	ActiveCharacters   int64
-	ActiveRatio        string
-	NewCharacters      int64
-	NewCharactersTrend Trend
+	Region            string
+	TotalCharacters   int64
+	ActiveCharacters  int64
+	ActiveRatio       string
+	NewCharactersCard NewCharactersCard
 	// Races are ranked by characters; RaceLabels/RaceData feed the chart.
 	Races          []RaceRow
 	RaceLabels     []string
@@ -90,19 +89,18 @@ func (c *UIController) WorldDetail(w http.ResponseWriter, r *http.Request) {
 		census.FreeCompanyQuery{Measure: census.FreeCompanyMembers, Scope: scope})
 
 	c.render(w, "templates/world_detail.html", statsPageData(fmt.Sprintf("%s - World Demographics", worldName), "worlds", fmt.Sprintf("/ui/worlds/%s", worldName), fmt.Sprintf("Character population for the FFXIV world %s: players active in the last %s, new characters in the last %s, race demographics and MSQ completions.", worldName, Window{Days: state.ActivityWindowDays}.Long(), Window{Days: state.NewCharactersWindowDays}.Long()), state, WorldDetailViewData{
-		World:              worldName,
-		Datacenter:         dc,
-		Region:             region,
-		TotalCharacters:    total,
-		ActiveCharacters:   active,
-		ActiveRatio:        formatPercent(active, total),
-		NewCharacters:      window.Current,
-		NewCharactersTrend: newTrend(window),
-		Races:              raceRows,
-		RaceLabels:         raceLabels,
-		RaceData:           raceData,
-		MSQCompletions:     msq,
-		Weekly:             weeklyTimeline(census.WorldNewCharactersWeekly(snapshot, worldName)),
+		World:             worldName,
+		Datacenter:        dc,
+		Region:            region,
+		TotalCharacters:   total,
+		ActiveCharacters:  active,
+		ActiveRatio:       formatPercent(active, total),
+		NewCharactersCard: newCharactersCard(snapshot, window),
+		Races:             raceRows,
+		RaceLabels:        raceLabels,
+		RaceData:          raceData,
+		MSQCompletions:    msq,
+		Weekly:            newCharactersWeekly(snapshot, census.WorldNewCharactersWeekly(snapshot, worldName), "on "+worldName),
 		GrandCompanies: grandCompanyBand(c.memo.GrandCompanySplit(snapshot, scope),
 			census.SnapshotHasSection(snapshot, census.SectionGrandCompanies), worldName),
 		TopJobs: topJobsBlock(c.memo.Armoury(snapshot, scope),

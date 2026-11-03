@@ -68,8 +68,8 @@ func TestUIStatsNewCharactersSeriesSpansTwoWindowsAtGlobalScope(t *testing.T) {
 		t.Fatal(err)
 	}
 	snapshot := result.Snapshot
-	if snapshot.SchemaVersion != 4 || snapshot.NewCharactersWindowDays != 10 {
-		t.Fatalf("schema %d window %d, want schema 4 with a 10-day window", snapshot.SchemaVersion, snapshot.NewCharactersWindowDays)
+	if snapshot.SchemaVersion != 5 || snapshot.NewCharactersWindowDays != 10 {
+		t.Fatalf("schema %d window %d, want schema 5 with a 10-day window", snapshot.SchemaVersion, snapshot.NewCharactersWindowDays)
 	}
 	day := func(daysAgo int) string { return today.AddDate(0, 0, -daysAgo).Format("2006-01-02") }
 	want := map[string]int64{day(1): 1, day(5): 1, day(10): 1, day(11): 1, day(15): 2, day(20): 1}

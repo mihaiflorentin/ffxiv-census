@@ -18,9 +18,14 @@
         <p class="stat-subtext">{{.Data.ActivePercent}} of these characters</p>
     </div>
     <div class="stat-card">
-        <p class="stat-label">New characters, last {{$.NewCharactersWindow.Long}}</p>
-        <p class="stat-value">{{formatNumber .Data.NewCharacters}}</p>
-        {{template "trend" .Data.NewCharactersTrend}}
+        <p class="stat-label">Most chosen race</p>
+        {{with .Data.Races}}{{with index . 0}}
+        <p class="stat-value">{{.Race}}</p>
+        <p class="stat-subtext">{{.ShareOfTotal}} of these characters</p>
+        {{end}}{{else}}
+        <p class="stat-value">None yet</p>
+        <p class="stat-subtext">No races recorded</p>
+        {{end}}
     </div>
 </section>
 

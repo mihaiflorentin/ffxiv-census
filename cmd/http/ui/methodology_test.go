@@ -52,6 +52,13 @@ func TestMethodologyHandler(t *testing.T) {
 		// Why the window is wide, and what it can't fix.
 		"Why 90 days",
 		"every other character about every four weeks",
+		// New characters: created by character ID, exact from the frontier
+		// and estimated before it; the company chocobo beside them.
+		"dated by their character ID",
+		"public or private",
+		"From 21 October 2026",
+		"estimated from the company chocobo dates",
+		"reached their company chocobo",
 		"still a lower bound",
 	} {
 		if !strings.Contains(body, want) {

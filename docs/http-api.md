@@ -55,11 +55,14 @@ The window drives `active_characters`/`active_ratio` on `GET /api/v1/census/late
 
 ### New-characters window
 
-A new character is one that earned the Chocobo milestone (achievement 590). The new-character figures count the new-characters window, compared with the window of the same length just before it:
+The new-character figures count the new-characters window, compared with the window of the same length just before it. There are two: characters created in the window, by character ID ([created characters](census.md#created-characters)), and characters who earned the Chocobo milestone (achievement 590) in it.
 
 ```toml
 [census]
 new_characters_window_days = 90
+# Created characters from this ID on are dated by their first sighting; lower
+# IDs are estimated from the company chocobo dates around them.
+new_characters_exact_from_id = 62745092
 ```
 
 Environment override: `CENSUS_NEW_CHARACTERS_WINDOW_DAYS=60`. Both windows are whole UTC days and end with the last complete day before the snapshot's generation day. The default is 90 days for the same reason as the activity window: the census sees a new chocobo only when it next visits the character, so recent days are undercounted. The window drives `GET /api/v1/stats/new-characters` (its default range, and the oldest day it serves) and every new-character figure in the UI. A changed window applies from the next refresh: an incremental refresh on a snapshot built with another window rebuilds in full.
@@ -187,12 +190,12 @@ Population per group, sorted by `total` descending. `by` is required; a missing 
 
 ### GET /api/v1/stats/new-characters[?since=YYYY-MM-DD&until=YYYY-MM-DD]
 
-Characters who earned the Chocobo milestone (achievement 590) per UTC day in `[since, until)`, ordered ascending by day, for the whole game. Without parameters it serves the [new-characters window](#new-characters-window): its complete UTC days before the snapshot's generation day. Without `until` the range ends with the last complete UTC day (before the generation day, or before today when the server has no snapshot store). `since` and `until` must parse as dates. The snapshot keeps two windows (current and previous), so `since` may reach back to the start of the previous window (on a snapshot from before schema 4, to the first of the 60 days ending with its generation day), and `until` at most to the day after the generation day; malformed or out-of-range requests are 400s. This keeps response work bounded.
+Characters who earned the Chocobo milestone (achievement 590) per UTC day in `[since, until)` (`count`), ordered ascending by day, for the whole game. On a snapshot with created characters (schema 5), every day also carries `created`, the characters created that day. `estimated` is set on days before the exact cut, which are dated by the calibration curve, and `created` is absent on older snapshots and on the live path. Without parameters it serves the [new-characters window](#new-characters-window): its complete UTC days before the snapshot's generation day. Without `until` the range ends with the last complete UTC day (before the generation day, or before today when the server has no snapshot store). `since` and `until` must parse as dates. The snapshot keeps two windows (current and previous), so `since` may reach back to the start of the previous window (on a snapshot from before schema 4, to the first of the 60 days ending with its generation day), and `until` at most to the day after the generation day; malformed or out-of-range requests are 400s. This keeps response work bounded.
 
 ```json
 [
-  {"day": "2026-08-16", "count": 1},
-  {"day": "2026-08-17", "count": 3}
+  {"day": "2026-10-20", "count": 1, "created": 7420, "estimated": true},
+  {"day": "2026-10-21", "count": 3, "created": 4521}
 ]
 ```
 

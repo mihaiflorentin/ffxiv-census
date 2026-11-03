@@ -41,15 +41,16 @@
 
     <section class="prose-section" aria-labelledby="new-characters">
         <h2 id="new-characters">New characters</h2>
-        <p>Earlier versions counted a character as new on the day the census first found it. That date can mislead: older or returning characters are often found during routine sweeps.</p>
-        <p>The new characters figure, and its daily timeline, instead dates a character by when they earned an early main scenario milestone:</p>
+        <p>The census counts new characters in two ways, each with its own figure.</p>
         <dl class="prose-definition">
-            <dt>Achievement ID 590, “My Little Chocobo”</dt>
-            <dd>Earned for receiving a company chocobo from the player’s Grand Company (the Maelstrom, the Order of the Twin Adder or the Immortal Flames) around level 20 of the main scenario.</dd>
+            <dt>Created</dt>
+            <dd>Every character created in the last {{$.NewCharactersWindow.Long}}, public or private, dated by their character ID. This is the headline figure on the Dashboard, the Worlds pages and the Rankings.</dd>
+            <dt>Reached their company chocobo</dt>
+            <dd>Achievement ID 590, “My Little Chocobo”: characters who reached their company chocobo in the last {{$.NewCharactersWindow.Long}}, given by the player’s Grand Company (the Maelstrom, the Order of the Twin Adder or the Immortal Flames) around level 20 of the main scenario. Only public achievements count.</dd>
         </dl>
-        <p>A character counts as <strong>new</strong> when they earned this achievement in the last {{$.NewCharactersWindow.Long}}, up to the last full day in UTC. The trend compares that count with the {{$.NewCharactersWindow.Long}} before.</p>
-        <p><strong>Why {{$.NewCharactersWindow.Long}}?</strong> The census sees a new chocobo only when it next visits the character, and a full pass takes months. So the most recent days are always undercounted. A wide window evens this out, but while a pass takes longer than the window, the figure still undercounts new characters.</p>
-        <p>Characters without this achievement, or whose achievements are private, are left out of the new characters timeline. Every counted character has played past character creation and into the story, rather than being an indexing artefact.</p>
+        <p><strong>Dating a character by its ID.</strong> The Lodestone hands out character IDs in creation order, and the census scans new IDs as they appear. From 21 October 2026 it finds each new character within hours, so the day it first sees the character is the day the character was created. Earlier days are estimated from the company chocobo dates of the IDs around them: for each run of 100,000 IDs, the census takes the date by which the earliest tenth of its public characters had their chocobo, and spreads the IDs between those dates. An estimated day can be out by a week or two, and the Dashboard and Worlds pages mark the days and weeks they estimate.</p>
+        <p>Both figures count up to the last full day in UTC, and each trend compares its count with the {{$.NewCharactersWindow.Long}} before. Characters deleted since are left out.</p>
+        <p><strong>Why both?</strong> Most new characters keep their achievements private, so the company chocobo counts only a small share of them. It still shows how many new players stayed with the game into the story. <strong>Why {{$.NewCharactersWindow.Long}}?</strong> The census sees a new chocobo only when it next visits the character, and a full pass takes months, so the most recent chocobo days are always undercounted. A wide window evens this out.</p>
     </section>
 
     <section class="prose-section" aria-labelledby="main-scenario">
@@ -115,7 +116,7 @@
             <dd>The census hasn’t stored any job levels for the character. These characters are counted apart and left out of the shares.</dd>
         </dl>
         <p>Every job counts, crafting and gathering included, and a base class counts towards its job. Blue Mage and Beastmaster count at their own level, like any other job. A new expansion adds its band from the census configuration.</p>
-        <p class="prose-aside">Level figures are rebuilt nightly, and the Levels page says when they last were; nothing moves them between rebuilds. New characters show up after their first census: they start in No job levels yet, and move to their band at the next nightly rebuild once the census has read their jobs. A character who levels up or is deleted changes the figures at the next rebuild too. See <a href="/ui/levels">Levels</a> for the current figures.</p>
+        <p class="prose-aside">Level figures are rebuilt nightly, and the Levels page says when they last were; nothing moves them between rebuilds. Characters show up after their first census: they start in No job levels yet, and move to their band at the next nightly rebuild once the census has read their jobs. A character who levels up or is deleted changes the figures at the next rebuild too. See <a href="/ui/levels">Levels</a> for the current figures.</p>
     </section>
 
     <section class="prose-section" aria-labelledby="achievement-privacy">

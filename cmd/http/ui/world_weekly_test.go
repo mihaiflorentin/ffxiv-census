@@ -14,10 +14,11 @@ import (
 )
 
 // weeklyWorldMux serves a schema 4 snapshot generated on Oct 24 with a
-// 14-day window (two weeks) in which Balmung has a weekly series.
+// 14-day window (two weeks) in which Balmung has a weekly series of company
+// chocobos and no created characters yet.
 func weeklyWorldMux(t *testing.T, weekly []int64) *http.ServeMux {
 	t.Helper()
-	snapshot := rankingsSnapshot(contract.UIStatsSchemaVersion)
+	snapshot := rankingsSnapshot(4)
 	snapshot.GeneratedAt = time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC)
 	snapshot.ActivitySince = snapshot.GeneratedAt.Add(-90 * 24 * time.Hour)
 	snapshot.NewCharactersWindowDays = 14

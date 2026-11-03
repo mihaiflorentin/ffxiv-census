@@ -28,14 +28,12 @@ type RaceGenderRow struct {
 
 // RacesViewData holds race demographics, filter state, and chart data for /ui/races.
 type RacesViewData struct {
-	TotalCharacters    int64
-	ActiveCharacters   int64
-	ActivePercent      string
-	NewCharacters      int64
-	NewCharactersTrend Trend
-	SelectedRegion     string
-	SelectedDC         string
-	SelectedWorld      string
+	TotalCharacters  int64
+	ActiveCharacters int64
+	ActivePercent    string
+	SelectedRegion   string
+	SelectedDC       string
+	SelectedWorld    string
 	// Scope reads like "across every region" or "on the Chaos datacenter".
 	Scope            string
 	Races            []RaceRow
@@ -67,15 +65,11 @@ func (c *UIController) Races(w http.ResponseWriter, r *http.Request) {
 	scope := place.scope()
 	scopeText := placeScope(selectedRegion, selectedDC, selectedWorld)
 
-	newWindow := census.NewCharactersTotals(snapshot, scope)
-
 	data := RacesViewData{
-		NewCharacters:      newWindow.Current,
-		NewCharactersTrend: newTrend(newWindow),
-		SelectedRegion:     selectedRegion,
-		SelectedDC:         selectedDC,
-		SelectedWorld:      selectedWorld,
-		Scope:              scopeText,
+		SelectedRegion: selectedRegion,
+		SelectedDC:     selectedDC,
+		SelectedWorld:  selectedWorld,
+		Scope:          scopeText,
 	}
 
 	races := census.SnapshotGroups(snapshot, "race", scope)

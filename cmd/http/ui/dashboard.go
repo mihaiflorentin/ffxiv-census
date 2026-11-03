@@ -11,18 +11,15 @@ import (
 
 // DashboardViewData holds the aggregate metrics and time-series for the dashboard.
 type DashboardViewData struct {
-	TotalCharacters      int64
-	ActiveCharacters     int64
-	ActivePercent        string
-	MaxLevelCharacters   int64
-	MaxLevelPercent      string
-	MaxLevel             uint32
-	NewCharacters        int64
-	NewCharactersTrend   Trend
-	ChartLabels          []string
-	ChartDates           []string
-	ChartData            []int64
-	Timeline             TimelineSummary
+	TotalCharacters    int64
+	ActiveCharacters   int64
+	ActivePercent      string
+	MaxLevelCharacters int64
+	MaxLevelPercent    string
+	MaxLevel           uint32
+	NewCharactersCard  NewCharactersCard
+	// Weekly is the whole game's new characters per week.
+	Weekly               WeeklyTimeline
 	Regions              []RegionSummary
 	RaceLabels           []string
 	RaceData             []int64
@@ -37,13 +34,6 @@ type ShareRow struct {
 	Name  string
 	Total int64
 	Share string
-}
-
-// TimelineSummary feeds the one-sentence text alternative of the new-characters chart.
-type TimelineSummary struct {
-	Total     int64
-	PeakDate  string // display date of the busiest day, like "Oct 23"
-	PeakCount int64
 }
 
 // ExpansionCard holds completion stats for one expansion.
@@ -127,8 +117,6 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 		expansionCards = append(expansionCards, ExpansionCard{Name: expansion.Name, Count: countMap[expansion.Name]})
 	}
 
-	timeline := newCharactersTimeline(snapshot, contract.StatsScope{})
-
 	// Fix expansion percents now that total is known
 	for i := range expansionCards {
 		expansionCards[i].Percent = formatPercent(expansionCards[i].Count, total)
@@ -141,15 +129,11 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 		TotalCharacters:      total,
 		ActiveCharacters:     active,
 		ActivePercent:        formatPercent(active, total),
-		NewCharacters:        newCharactersWindow.Current,
-		NewCharactersTrend:   newTrend(newCharactersWindow),
+		NewCharactersCard:    newCharactersCard(snapshot, newCharactersWindow),
+		Weekly:               newCharactersWeekly(snapshot, census.NewCharactersWeekly(snapshot), ""),
 		MaxLevelCharacters:   maxLevelCount,
 		MaxLevelPercent:      formatPercent(maxLevelCount, total),
 		MaxLevel:             maxLevel,
-		ChartLabels:          timeline.Labels,
-		ChartDates:           timeline.Dates,
-		ChartData:            timeline.Counts,
-		Timeline:             timeline.TimelineSummary,
 		Regions:              regions,
 		RaceLabels:           raceLabels,
 		RaceData:             raceData,
@@ -186,7 +170,7 @@ func (c *UIController) WorldDrilldown(w http.ResponseWriter, r *http.Request) {
 				World:         wName,
 				Total:         wc.Total,
 				Active:        wc.Active,
-				NewCharacters: newCharacters.Current,
+				NewCharacters: newCharactersCount(snapshot, newCharacters),
 				ActiveRatio:   formatPercent(wc.Active, wc.Total),
 			})
 		}

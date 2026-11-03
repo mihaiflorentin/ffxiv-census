@@ -2,7 +2,9 @@ package handler
 
 import (
 	"errors"
+	"maps"
 	"net/http"
+	"slices"
 	"strconv"
 	"time"
 
@@ -222,7 +224,9 @@ func (c *CensusController) Breakdown(w http.ResponseWriter, r *http.Request) {
 
 // NewCharacters serves GET /api/v1/stats/new-characters[?since=YYYY-MM-DD&until=YYYY-MM-DD]:
 // characters who earned the Chocobo milestone (achievement 590) per UTC day
-// in [since, until). Without since it serves the new-characters window: its
+// in [since, until), and on a snapshot with created characters the
+// characters created each day, flagged when estimated. Without since it
+// serves the new-characters window: its
 // complete UTC days before today (or before the snapshot's generation day).
 // Snapshot-backed requests must stay inside the snapshot's two windows, the
 // current one and the previous one.
@@ -266,15 +270,7 @@ func (c *CensusController) NewCharacters(w http.ResponseWriter, r *http.Request)
 			writeError(w, http.StatusBadRequest, "requested range is outside the available statistics snapshot")
 			return
 		}
-		days := census.SnapshotDaily(snapshot, contract.StatsScope{})
-		items := make([]response.NewCharactersDay, 0, len(days))
-		for _, day := range days {
-			parsed, parseErr := time.Parse("2006-01-02", day.Day)
-			if parseErr == nil && !parsed.Before(since) && parsed.Before(until) {
-				items = append(items, response.NewCharactersDay{Day: day.Day, Count: day.Count})
-			}
-		}
-		writeJSON(w, http.StatusOK, items)
+		writeJSON(w, http.StatusOK, snapshotNewCharacterDays(snapshot, since, until))
 		return
 	}
 
@@ -297,6 +293,48 @@ func (c *CensusController) NewCharacters(w http.ResponseWriter, r *http.Request)
 		items = append(items, response.NewCharactersDay{Day: d.Day, Count: d.Count})
 	}
 	writeJSON(w, http.StatusOK, items)
+}
+
+// snapshotNewCharacterDays lists the snapshot's whole-game new-character
+// days in [since, until): every day with company chocobos or created
+// characters, oldest first.
+func snapshotNewCharacterDays(snapshot *contract.UIStatsSnapshot, since, until time.Time) []response.NewCharactersDay {
+	byDay := make(map[string]*response.NewCharactersDay)
+	day := func(name string) *response.NewCharactersDay {
+		parsed, err := time.Parse("2006-01-02", name)
+		if err != nil || parsed.Before(since) || !parsed.Before(until) {
+			return nil
+		}
+		if byDay[name] == nil {
+			byDay[name] = &response.NewCharactersDay{Day: name}
+		}
+		return byDay[name]
+	}
+	for _, d := range census.SnapshotDaily(snapshot, contract.StatsScope{}) {
+		if item := day(d.Day); item != nil {
+			item.Count = d.Count
+		}
+	}
+	if census.CreatedReady(snapshot) {
+		for _, d := range snapshot.Created {
+			if item := day(d.Day); item != nil && d.Scope == (contract.StatsScope{}) {
+				item.Created = &d.Count
+			}
+		}
+		exact, _ := census.CreatedEstimatedBefore(snapshot)
+		for name, item := range byDay {
+			if item.Created == nil {
+				item.Created = new(int64)
+			}
+			parsed, _ := time.Parse("2006-01-02", name)
+			item.Estimated = parsed.Before(exact)
+		}
+	}
+	items := make([]response.NewCharactersDay, 0, len(byDay))
+	for _, name := range slices.Sorted(maps.Keys(byDay)) {
+		items = append(items, *byDay[name])
+	}
+	return items
 }
 
 // Expansion serves GET /api/v1/stats/expansion[?name=Expansion]: how many

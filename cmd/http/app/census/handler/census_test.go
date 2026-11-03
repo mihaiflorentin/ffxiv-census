@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
@@ -425,6 +426,48 @@ func TestCensusController_NewCharactersUsesTheSnapshotWindow(t *testing.T) {
 	}
 
 	assertError(t, doGET(t, controller.NewCharacters, "/api/v1/stats/new-characters?since=2026-10-03"), http.StatusBadRequest, "outside")
+}
+
+// On a snapshot with created characters every day of the range carries
+// them, marked estimated before the exact cut, beside its company chocobos.
+func TestCensusController_NewCharactersCarriesTheCreatedCharacters(t *testing.T) {
+	generated := time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC)
+	snapshot := &contract.UIStatsSnapshot{
+		SchemaVersion:           contract.UIStatsSchemaVersion,
+		GeneratedAt:             generated,
+		ActivitySince:           generated.Add(-90 * 24 * time.Hour),
+		NewCharactersWindowDays: 10,
+		MaxLevel:                100,
+		NewCharacters:           []contract.ScopedDailyCount{{Day: "2026-10-20", Count: 2}},
+		Created:                 []contract.ScopedDailyCount{{Day: "2026-10-15", Count: 40}, {Day: "2026-10-20", Count: 60}},
+		CreatedExactFrom:        "2026-10-18",
+		CreatedBuiltAt:          generated,
+	}
+	stats := census.NewUIStatsService(mockrepo.NewUIStatsFake(snapshot), time.Minute, 24*365*time.Hour)
+	controller := NewCensusController(census.NewService(mockrepo.NewCharacterFake(), mockrepo.NewAchievementFake(), mockrepo.NewCensusRunFake()), stats)
+
+	var days []response.NewCharactersDay
+	decodeJSON(t, doGET(t, controller.NewCharacters, "/api/v1/stats/new-characters"), &days)
+	created := func(n int64) *int64 { return &n }
+	want := []response.NewCharactersDay{
+		{Day: "2026-10-15", Count: 0, Created: created(40), Estimated: true},
+		{Day: "2026-10-20", Count: 2, Created: created(60)},
+	}
+	if !reflect.DeepEqual(days, want) {
+		t.Fatalf("days = %s, want %s", dayList(days), dayList(want))
+	}
+}
+
+func dayList(days []response.NewCharactersDay) string {
+	var out []string
+	for _, d := range days {
+		created := "nil"
+		if d.Created != nil {
+			created = fmt.Sprint(*d.Created)
+		}
+		out = append(out, fmt.Sprintf("{%s %d created=%s estimated=%v}", d.Day, d.Count, created, d.Estimated))
+	}
+	return strings.Join(out, " ")
 }
 
 // A stored schema 3 snapshot's series covers the 60 UTC days ending with

@@ -60,9 +60,15 @@ type BreakdownGroup struct {
 	Active int64  `json:"active"`
 }
 
+// NewCharactersDay is one UTC day of new characters: Count earned their
+// first company chocobo; Created were created (by character ID), estimated
+// from the company chocobo dates of the IDs around them when Estimated. A
+// response from before the created figures have no Created.
 type NewCharactersDay struct {
-	Day   string `json:"day"`
-	Count int64  `json:"count"`
+	Day       string `json:"day"`
+	Count     int64  `json:"count"`
+	Created   *int64 `json:"created,omitempty"`
+	Estimated bool   `json:"estimated,omitempty"`
 }
 
 type ExpansionStat struct {

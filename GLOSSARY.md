@@ -231,8 +231,12 @@ The bounded trailing period, 90 days by default (`[census] activity_window_days`
 _Avoid_: 30-day window, 90-day window (the length is configurable)
 
 **New character**:
-The canonical definition of a newly created character: one that has earned the chocobo milestone, counted per UTC day.
-_Avoid_: new-character series, created character, new player (players own characters; the census counts characters)
+A character created in the new-characters window, public or private, dated by its character ID (a **created character**). The census also counts the new characters who **reached their company chocobo** (the chocobo milestone) in the window, a second figure beside the first. Before v1.26.0 (#94) the chocobo milestone was the only definition, and it missed the characters who hide their achievements: almost every new one.
+_Avoid_: new-character series, new player (players own characters; the census counts characters)
+
+**Created character**:
+A character counted by the day its character ID was handed out. The Lodestone hands out IDs in creation order. From the exact cut (`[census] new_characters_exact_from_id`, first seen on 2026-10-21) the ID frontier finds a new character within hours, so its first sighting dates it. Lower IDs are dated by a calibration curve: each band of 100,000 IDs is anchored at the 10th-percentile date of its company chocobos. Days dated by the curve are **estimated**, and copy says so.
+_Avoid_: first seen (a character found by a sweep was not necessarily created then)
 
 **New-characters window**:
 The bounded trailing period, 90 days by default (`[census] new_characters_window_days`), that new characters are counted over: whole UTC days ending the day before the snapshot was built, compared with the window of the same length before it. It also bounds the dates the new-characters statistic may be requested for. It is wide because the census sees a new chocobo only when it next visits the character. Copy states its length from the snapshot, never as a literal.

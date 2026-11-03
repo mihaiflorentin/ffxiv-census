@@ -66,6 +66,12 @@ func rankingsSnapshot(version int) *contract.UIStatsSnapshot {
 		} else {
 			s.NewCharacters = append(s.NewCharacters, contract.ScopedDailyCount{Scope: contract.StatsScope{World: w.name}, Day: day, Count: w.newish})
 		}
+		if version >= 5 {
+			// Schema 5 adds the created characters; the fixture creates as
+			// many as reach their company chocobo.
+			s.CreatedBuiltAt, s.CreatedExactFrom = generated, day
+			g.Created = w.newish
+		}
 		s.Groups = append(s.Groups, g)
 		for _, parent := range []struct {
 			dim, key string
@@ -195,7 +201,7 @@ func TestRankingsPageDefaultsToFastestGrowingWorlds(t *testing.T) {
 
 	main := flatText(mainOf(t, doc))
 	for _, line := range []string{
-		"New characters in the last 90 days for every 1,000 characters on the world.",
+		"Characters created in the last 90 days for every 1,000 characters on the world.",
 		"1 world with fewer than 250 characters is left out",
 	} {
 		if !strings.Contains(main, line) {
@@ -205,11 +211,13 @@ func TestRankingsPageDefaultsToFastestGrowingWorlds(t *testing.T) {
 }
 
 func TestRankingsPageHasEveryMetric(t *testing.T) {
-	mux := rankingsMux(t, 3)
+	mux := rankingsMux(t, contract.UIStatsSchemaVersion)
 	for _, tc := range []struct {
 		query, heading, leader, value string
 	}{
 		{"metric=growth-count", "Most new characters", "Adamantoise", "60 new"},
+		{"metric=chocobo", "Most company chocobos per resident", "Adamantoise", "60.0 per 1,000"},
+		{"metric=chocobo-count", "Most company chocobos", "Adamantoise", "60 reached"},
 		{"metric=activity", "Most active worlds", "Adamantoise", "50.0%"},
 		{"metric=veterans", "Most veterans", "Siren", "80.0%"},
 		{"metric=population", "Largest worlds", "Lich", fmt.Sprintf("%s characters", "2,000")},
@@ -235,7 +243,7 @@ func TestRankingsPageHasEveryMetric(t *testing.T) {
 }
 
 func TestRankingsSwitchesSwapTheBoardAndKeepTheOtherChoices(t *testing.T) {
-	mux := rankingsMux(t, 3)
+	mux := rankingsMux(t, contract.UIStatsSchemaVersion)
 	doc := parseHTML(t, serveMuxGet(t, mux, "/ui/rankings?metric=activity&by=datacenter&region=na").Body.String())
 
 	for _, tc := range []struct {
@@ -285,7 +293,7 @@ func TestRankingsSwitchesSwapTheBoardAndKeepTheOtherChoices(t *testing.T) {
 }
 
 func TestRankingsHTMXSwapRendersOnlyTheBoard(t *testing.T) {
-	mux := rankingsMux(t, 3)
+	mux := rankingsMux(t, contract.UIStatsSchemaVersion)
 	rec := switchGet(t, mux, "/ui/rankings?metric=veterans&region=EU", map[string]string{"HX-Request": "true", "HX-Target": "rankings-board"})
 	body := rec.Body.String()
 	if strings.Contains(body, "<header") || strings.Contains(body, "<html") {
@@ -318,7 +326,7 @@ func TestRankingsHTMXSwapRendersOnlyTheBoard(t *testing.T) {
 }
 
 func TestRankingsUnknownParametersFallBackToTheDefaults(t *testing.T) {
-	mux := rankingsMux(t, 3)
+	mux := rankingsMux(t, contract.UIStatsSchemaVersion)
 	for _, target := range []string{
 		"/ui/rankings?metric=nope&by=galaxy&region=Mars",
 		"/ui/rankings?metric=&by=&region=",
@@ -338,11 +346,12 @@ func TestRankingsUnknownParametersFallBackToTheDefaults(t *testing.T) {
 
 func TestRankingsWaitForFiguresOnAVersion2Snapshot(t *testing.T) {
 	mux := rankingsMux(t, 2)
-	growth := parseHTML(t, serveMuxGet(t, mux, "/ui/rankings").Body.String())
-	if len(ladderEntries(t, growth)) == 0 {
-		t.Error("growth works on a version 2 snapshot")
+	chocobo := parseHTML(t, serveMuxGet(t, mux, "/ui/rankings?metric=chocobo").Body.String())
+	if len(ladderEntries(t, chocobo)) == 0 {
+		t.Error("company chocobo growth works on a version 2 snapshot")
 	}
 	for metric, subject := range map[string]string{
+		"growth":       "Created character figures arrive with the next refresh.",
 		"veterans":     "Level cap figures arrive with the next refresh.",
 		"privacy":      "Privacy figures arrive with the next refresh.",
 		"gc-maelstrom": "Grand Company figures arrive with the next refresh.",
@@ -362,7 +371,7 @@ func TestRankingsWaitForFiguresOnAVersion2Snapshot(t *testing.T) {
 }
 
 func TestRankingsHeaderLinksTheBoards(t *testing.T) {
-	doc := parseHTML(t, serveMuxGet(t, rankingsMux(t, 3), "/ui/rankings").Body.String())
+	doc := parseHTML(t, serveMuxGet(t, rankingsMux(t, contract.UIStatsSchemaVersion), "/ui/rankings").Body.String())
 	navs := findAll(doc, func(n *html.Node) bool {
 		v, _ := attr(n, "aria-label")
 		return n.DataAtom == atom.Nav && v == "Rankings boards"
@@ -380,7 +389,7 @@ func TestRankingsHeaderLinksTheBoards(t *testing.T) {
 }
 
 func TestRankingsShowsNightlyFreshnessForPrivacyOnly(t *testing.T) {
-	mux := rankingsMux(t, 3)
+	mux := rankingsMux(t, contract.UIStatsSchemaVersion)
 	privacy := parseHTML(t, serveMuxGet(t, mux, "/ui/rankings?metric=privacy").Body.String())
 	if len(findAll(privacy, byClass("freshness"))) != 1 {
 		t.Error("the privacy board says when it was rebuilt")
@@ -392,7 +401,7 @@ func TestRankingsShowsNightlyFreshnessForPrivacyOnly(t *testing.T) {
 }
 
 func TestRankingsGrandCompanyBoardsWearTheCompanyColour(t *testing.T) {
-	mux := rankingsMux(t, 3)
+	mux := rankingsMux(t, contract.UIStatsSchemaVersion)
 	for metric, tone := range map[string]string{
 		"gc-maelstrom": "ladder-tone-maelstrom", "gc-twin-adder": "ladder-tone-twin-adder", "gc-immortal-flames": "ladder-tone-immortal-flames",
 	} {

@@ -462,7 +462,7 @@
     "/api/v1/stats/new-characters": {
       "get": {
         "summary": "New characters per day",
-        "description": "Daily counts of characters who earned the Chocobo milestone (achievement 590). Defaults to the new-characters window (census.new_characters_window_days, 90 by default): its complete UTC days before the snapshot day. A range must stay inside the snapshot's current and previous windows.",
+        "description": "Daily counts of characters who earned the Chocobo milestone (achievement 590) and, once the snapshot has them, of characters created that day by character ID (every live character, public or private; days before census.new_characters_exact_from_id was first seen are estimated). Defaults to the new-characters window (census.new_characters_window_days, 90 by default): its complete UTC days before the snapshot day. A range must stay inside the snapshot's current and previous windows.",
         "produces": [
           "application/json"
         ],
@@ -842,7 +842,17 @@
         },
         "count": {
           "type": "integer",
-          "format": "int64"
+          "format": "int64",
+          "description": "Characters who earned their first company chocobo that day."
+        },
+        "created": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Characters created that day; absent before the snapshot has created figures."
+        },
+        "estimated": {
+          "type": "boolean",
+          "description": "True when the created count is estimated from the company chocobo dates of the IDs around it."
         }
       }
     },

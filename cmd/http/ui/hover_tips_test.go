@@ -157,7 +157,7 @@ func TestEveryCustomVisualShowsItsNumbersOnHover(t *testing.T) {
 	})
 
 	t.Run("rankings ladder", func(t *testing.T) {
-		assertTips(t, get(t, rankingsMux(t, 3), "/ui/rankings"), "ladder-rung")
+		assertTips(t, get(t, rankingsMux(t, 5), "/ui/rankings"), "ladder-rung")
 	})
 
 	t.Run("Free Company ladder", func(t *testing.T) {
@@ -231,7 +231,7 @@ func TestRankingsControlsAreOneRowEach(t *testing.T) {
 		path string
 		want int
 	}{
-		"rankings":       {rankingsMux(t, 3), "/ui/rankings", 4},
+		"rankings":       {rankingsMux(t, 5), "/ui/rankings", 4},
 		"free companies": {fcRankingsMux(t, 3, fcRankingsBoards()), "/ui/rankings/free-companies", 1},
 	}
 	for name, tc := range cases {

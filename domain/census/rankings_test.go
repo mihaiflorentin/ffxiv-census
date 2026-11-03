@@ -139,8 +139,36 @@ func TestRankingsRateMetricsLeaveOutSmallWorlds(t *testing.T) {
 	}
 }
 
-func TestRankingsGrowthPerThousandAndAsACount(t *testing.T) {
-	perThousand := Rankings(rankingSnapshot(), RankingQuery{Metric: MetricGrowth, By: LocationWorld})
+// createdRankingSnapshot is rankingSnapshot as schema 5, with created
+// characters on its world groups: Lich creates the most per 1,000.
+func createdRankingSnapshot() *contract.UIStatsSnapshot {
+	s := rankingSnapshot()
+	s.SchemaVersion, s.NewCharactersWindowDays, s.CreatedBuiltAt, s.CreatedExactFrom = 5, 30, s.GeneratedAt, "2026-10-21"
+	created := map[string]int64{"Balmung": 40, "Coeurl": 18, "Gilgamesh": 27, "Ragnarok": 20, "Lich": 30, "Bismarck": 50}
+	for i, g := range s.Groups {
+		if g.Scope == (contract.StatsScope{}) && g.Dimension == "world" {
+			s.Groups[i].Created = created[g.Key]
+		}
+	}
+	return s
+}
+
+func TestRankingsCreatedPerThousandAndAsACount(t *testing.T) {
+	perThousand := Rankings(createdRankingSnapshot(), RankingQuery{Metric: MetricGrowth, By: LocationWorld})
+	if got, want := boardKeys(perThousand), []string{"Lich", "Balmung", "Gilgamesh", "Coeurl", "Ragnarok"}; !sameKeys(got, want) {
+		t.Fatalf("created per 1,000 board = %v, want %v", got, want)
+	}
+	if lead := perThousand.Rows[0]; lead.Value != 150 || lead.Part != 30 || lead.Total != 200 {
+		t.Errorf("created leader = %+v, want 150 per 1,000 (30 of 200)", lead)
+	}
+	count := Rankings(createdRankingSnapshot(), RankingQuery{Metric: MetricGrowthCount, By: LocationWorld})
+	if got, want := boardKeys(count), []string{"Bismarck", "Balmung", "Lich", "Gilgamesh", "Ragnarok", "Coeurl"}; !sameKeys(got, want) {
+		t.Fatalf("created board = %v, want %v", got, want)
+	}
+}
+
+func TestRankingsChocobosPerThousandAndAsACount(t *testing.T) {
+	perThousand := Rankings(rankingSnapshot(), RankingQuery{Metric: MetricChocobo, By: LocationWorld})
 	if got, want := boardKeys(perThousand), []string{"Coeurl", "Balmung", "Lich", "Gilgamesh", "Ragnarok"}; !sameKeys(got, want) {
 		t.Fatalf("growth board = %v, want %v", got, want)
 	}
@@ -151,7 +179,7 @@ func TestRankingsGrowthPerThousandAndAsACount(t *testing.T) {
 		t.Errorf("growth per 1,000 is a rate: excluded = %d, want 1", perThousand.Excluded)
 	}
 
-	count := Rankings(rankingSnapshot(), RankingQuery{Metric: MetricGrowthCount, By: LocationWorld})
+	count := Rankings(rankingSnapshot(), RankingQuery{Metric: MetricChocoboCount, By: LocationWorld})
 	if got, want := boardKeys(count), []string{"Bismarck", "Coeurl", "Balmung", "Lich", "Ragnarok", "Gilgamesh"}; !sameKeys(got, want) {
 		t.Fatalf("new characters board = %v, want %v", got, want)
 	}
@@ -225,7 +253,8 @@ func TestRankingsWaitForTheFiguresTheyNeed(t *testing.T) {
 	v2.SchemaVersion = 2
 	v2.PrivacyBuiltAt = time.Time{}
 	for metric, ready := range map[RankingMetric]bool{
-		MetricGrowth: true, MetricGrowthCount: true, MetricActivity: true, MetricPopulation: true,
+		MetricChocobo: true, MetricChocoboCount: true, MetricActivity: true, MetricPopulation: true,
+		MetricGrowth: false, MetricGrowthCount: false,
 		MetricVeterans: false, MetricPrivacy: false,
 		MetricLeanMaelstrom: false, MetricLeanTwinAdder: false, MetricLeanImmortalFlames: false,
 		"unknown": false,

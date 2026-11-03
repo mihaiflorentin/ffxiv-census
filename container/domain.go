@@ -42,6 +42,7 @@ func (s *ServiceContainer) CensusService() *census.Service {
 		if c.NewCharactersWindowDays > 0 {
 			svc.SetNewCharactersWindow(time.Duration(c.NewCharactersWindowDays) * 24 * time.Hour)
 		}
+		svc.SetCreatedExactFromID(c.NewCharactersExactFromID)
 		if c.PrivateRecheckDays > 0 {
 			svc.SetPrivateRecheckWindow(time.Duration(c.PrivateRecheckDays) * 24 * time.Hour)
 		}
