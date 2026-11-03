@@ -20,18 +20,34 @@ type CharacterRepository struct {
 	driver contract.DatabaseDriver
 	// maxLevel is the configured level cap the job bitmasks measure against.
 	maxLevel uint32
-	// activeDays is how many days after its last change a private character
-	// stays in the active census tier.
-	activeDays int
+	// windows are the census tier windows every write places a character by.
+	windows tierWindows
 }
 
-// WithActiveWindowDays sets how many days after its last change a private
-// character stays in the active census tier. Zero keeps the default,
+// tierWindows are how many days after its last activity a character stays in
+// the active and in the recent census tier.
+type tierWindows struct {
+	activeDays, recentDays int
+}
+
+// WithActiveWindowDays sets how many days after its last activity a character
+// stays in the active census tier. Zero keeps the default,
 // census.DefaultActiveWindowDays.
 func WithActiveWindowDays(days int) CharacterRepositoryOption {
 	return func(r *CharacterRepository) {
 		if days > 0 {
-			r.activeDays = days
+			r.windows.activeDays = days
+		}
+	}
+}
+
+// WithRecentWindowDays sets how many days after its last activity a character
+// stays in the recent census tier. Zero keeps the default,
+// census.DefaultRecentWindowDays.
+func WithRecentWindowDays(days int) CharacterRepositoryOption {
+	return func(r *CharacterRepository) {
+		if days > 0 {
+			r.windows.recentDays = days
 		}
 	}
 }
@@ -50,7 +66,9 @@ func WithMaxLevel(maxLevel uint32) CharacterRepositoryOption {
 }
 
 func NewCharacterRepository(driver contract.DatabaseDriver, opts ...CharacterRepositoryOption) contract.CharacterRepository {
-	r := &CharacterRepository{driver: driver, maxLevel: census.DefaultMaxLevel, activeDays: census.DefaultActiveWindowDays}
+	r := &CharacterRepository{driver: driver, maxLevel: census.DefaultMaxLevel, windows: tierWindows{
+		activeDays: census.DefaultActiveWindowDays, recentDays: census.DefaultRecentWindowDays,
+	}}
 	for _, opt := range opts {
 		opt(r)
 	}
@@ -92,7 +110,7 @@ func (r *CharacterRepository) StoreResult(ctx context.Context, result contract.C
 		return fmt.Errorf("character upsert set async commit: %w", err)
 	}
 
-	if err := storeBatch(ctx, tx, result, r.maxLevel, r.activeDays); err != nil {
+	if err := storeBatch(ctx, tx, result, r.maxLevel, r.windows); err != nil {
 		return markInvalidData(err)
 	}
 	return markInvalidData(tx.Commit())
@@ -107,10 +125,9 @@ func (r *CharacterRepository) StoreResult(ctx context.Context, result contract.C
 // ascending ID order; when achievements follow, the rows of every character
 // the batch touches are locked first, in ascending ID order.
 //
-// activeDays is the active census tier window: every write recomputes the
-// census tier of the characters it touches (see upsertCharactersTx and
-// storeAchievementTx).
-func storeBatch(ctx context.Context, tx *sql.Tx, result contract.CensusResult, maxLevel uint32, activeDays int) error {
+// Every write recomputes the census tier of the characters it touches by the
+// tier windows (see tierCase).
+func storeBatch(ctx context.Context, tx *sql.Tx, result contract.CensusResult, maxLevel uint32, windows tierWindows) error {
 	achievements := slices.Clone(result.Achievements)
 	slices.SortStableFunc(achievements, func(a, b contract.AchievementWrite) int {
 		return cmp.Compare(a.CharacterID, b.CharacterID)
@@ -127,7 +144,7 @@ func storeBatch(ctx context.Context, tx *sql.Tx, result contract.CensusResult, m
 		if err != nil {
 			return err
 		}
-		if err := upsertCharactersTx(ctx, tx, writes, maxLevel, activeDays, levelled); err != nil {
+		if err := upsertCharactersTx(ctx, tx, writes, maxLevel, windows, levelled); err != nil {
 			return err
 		}
 		if err := replaceJobsTx(ctx, tx, writes); err != nil {
@@ -135,7 +152,7 @@ func storeBatch(ctx context.Context, tx *sql.Tx, result contract.CensusResult, m
 		}
 	}
 	for _, a := range achievements {
-		if err := storeAchievementTx(ctx, tx, a, activeDays); err != nil {
+		if err := storeAchievementTx(ctx, tx, a, windows); err != nil {
 			return err
 		}
 	}
@@ -193,10 +210,9 @@ func markInvalidData(err error) error {
 // effect as AchievementRepository.UpsertCharacterMilestones followed by the
 // summary update (a private profile only flags the character private and
 // records when it was verified; a zero CheckedAt keeps the recorded time).
-// A latest achievement newer than the stored one is a change. A private
-// result puts the character in the active or the other private census tier
-// by its last change; a public one puts it in the public tier.
-func storeAchievementTx(ctx context.Context, tx *sql.Tx, a contract.AchievementWrite, activeDays int) error {
+// A latest achievement newer than the stored one is a change. Either result
+// recomputes the census tier from the latest achievement and last change.
+func storeAchievementTx(ctx context.Context, tx *sql.Tx, a contract.AchievementWrite, windows tierWindows) error {
 	if a.Private {
 		var checkedAt *time.Time
 		if !a.CheckedAt.IsZero() {
@@ -206,10 +222,10 @@ func storeAchievementTx(ctx context.Context, tx *sql.Tx, a contract.AchievementW
 			`UPDATE characters
 			    SET achievements_private = $1,
 			        achievements_checked_at = COALESCE($2::timestamptz, achievements_checked_at),
-			        census_tier = CASE WHEN last_change_at >= NOW() - make_interval(days => $4::integer) THEN $5::smallint ELSE $6::smallint END
+			        census_tier = `+tierCase("latest_achievement_at", "last_change_at", 4, 5)+`
 			  WHERE id = $3`,
 			boolInt(true), nullableTime(checkedAt), a.CharacterID,
-			activeDays, contract.CensusTierActivePrivate, contract.CensusTierPrivate); err != nil {
+			windows.activeDays, windows.recentDays); err != nil {
 			return fmt.Errorf("character set achievements private: %w", err)
 		}
 		return nil
@@ -219,16 +235,18 @@ func storeAchievementTx(ctx context.Context, tx *sql.Tx, a contract.AchievementW
 			return fmt.Errorf("milestones batch upsert: %w", err)
 		}
 	}
+	// SET reads the old row: the tier sees the new achievement and change.
+	const change = `CASE WHEN $3::timestamptz > latest_achievement_at THEN NOW() ELSE last_change_at END`
 	if _, err := tx.ExecContext(ctx,
 		`UPDATE characters
 		    SET achievements_private = $1,
 		        latest_achievement_id = $2,
 		        latest_achievement_at = $3,
-		        last_change_at = CASE WHEN $3::timestamptz > latest_achievement_at THEN NOW() ELSE last_change_at END,
-		        census_tier = $5::smallint
+		        last_change_at = `+change+`,
+		        census_tier = `+tierCase("$3::timestamptz", change, 5, 6)+`
 		  WHERE id = $4`,
 		boolInt(false), nullableUint32(a.LatestID), nullableTime(a.LatestAt), a.CharacterID,
-		contract.CensusTierPublic); err != nil {
+		windows.activeDays, windows.recentDays); err != nil {
 		return fmt.Errorf("character update achievement summary: %w", err)
 	}
 	return nil
@@ -292,13 +310,11 @@ func toCharacterColumns(writes []contract.CharacterWrite, maxLevel uint32) chara
 // has a levelled or newly unlocked job (levelled, see levelledCharactersTx),
 // a higher highest job level, another non-empty name, world, Free Company or
 // Grand Company, or another current job (when both are known) has changed:
-// last_change_at becomes this census. A first sighting is never a change. A
-// public character is in the public tier; a private one is in the active tier
-// while its last change is within activeDays, and in the other private tier
-// otherwise.
-func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.CharacterWrite, maxLevel uint32, activeDays int, levelled []int64) error {
+// last_change_at becomes this census. A first sighting is never a change. The
+// census tier follows from the latest achievement and last change (tierCase).
+func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.CharacterWrite, maxLevel uint32, windows tierWindows, levelled []int64) error {
 	c := toCharacterColumns(writes, maxLevel)
-	const query = `INSERT INTO characters (
+	query := `INSERT INTO characters (
 			id, name, world, datacenter, region, race, tribe, gender, grand_company,
 			fc_id, fc_name, bio, active_job,
 			achievements_private, latest_achievement_id, latest_achievement_at,
@@ -310,9 +326,7 @@ func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.Chara
 			t.achievements_private, t.latest_achievement_id, t.latest_achievement_at,
 			t.first_seen_at, t.last_census_at, t.deleted_at, t.max_job_level,
 			t.jobs_levelled_mask, t.jobs_at_cap_mask, ch.last_change_at,
-			CASE WHEN ch.private = 0 THEN $24::smallint
-			     WHEN ch.last_change_at >= NOW() - make_interval(days => $27::integer) THEN $25::smallint
-			     ELSE $26::smallint END
+			` + tierCase("COALESCE(t.latest_achievement_at, c.latest_achievement_at)", "ch.last_change_at", 24, 25) + `
 		  FROM unnest($1::bigint[], $2::text[], $3::text[], $4::text[], $5::text[], $6::text[], $7::text[],
 			$8::smallint[], $9::text[], $10::text[], $11::text[], $12::text[], $13::text[],
 			$14::smallint[], $15::integer[], $16::timestamptz[], $17::timestamptz[], $18::timestamptz[],
@@ -324,7 +338,6 @@ func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.Chara
 			jobs_levelled_mask, jobs_at_cap_mask)
 		  LEFT JOIN characters c ON c.id = t.id
 		 CROSS JOIN LATERAL (SELECT
-			CASE WHEN t.achievements_private = 1 THEN 1 ELSE COALESCE(c.achievements_private, 0) END AS private,
 			CASE WHEN c.id IS NOT NULL AND (
 			          t.id = ANY($23::bigint[])
 			       OR t.max_job_level > c.max_job_level
@@ -365,10 +378,23 @@ func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.Chara
 		c.fcIDs, c.fcNames, c.bios, c.activeJobs,
 		c.private, c.latestIDs, c.latestAts, c.firstSeens, c.lastCensuses, c.deleteds, c.maxLevels,
 		c.levelledMasks, c.atCapMasks, levelled,
-		contract.CensusTierPublic, contract.CensusTierActivePrivate, contract.CensusTierPrivate, activeDays); err != nil {
+		windows.activeDays, windows.recentDays); err != nil {
 		return fmt.Errorf("character upsert: %w", err)
 	}
 	return nil
+}
+
+// tierCase is the SQL census tier of a character whose latest achievement and
+// last change are the SQL expressions achievement and change: active when the
+// later of the two is within the active window (bound to $activeParam, in
+// days), recent within the recent window ($recentParam), dormant otherwise or
+// when both are NULL (GREATEST skips a NULL). It mirrors census.ActiveSince.
+func tierCase(achievement, change string, activeParam, recentParam int) string {
+	return fmt.Sprintf(`CASE WHEN GREATEST(%[1]s, %[2]s) >= NOW() - make_interval(days => $%[3]d::integer) THEN %[5]d::smallint
+			     WHEN GREATEST(%[1]s, %[2]s) >= NOW() - make_interval(days => $%[4]d::integer) THEN %[6]d::smallint
+			     ELSE %[7]d::smallint END`,
+		achievement, change, activeParam, recentParam,
+		contract.CensusTierActive, contract.CensusTierRecent, contract.CensusTierDormant)
 }
 
 // levelledCharactersTx returns the IDs of the stored characters in writes

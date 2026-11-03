@@ -167,50 +167,34 @@ func TestPublishCharacterCensusCmd_DeletedReprobeFlagDefaults(t *testing.T) {
 	}
 }
 
-func TestTierQuotasSplitTheLimitByShare(t *testing.T) {
-	for _, tc := range []struct {
-		limit  int
-		shares []int
-		want   []int
-	}{
-		{1200, []int{30, 20, 50}, []int{360, 240, 600}},
-		{10, []int{30, 20, 50}, []int{3, 2, 5}},
-		// Rounding leftovers go to the last tier, so the quotas sum to limit.
-		{7, []int{30, 20, 50}, []int{2, 1, 4}},
-		// Shares are relative, not percentages.
-		{6, []int{1, 1, 1}, []int{2, 2, 2}},
-	} {
-		if got := tierQuotas(tc.limit, tc.shares); !slices.Equal(got, tc.want) {
-			t.Errorf("tierQuotas(%d, %v) = %v, want %v", tc.limit, tc.shares, got, tc.want)
-		}
-	}
-}
-
-// seedTieredCharacters stores live characters in each census tier, every one
-// censused a different number of days ago: tier 1 (public) 101-104, tier 2
-// 201-202, tier 3 301-306. A higher id within a tier was censused more
-// recently.
+// seedTieredCharacters stores live characters in each census tier, censused
+// the given time ago: active 101-105, recent 201-203, dormant 301-306.
 func seedTieredCharacters(t *testing.T, now time.Time) *mockrepo.CharacterRepository {
 	t.Helper()
 	repo := mockrepo.NewCharacterFake()
 	ctx := context.Background()
-	seed := func(tier int, ids ...uint32) {
-		for i, id := range ids {
-			at := now.Add(-time.Duration(len(ids)-i) * day)
-			rec := contract.CharacterRecord{ID: id, Name: "C", World: "W", FirstSeenAt: at, LastCensusAt: &at, AchievementsPrivate: tier != contract.CensusTierPublic}
-			if err := repo.Upsert(ctx, rec, nil); err != nil {
-				t.Fatal(err)
-			}
-			repo.SetCensusTier(id, tier)
+	seed := func(tier int, id uint32, ago time.Duration) {
+		at := now.Add(-ago)
+		if err := repo.Upsert(ctx, contract.CharacterRecord{ID: id, Name: "C", World: "W", FirstSeenAt: at, LastCensusAt: &at}, nil); err != nil {
+			t.Fatal(err)
 		}
+		repo.SetCensusTier(id, tier)
 	}
-	seed(contract.CensusTierPublic, 101, 102, 103, 104)
-	seed(contract.CensusTierActivePrivate, 201, 202)
-	seed(contract.CensusTierPrivate, 301, 302, 303, 304, 305, 306)
+	for id, ago := range map[uint32]time.Duration{101: 4 * day, 102: 3 * day, 103: 2 * day, 104: time.Hour, 105: 5 * day} {
+		seed(contract.CensusTierActive, id, ago)
+	}
+	for id, ago := range map[uint32]time.Duration{201: 5 * day, 202: 4 * day, 203: day} {
+		seed(contract.CensusTierRecent, id, ago)
+	}
+	for i, id := range []uint32{301, 302, 303, 304, 305, 306} {
+		seed(contract.CensusTierDormant, id, time.Duration(60-i)*day)
+	}
 	return repo
 }
 
-func TestPublishCharacterCensus_SplitsTheLimitAcrossCensusTiers(t *testing.T) {
+var testTierRevisit = []time.Duration{36 * time.Hour, 72 * time.Hour}
+
+func TestPublishCharacterCensus_RevisitsTheActiveAndRecentTiersOnSchedule(t *testing.T) {
 	now := time.Now().UTC()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	for _, tc := range []struct {
@@ -218,17 +202,27 @@ func TestPublishCharacterCensus_SplitsTheLimitAcrossCensusTiers(t *testing.T) {
 		limit int
 		want  []uint32
 	}{
-		// 30/20/50 of 10: 3 public, 2 active private, 5 other private.
-		{"every tier fills its share", 10, []uint32{101, 102, 103, 201, 202, 301, 302, 303, 304, 305}},
-		// 30/20/50 of 20: 6, 4 and 10. Tier 1 has 4 and tier 2 has 2, so
-		// their 4 left over go to tier 3, which has only 6: the 4 that remain
-		// go back to the earlier tiers, and none has more.
-		{"leftover moves to the other tiers", 20, []uint32{101, 102, 103, 104, 201, 202, 301, 302, 303, 304, 305, 306}},
+		// Half of 10 for the upper tiers, split 3 and 2: the active
+		// characters not censused for 36h (105, 101, 102 of the four due)
+		// and the recent ones not censused for 72h (201, 202). The dormant
+		// tier takes the other 5.
+		{"due characters first, the rest to the dormant tier", 10, []uint32{105, 101, 102, 201, 202, 301, 302, 303, 304, 305}},
+		// The dormant tier always keeps half of the limit.
+		{"the dormant tier keeps its minimum share", 4, []uint32{105, 201, 301, 302}},
+		// Both upper tiers have more due than their half of 4, so the
+		// recent tier is never starved by the active one.
+		{"the upper tiers split their part evenly", 8, []uint32{105, 101, 201, 202, 301, 302, 303, 304}},
+		// The recent tier has only 2 due of its 3: the active tier takes
+		// the spare.
+		{"an upper tier's spare goes to the other", 12, []uint32{105, 101, 102, 103, 201, 202, 301, 302, 303, 304, 305, 306}},
+		// The dormant tier has only 6: what it cannot use goes back to the
+		// active tier, then the recent one, even before they are due.
+		{"leftover goes back to the upper tiers", 14, []uint32{105, 101, 102, 103, 104, 201, 202, 203, 301, 302, 303, 304, 305, 306}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := seedTieredCharacters(t, now)
 			q := &errorQueue{}
-			opts := characterCensusOptions{Limit: tc.limit, TierShares: []int{30, 20, 50}}
+			opts := characterCensusOptions{Limit: tc.limit, TierRevisit: testTierRevisit, MinRestShare: 50}
 			if err := publishCharacterCensus(context.Background(), repo, q, logger, now, opts); err != nil {
 				t.Fatalf("publishCharacterCensus: %v", err)
 			}
@@ -239,38 +233,23 @@ func TestPublishCharacterCensus_SplitsTheLimitAcrossCensusTiers(t *testing.T) {
 	}
 }
 
-func TestPublishCharacterCensus_LeftoverFromALaterTierGoesToAnEarlierOne(t *testing.T) {
-	now := time.Now().UTC()
-	repo := mockrepo.NewCharacterFake()
-	ctx := context.Background()
-	for i, id := range []uint32{101, 102, 103, 104, 105, 106} {
-		at := now.Add(-time.Duration(6-i) * day)
-		if err := repo.Upsert(ctx, contract.CharacterRecord{ID: id, Name: "C", World: "W", FirstSeenAt: at, LastCensusAt: &at}, nil); err != nil {
-			t.Fatal(err)
-		}
-	}
-	q := &errorQueue{}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-
-	// Only public characters: tiers 2 and 3 are empty, so the public tier
-	// takes the whole limit of 5.
-	opts := characterCensusOptions{Limit: 5, TierShares: []int{30, 20, 50}}
-	if err := publishCharacterCensus(ctx, repo, q, logger, now, opts); err != nil {
-		t.Fatalf("publishCharacterCensus: %v", err)
-	}
-	if got, want := publishedCharacterIDs(t, q.jobs), []uint32{101, 102, 103, 104, 105}; !slices.Equal(got, want) {
-		t.Errorf("published = %v, want %v", got, want)
-	}
-}
-
-func TestPublishCharacterCensus_RejectsSharesThatLeaveATierOut(t *testing.T) {
+func TestPublishCharacterCensus_RejectsAnInvalidTierSchedule(t *testing.T) {
 	now := time.Now().UTC()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	for _, shares := range [][]int{{30, 70}, {30, 20, 50, 10}, {30, 0, 70}, {-10, 60, 50}} {
+	for _, tc := range []struct {
+		revisit []time.Duration
+		minRest int
+	}{
+		{[]time.Duration{36 * time.Hour}, 50},
+		{[]time.Duration{36 * time.Hour, 72 * time.Hour, time.Hour}, 50},
+		{[]time.Duration{0, 72 * time.Hour}, 50},
+		{testTierRevisit, -1},
+		{testTierRevisit, 101},
+	} {
 		q := &errorQueue{}
-		opts := characterCensusOptions{Limit: 10, TierShares: shares}
+		opts := characterCensusOptions{Limit: 10, TierRevisit: tc.revisit, MinRestShare: tc.minRest}
 		if err := publishCharacterCensus(context.Background(), seedTieredCharacters(t, now), q, logger, now, opts); err == nil {
-			t.Errorf("shares %v published %d jobs, want an error", shares, len(q.jobs))
+			t.Errorf("revisit %v min rest %d published %d jobs, want an error", tc.revisit, tc.minRest, len(q.jobs))
 		}
 	}
 }

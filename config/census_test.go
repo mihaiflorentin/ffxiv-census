@@ -101,16 +101,30 @@ func TestCensusConfig_CensusTiersDefaultAndEnv(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewConfig: %v", err)
 	}
-	if cfg.Census == nil || !slices.Equal(cfg.Census.TierShares, []int{30, 20, 50}) {
-		t.Fatalf("tier_shares = %+v, want [30 20 50]", cfg.Census)
+	if cfg.Census == nil || !slices.Equal(cfg.Census.TierRevisitHours, []int{36, 72}) {
+		t.Fatalf("tier_revisit_hours = %+v, want [36 72]", cfg.Census)
+	}
+	if cfg.Census.MinRestShare != 50 {
+		t.Fatalf("min_rest_share = %d, want 50", cfg.Census.MinRestShare)
 	}
 	if cfg.Census.ActiveWindowDays != 90 {
 		t.Fatalf("active_window_days = %d, want 90", cfg.Census.ActiveWindowDays)
 	}
+	if cfg.Census.RecentWindowDays != 365 {
+		t.Fatalf("recent_window_days = %d, want 365", cfg.Census.RecentWindowDays)
+	}
 
 	t.Setenv("CENSUS_ACTIVE_WINDOW_DAYS", "30")
+	t.Setenv("CENSUS_RECENT_WINDOW_DAYS", "180")
+	t.Setenv("CENSUS_MIN_REST_SHARE", "60")
 	cfg, _ = NewConfig()
 	if cfg.Census.ActiveWindowDays != 30 {
 		t.Fatalf("CENSUS_ACTIVE_WINDOW_DAYS override: got %v, want 30", cfg.Census.ActiveWindowDays)
+	}
+	if cfg.Census.RecentWindowDays != 180 {
+		t.Fatalf("CENSUS_RECENT_WINDOW_DAYS override: got %v, want 180", cfg.Census.RecentWindowDays)
+	}
+	if cfg.Census.MinRestShare != 60 {
+		t.Fatalf("CENSUS_MIN_REST_SHARE override: got %v, want 60", cfg.Census.MinRestShare)
 	}
 }
