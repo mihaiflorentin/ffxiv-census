@@ -223,7 +223,7 @@ The population axis a group is counted along: race, tribe, gender, race-by-gende
 _Avoid_: dimension (bare), grouping
 
 **Active character**:
-A character with a public achievement or an observed change (a job levelled or unlocked, another current job, a new name, world, Free Company or Grand Company) within the activity window. Private characters count through observed changes. Changes are recorded since 2026-11-01.
+A character with a public achievement or an observed change (a job levelled or unlocked, another current job, a new name, world, Free Company or Grand Company) within the activity window. Private characters count through observed changes. Creation is a change: a [created character](#created-character) counts from its creation day. Changes are recorded since 2026-11-01.
 _Avoid_: active player (for one character), online, subscribed
 
 **Activity window**:

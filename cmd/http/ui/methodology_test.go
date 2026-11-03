@@ -57,6 +57,8 @@ func TestMethodologyHandler(t *testing.T) {
 		"dated by their character ID",
 		"public or private",
 		"From 21 October 2026",
+		// A new character counts as active from its creation.
+		"a character created in the last 90 days counts as active",
 		"estimated from the company chocobo dates",
 		"reached their company chocobo",
 		"still a lower bound",
