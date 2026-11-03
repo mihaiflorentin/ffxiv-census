@@ -168,7 +168,7 @@ func TestPublishCharacterCensusCmd_DeletedReprobeFlagDefaults(t *testing.T) {
 }
 
 // seedTieredCharacters stores live characters in each census tier, censused
-// the given time ago: active 101-104, recent 201-203, dormant 301-306.
+// the given time ago: active 101-105, recent 201-203, dormant 301-306.
 func seedTieredCharacters(t *testing.T, now time.Time) *mockrepo.CharacterRepository {
 	t.Helper()
 	repo := mockrepo.NewCharacterFake()
@@ -180,7 +180,7 @@ func seedTieredCharacters(t *testing.T, now time.Time) *mockrepo.CharacterReposi
 		}
 		repo.SetCensusTier(id, tier)
 	}
-	for id, ago := range map[uint32]time.Duration{101: 4 * day, 102: 3 * day, 103: 2 * day, 104: time.Hour} {
+	for id, ago := range map[uint32]time.Duration{101: 4 * day, 102: 3 * day, 103: 2 * day, 104: time.Hour, 105: 5 * day} {
 		seed(contract.CensusTierActive, id, ago)
 	}
 	for id, ago := range map[uint32]time.Duration{201: 5 * day, 202: 4 * day, 203: day} {
@@ -202,15 +202,22 @@ func TestPublishCharacterCensus_RevisitsTheActiveAndRecentTiersOnSchedule(t *tes
 		limit int
 		want  []uint32
 	}{
-		// Half of 10 for the upper tiers: the active characters not
-		// censused for 36h (101-103) and the recent ones not censused for
-		// 72h (201, 202). The dormant tier takes the other 5.
-		{"due characters first, the rest to the dormant tier", 10, []uint32{101, 102, 103, 201, 202, 301, 302, 303, 304, 305}},
+		// Half of 10 for the upper tiers, split 3 and 2: the active
+		// characters not censused for 36h (105, 101, 102 of the four due)
+		// and the recent ones not censused for 72h (201, 202). The dormant
+		// tier takes the other 5.
+		{"due characters first, the rest to the dormant tier", 10, []uint32{105, 101, 102, 201, 202, 301, 302, 303, 304, 305}},
 		// The dormant tier always keeps half of the limit.
-		{"the dormant tier keeps its minimum share", 4, []uint32{101, 102, 301, 302}},
+		{"the dormant tier keeps its minimum share", 4, []uint32{105, 201, 301, 302}},
+		// Both upper tiers have more due than their half of 4, so the
+		// recent tier is never starved by the active one.
+		{"the upper tiers split their part evenly", 8, []uint32{105, 101, 201, 202, 301, 302, 303, 304}},
+		// The recent tier has only 2 due of its 3: the active tier takes
+		// the spare.
+		{"an upper tier's spare goes to the other", 12, []uint32{105, 101, 102, 103, 201, 202, 301, 302, 303, 304, 305, 306}},
 		// The dormant tier has only 6: what it cannot use goes back to the
 		// active tier, then the recent one, even before they are due.
-		{"leftover goes back to the upper tiers", 14, []uint32{101, 102, 103, 104, 201, 202, 203, 301, 302, 303, 304, 305, 306}},
+		{"leftover goes back to the upper tiers", 14, []uint32{105, 101, 102, 103, 104, 201, 202, 203, 301, 302, 303, 304, 305, 306}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := seedTieredCharacters(t, now)

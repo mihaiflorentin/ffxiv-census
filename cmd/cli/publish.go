@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"slices"
 	"syscall"
 	"time"
 
@@ -419,24 +420,40 @@ func validTierSchedule(revisit []time.Duration, minRestShare int) error {
 // tiers, each tier oldest first. The active and the recent tier take their
 // characters due for a census (not censused for their revisit interval, and
 // older than cutoff), together at most limit minus the dormant tier's
-// minRestShare percent; the dormant tier takes the rest. What the dormant
-// tier cannot use goes back to the active tier, then the recent one, due or
-// not, so the run fills limit whenever the characters exist. The result
-// lists the active tier first.
+// minRestShare percent. They split that part evenly, the odd one to the
+// active tier, so neither can starve the other, and what one has no due
+// characters for goes to the other. The dormant tier takes the rest. What
+// the dormant tier cannot use goes back to the active tier, then the recent
+// one, due or not, so the run fills limit whenever the characters exist. The
+// result lists the active tier first.
 func listTieredStaleIDs(ctx context.Context, repo contract.CharacterRepository, now, cutoff time.Time, limit int, revisit []time.Duration, minRestShare int) ([][]uint32, error) {
 	picked := make([][]uint32, contract.CensusTierDormant)
-	left := limit - limit*minRestShare/100
+	upper := limit - limit*minRestShare/100
+	quotas := []int{upper - upper/2, upper / 2}
+	dues := make([]time.Time, len(revisit))
 	for i, every := range revisit {
-		due := now.Add(-every)
-		if !cutoff.IsZero() && cutoff.Before(due) {
-			due = cutoff
+		dues[i] = now.Add(-every)
+		if !cutoff.IsZero() && cutoff.Before(dues[i]) {
+			dues[i] = cutoff
 		}
-		ids, err := listStaleInTier(ctx, repo, i+1, due, left)
+		ids, err := listStaleInTier(ctx, repo, i+1, dues[i], quotas[i])
 		if err != nil {
 			return nil, err
 		}
 		picked[i] = ids
-		left -= len(ids)
+		upper -= len(ids)
+	}
+	// A tier that filled its half takes what the other left over.
+	for i := range revisit {
+		if len(picked[i]) < quotas[i] || upper <= 0 {
+			continue
+		}
+		more, err := topUp(ctx, repo, i+1, dues[i], picked[i], upper)
+		if err != nil {
+			return nil, err
+		}
+		upper -= len(more) - len(picked[i])
+		picked[i] = more
 	}
 	rest := limit - len(picked[0]) - len(picked[1])
 	ids, err := listStaleInTier(ctx, repo, contract.CensusTierDormant, cutoff, rest)
@@ -446,22 +463,35 @@ func listTieredStaleIDs(ctx context.Context, repo contract.CharacterRepository, 
 	picked[contract.CensusTierDormant-1] = ids
 	carry := rest - len(ids)
 	for i := 0; i < len(revisit) && carry > 0; i++ {
-		ids, err := listStaleInTier(ctx, repo, i+1, cutoff, len(picked[i])+carry)
+		more, err := topUp(ctx, repo, i+1, cutoff, picked[i], carry)
 		if err != nil {
 			return nil, err
 		}
-		have := make(map[uint32]bool, len(picked[i]))
-		for _, id := range picked[i] {
-			have[id] = true
-		}
-		for _, id := range ids {
-			if !have[id] && carry > 0 {
-				picked[i] = append(picked[i], id)
-				carry--
-			}
-		}
+		carry -= len(more) - len(picked[i])
+		picked[i] = more
 	}
 	return picked, nil
+}
+
+// topUp returns have followed by up to extra more characters of tier older
+// than cutoff, oldest first, that have does not hold yet.
+func topUp(ctx context.Context, repo contract.CharacterRepository, tier int, cutoff time.Time, have []uint32, extra int) ([]uint32, error) {
+	ids, err := listStaleInTier(ctx, repo, tier, cutoff, len(have)+extra)
+	if err != nil {
+		return nil, err
+	}
+	seen := make(map[uint32]bool, len(have))
+	for _, id := range have {
+		seen[id] = true
+	}
+	out := slices.Clone(have)
+	for _, id := range ids {
+		if !seen[id] && extra > 0 {
+			out = append(out, id)
+			extra--
+		}
+	}
+	return out, nil
 }
 
 // listStaleInTier is ListStaleIDsInTier that asks for nothing when limit is
