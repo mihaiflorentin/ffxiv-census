@@ -9,7 +9,7 @@ import (
 
 // createdSnapshot is a schema 5 snapshot generated on 24 Oct 2026 with a
 // 90-day window: the current window runs 26 Jul to 23 Oct, the previous one
-// 27 Apr to 25 Jul, and the 13 weeks 25 Jul to 23 Oct. The created
+// 27 Apr to 25 Jul. The created
 // characters are exact from 21 Oct.
 func createdSnapshot() *contract.UIStatsSnapshot {
 	s := worldWindowSnapshot()
@@ -25,12 +25,12 @@ func createdSnapshot() *contract.UIStatsSnapshot {
 		{Day: "2026-10-24", Count: 50},  // generation day: still in progress
 	}
 	s.NewCharacters = []contract.ScopedDailyCount{{Day: "2026-10-22", Count: 2}}
-	weekly := make([]int64, 13)
-	weekly[0], weekly[12] = 1, 3
+	daily := make([]int64, 90)
+	daily[0], daily[89] = 1, 3
 	for i, g := range s.Groups {
 		switch g.Key {
 		case "Balmung":
-			s.Groups[i].Created, s.Groups[i].CreatedPrevious, s.Groups[i].CreatedWeekly = 4, 2, weekly
+			s.Groups[i].Created, s.Groups[i].CreatedPrevious, s.Groups[i].CreatedDaily = 4, 2, daily
 		case "Ragnarok":
 			s.Groups[i].Created, s.Groups[i].CreatedPrevious = 10, 20
 		}
@@ -83,25 +83,34 @@ func TestCreatedEstimatedBefore(t *testing.T) {
 	}
 }
 
-// A world's weekly series carries both figures, and marks the weeks with
-// an estimated day.
-func TestWorldNewCharactersWeeklyCarriesBothFigures(t *testing.T) {
+// The daily series carry both figures, for the whole game and for a world,
+// and mark the days before the exact cut as estimated.
+func TestNewCharactersDailyCarryBothFigures(t *testing.T) {
 	s := createdSnapshot()
-	world := WorldNewCharactersWeekly(s, "Balmung")
-	if len(world) != 13 {
-		t.Fatalf("world weeks = %d, want 13", len(world))
+	world := NewCharactersDaily(s, "Balmung")
+	if len(world) != 90 {
+		t.Fatalf("world days = %d, want 90", len(world))
 	}
-	if world[0].Created != 1 || !world[0].Estimated || world[12].Created != 3 || !world[12].Estimated {
-		t.Fatalf("world weeks = %+v ... %+v, want 1 and 3 created, both estimated", world[0], world[12])
+	if world[0] != (DailyNewCharacters{Day: "2026-07-26", Created: 1, Estimated: true}) ||
+		world[87] != (DailyNewCharacters{Day: "2026-10-21"}) ||
+		world[89] != (DailyNewCharacters{Day: "2026-10-23", Created: 3}) {
+		t.Fatalf("world days = %+v, %+v, %+v; want 1 created estimated on Jul 26, an exact Oct 21, 3 created on Oct 23", world[0], world[87], world[89])
+	}
+	if !world[86].Estimated {
+		t.Errorf("Oct 20 = %+v, want estimated", world[86])
 	}
 
-	s.CreatedExactFrom = "2026-10-17"
-	if weeks := WorldNewCharactersWeekly(s, "Balmung"); !weeks[11].Estimated || weeks[12].Estimated {
-		t.Fatalf("exact from the last week's first day: weeks 11/12 estimated = %v/%v, want true/false", weeks[11].Estimated, weeks[12].Estimated)
+	global := NewCharactersDaily(s, "")
+	if len(global) != 90 || global[0].Created != 2 || !global[0].Estimated || global[88].Count != 2 || global[89].Created != 5 {
+		t.Fatalf("global days = %+v ... %+v, want 2 created on Jul 26, 2 chocobos on Oct 22, 5 created on Oct 23", global[0], global[88:])
 	}
-	for _, w := range WorldNewCharactersWeekly(worldWindowSnapshot(), "Balmung") {
-		if w.Created != 0 || w.Estimated {
-			t.Fatalf("week %+v without created figures, want none and not estimated", w)
+
+	for _, d := range NewCharactersDaily(worldWindowSnapshot(), "") {
+		if d.Created != 0 || d.Estimated {
+			t.Fatalf("day %+v without created figures, want none and not estimated", d)
 		}
+	}
+	if legacy := NewCharactersDaily(legacyWorldSnapshot(), ""); len(legacy) != 30 || legacy[29].Count != 99 {
+		t.Fatalf("schema 3 whole-game days = %d, want its 30-day window ending Oct 23 with 99", len(legacy))
 	}
 }

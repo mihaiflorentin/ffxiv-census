@@ -130,7 +130,7 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 		ActiveCharacters:     active,
 		ActivePercent:        formatPercent(active, total),
 		NewCharactersCard:    newCharactersCard(snapshot, newCharactersWindow),
-		Timeline:             newCharactersTimeline(snapshot),
+		Timeline:             newCharactersTimeline(snapshot, "", ""),
 		MaxLevelCharacters:   maxLevelCount,
 		MaxLevelPercent:      formatPercent(maxLevelCount, total),
 		MaxLevel:             maxLevel,

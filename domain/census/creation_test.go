@@ -136,7 +136,7 @@ func TestValidateUIStatsSnapshotRejectsInvalidCreatedFigures(t *testing.T) {
 		}},
 		{name: "unparseable exact day", change: func(s *contract.UIStatsSnapshot) { s.CreatedExactFrom = "Oct 21" }},
 		{name: "negative group total", change: func(s *contract.UIStatsSnapshot) { s.Groups[0].CreatedPrevious = -1 }},
-		{name: "negative group week", change: func(s *contract.UIStatsSnapshot) { s.Groups[0].CreatedWeekly = []int64{1, -1} }},
+		{name: "negative group day", change: func(s *contract.UIStatsSnapshot) { s.Groups[0].CreatedDaily = []int64{1, -1} }},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -16,10 +16,10 @@ import (
 )
 
 // createdFiguresSnapshot is a schema 5 snapshot generated on Oct 24 with a
-// 14-day window: the current window and its two weeks run Oct 10 to Oct 23,
-// the previous window Sep 26 to Oct 9. The created characters are exact
-// from Oct 17. Balmung has 3 created (1 the window before) and 10 company
-// chocobos.
+// 14-day window: the current window runs Oct 10 to Oct 23, the previous
+// window Sep 26 to Oct 9. The created characters are exact from Oct 17.
+// Balmung has 3 created (1 on Oct 12, 2 on Oct 20; 1 the window before) and
+// 10 company chocobos (3 on Oct 11, 7 on Oct 18).
 func createdFiguresSnapshot() *contract.UIStatsSnapshot {
 	s := rankingsSnapshot(contract.UIStatsSchemaVersion)
 	s.GeneratedAt = time.Date(2026, 10, 24, 10, 0, 0, 0, time.UTC)
@@ -32,8 +32,10 @@ func createdFiguresSnapshot() *contract.UIStatsSnapshot {
 		if g.Scope == (contract.StatsScope{}) && g.Dimension == "world" {
 			s.Groups[i].Created, s.Groups[i].CreatedPrevious = 0, 0
 			if g.Key == "Balmung" {
-				s.Groups[i].Created, s.Groups[i].CreatedPrevious, s.Groups[i].CreatedWeekly = 3, 1, []int64{1, 2}
-				s.Groups[i].NewCharacters, s.Groups[i].NewCharactersWeekly = 10, []int64{3, 7}
+				created, chocobos := make([]int64, 14), make([]int64, 14)
+				created[2], created[10], chocobos[1], chocobos[8] = 1, 2, 3, 7
+				s.Groups[i].Created, s.Groups[i].CreatedPrevious, s.Groups[i].CreatedDaily = 3, 1, created
+				s.Groups[i].NewCharacters, s.Groups[i].NewCharactersDaily = 10, chocobos
 			}
 		}
 	}
@@ -62,9 +64,8 @@ func newCharactersCardText(t *testing.T, doc *html.Node) string {
 }
 
 // The New characters card counts the created characters with their trend,
-// and the company chocobos beside them. The dashboard charts both per day,
-// marking the estimated days; the world page charts them per week, the
-// world groups' series.
+// and the company chocobos beside them; the daily chart carries both, for
+// the whole game and for a world, and marks the estimated days.
 func TestNewCharacterFiguresCountTheCreatedCharacters(t *testing.T) {
 	mux := snapshotMux(t, createdFiguresSnapshot())
 	tests := []struct {
@@ -84,11 +85,11 @@ func TestNewCharacterFiguresCountTheCreatedCharacters(t *testing.T) {
 		{
 			path:      "/ui/worlds/Balmung",
 			card:      "New characters, last 14 days 3 Up +2 (+200.0%) on the previous 14 days 10 reached their company chocobo Days before Oct 17 estimated from character IDs",
-			summaryID: "weekly-summary",
-			summary:   "3 characters created on Balmung in the last 2 weeks, peaking at 2 in the week of Oct 17. 10 earned their first company chocobo. Weeks before Oct 17 are estimated from character IDs.",
-			caption:   "New characters per week on Balmung",
-			wantRows:  2,
-			rows:      map[int][]string{0: {"Oct 10 – Oct 16", "1 estimated", "3"}, 1: {"Oct 17 – Oct 23", "2", "7"}},
+			summaryID: "timeline-summary",
+			summary:   "3 characters created on Balmung in the last 14 days, peaking at 2 on Oct 20. 10 earned their first company chocobo. Days before Oct 17 are estimated from character IDs.",
+			caption:   "New characters per day on Balmung",
+			wantRows:  14,
+			rows:      map[int][]string{1: {"Oct 11", "0 estimated", "3"}, 2: {"Oct 12", "1 estimated", "0"}, 8: {"Oct 18", "0", "7"}, 10: {"Oct 20", "2", "0"}},
 		},
 	}
 	for _, tt := range tests {
@@ -150,15 +151,16 @@ func TestRacesPageHasNoNewCharactersCard(t *testing.T) {
 // chocobos, as they did.
 func TestNewCharacterFiguresFallBackToTheChocobos(t *testing.T) {
 	s := createdFiguresSnapshot()
-	s.SchemaVersion, s.CreatedBuiltAt, s.CreatedExactFrom, s.Created = 4, time.Time{}, "", nil
+	s.CreatedBuiltAt, s.CreatedExactFrom, s.Created = time.Time{}, "", nil
 	doc := parseHTML(t, serveMuxGet(t, snapshotMux(t, s), "/ui/worlds/Balmung").Body.String())
 	if got, want := newCharactersCardText(t, doc), "New characters, last 14 days 10 Up +10 on the previous 14 days"; got != want {
 		t.Errorf("card = %q, want %q", got, want)
 	}
-	if got, want := tableBodyRows(tableCaptioned(t, doc, "New characters per week on Balmung")), [][]string{{"Oct 10 – Oct 16", "3"}, {"Oct 17 – Oct 23", "7"}}; !reflect.DeepEqual(got, want) {
-		t.Errorf("weekly table = %v, want %v", got, want)
+	rows := tableBodyRows(tableCaptioned(t, doc, "New characters per day on Balmung"))
+	if len(rows) != 14 || !reflect.DeepEqual(rows[1], []string{"Oct 11", "3"}) || !reflect.DeepEqual(rows[8], []string{"Oct 18", "7"}) {
+		t.Errorf("daily table = %v, want 14 days with 3 on Oct 11 and 7 on Oct 18", rows)
 	}
-	if got, want := flatText(byID(doc, "weekly-summary")), "10 new characters on Balmung in the last 2 weeks, peaking at 7 in the week of Oct 17."; got != want {
+	if got, want := flatText(byID(doc, "timeline-summary")), "10 new characters on Balmung in the last 14 days, peaking at 7 on Oct 18."; got != want {
 		t.Errorf("summary = %q, want %q", got, want)
 	}
 }
@@ -188,5 +190,16 @@ func TestDashboardActivityNoteCountsNewCharacters(t *testing.T) {
 	body := serveMuxGet(t, snapshotMux(t, createdFiguresSnapshot()), "/").Body.String()
 	if !strings.Contains(body, "such as a new character, a job levelled or switched") {
 		t.Error("the activity note leaves out new characters")
+	}
+}
+
+// A schema 5 snapshot kept weekly world series, which the daily chart can't
+// read: the world page leaves the chart out until the next refresh.
+func TestWorldPageLeavesTheChartOutOnAnOlderSnapshot(t *testing.T) {
+	s := createdFiguresSnapshot()
+	s.SchemaVersion = 5
+	doc := parseHTML(t, serveMuxGet(t, snapshotMux(t, s), "/ui/worlds/Balmung").Body.String())
+	if byID(doc, "timeline-summary") != nil {
+		t.Error("a schema 5 snapshot still charts the world per day")
 	}
 }

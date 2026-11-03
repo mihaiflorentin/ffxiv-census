@@ -29,7 +29,7 @@ const (
 // first sighting; below it by the calibration curve of the company chocobo
 // dates (census.CreationAnchors), read in rounds down from the cut until it
 // reaches the series' first day. Each world group gets its window totals and
-// weekly series. Without a cut, or without a character at or above it,
+// daily series. Without a cut, or without a character at or above it,
 // there are no created figures.
 func readCreatedStats(ctx context.Context, tx *sql.Tx, snapshot *contract.UIStatsSnapshot, exactFromID, minSamples int64) error {
 	snapshot.Created, snapshot.CreatedExactFrom, snapshot.CreatedExactFromID, snapshot.CreatedBuiltAt = nil, "", 0, time.Time{}
@@ -37,7 +37,7 @@ func readCreatedStats(ctx context.Context, tx *sql.Tx, snapshot *contract.UIStat
 	for i, group := range snapshot.Groups {
 		if group.Scope == (contract.StatsScope{}) && group.Dimension == "world" {
 			worldGroups[group.Key] = i
-			snapshot.Groups[i].Created, snapshot.Groups[i].CreatedPrevious, snapshot.Groups[i].CreatedWeekly = 0, 0, nil
+			snapshot.Groups[i].Created, snapshot.Groups[i].CreatedPrevious, snapshot.Groups[i].CreatedDaily = 0, 0, nil
 		}
 	}
 	if exactFromID <= 0 {
@@ -118,11 +118,11 @@ func readCreatedStats(ctx context.Context, tx *sql.Tx, snapshot *contract.UIStat
 		case bounds.InPrevious(day):
 			group.CreatedPrevious += count
 		}
-		if week := bounds.Week(day); week >= 0 {
-			if group.CreatedWeekly == nil {
-				group.CreatedWeekly = make([]int64, bounds.Weeks())
+		if i := bounds.Day(day); i >= 0 {
+			if group.CreatedDaily == nil {
+				group.CreatedDaily = make([]int64, bounds.Days)
 			}
-			group.CreatedWeekly[week] += count
+			group.CreatedDaily[i] += count
 		}
 	}
 	if err := rows.Err(); err != nil {

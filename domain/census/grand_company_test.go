@@ -28,15 +28,15 @@ func TestSnapshotHasSection(t *testing.T) {
 	}
 }
 
-func TestValidateUIStatsSnapshotAcceptsV2ToV5(t *testing.T) {
-	for _, version := range []int{2, 3, 4, 5} {
+func TestValidateUIStatsSnapshotAcceptsV2ToV6(t *testing.T) {
+	for _, version := range []int{2, 3, 4, 5, 6} {
 		s := validUIStatsSnapshot()
 		s.SchemaVersion = version
 		if err := ValidateUIStatsSnapshot(s); err != nil {
 			t.Fatalf("v%d: %v", version, err)
 		}
 	}
-	for _, version := range []int{1, 6} {
+	for _, version := range []int{1, 7} {
 		s := validUIStatsSnapshot()
 		s.SchemaVersion = version
 		if err := ValidateUIStatsSnapshot(s); err == nil {

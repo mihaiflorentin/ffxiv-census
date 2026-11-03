@@ -69,7 +69,7 @@ func seedCreated(t *testing.T, driver contract.DatabaseDriver, today time.Time) 
 // Every live character counts as created, public or private: from the exact
 // cut by the day of its first sighting, below it by the calibration curve.
 // The daily series covers both windows at whole-game scope; each world
-// carries its window totals and its weekly series.
+// carries its window totals and its daily series over the current window.
 func TestUIStatsCreatedCharactersByID(t *testing.T) {
 	driver := newTestDriver(t)
 	today := time.Now().UTC().Truncate(24 * time.Hour)
@@ -81,8 +81,8 @@ func TestUIStatsCreatedCharactersByID(t *testing.T) {
 	}
 	snapshot := result.Snapshot
 	day := func(daysAgo int) string { return today.AddDate(0, 0, -daysAgo).Format("2006-01-02") }
-	if snapshot.SchemaVersion != 5 || snapshot.CreatedExactFrom != day(3) || snapshot.CreatedExactFromID != 400_000 || snapshot.CreatedBuiltAt.IsZero() {
-		t.Fatalf("schema %d exact from %q (ID %d) built %v, want schema 5 exact from %s (ID 400000) with a build time",
+	if snapshot.SchemaVersion != 6 || snapshot.CreatedExactFrom != day(3) || snapshot.CreatedExactFromID != 400_000 || snapshot.CreatedBuiltAt.IsZero() {
+		t.Fatalf("schema %d exact from %q (ID %d) built %v, want schema 6 exact from %s (ID 400000) with a build time",
 			snapshot.SchemaVersion, snapshot.CreatedExactFrom, snapshot.CreatedExactFromID, snapshot.CreatedBuiltAt, day(3))
 	}
 	got := map[string]int64{}
@@ -99,20 +99,20 @@ func TestUIStatsCreatedCharactersByID(t *testing.T) {
 
 	type figures struct {
 		current, previous int64
-		weekly            []int64
+		daily             []int64
 	}
 	worlds := map[string]figures{}
 	for _, g := range snapshot.Groups {
 		if g.Scope == (contract.StatsScope{}) && g.Dimension == "world" {
-			worlds[g.Key] = figures{g.Created, g.CreatedPrevious, g.CreatedWeekly}
+			worlds[g.Key] = figures{g.Created, g.CreatedPrevious, g.CreatedDaily}
 			continue
 		}
-		if g.Created != 0 || g.CreatedPrevious != 0 || len(g.CreatedWeekly) > 0 {
+		if g.Created != 0 || g.CreatedPrevious != 0 || len(g.CreatedDaily) > 0 {
 			t.Fatalf("group %+v carries created figures, want world groups only", g)
 		}
 	}
 	wantWorlds := map[string]figures{
-		"Balmung":  {current: 5, previous: 2, weekly: []int64{2, 4}},
+		"Balmung":  {current: 5, previous: 2, daily: []int64{1, 0, 0, 0, 0, 1, 1, 1, 0, 1}},
 		"Ragnarok": {current: 0, previous: 1},
 	}
 	if !reflect.DeepEqual(worlds, wantWorlds) {
