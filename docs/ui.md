@@ -15,7 +15,7 @@
 | Route | Method | Description |
 |---|---|---|
 | `/` | `GET` | Dashboard overview served directly at the root URL (same handler as `/ui/dashboard`) |
-| `/ui/dashboard` | `GET` | Overview, top to bottom: the realm tally (total population over a band split by region), stat tiles (active players, characters at the level cap, new characters created in the new-characters window, 90 days by default, with a worded, signed trend on the window before and the company chocobos reached beside them), race distribution bar chart and main-scenario completion meters side by side, the shared "New characters per week" chart over the window, and the region table with world drill-down. All aggregate data comes from the cached statistics snapshot. |
+| `/ui/dashboard` | `GET` | Overview, top to bottom: the realm tally (total population over a band split by region), stat tiles (active players, characters at the level cap, new characters created in the new-characters window, 90 days by default, with a worded, signed trend on the window before and the company chocobos reached beside them), race distribution bar chart and main-scenario completion meters side by side, the shared "New characters per day" line chart over the window (created characters, dashed over the estimated days, with the company chocobos on their own right-hand axis), and the region table with world drill-down. All aggregate data comes from the cached statistics snapshot. |
 | `/ui/partials/world-breakdown` | `GET` | HTMX partial returning world and datacenter rows for a requested region (`?region=NA`), including each world's created characters in the window ("New, 90 days"; the company chocobos on a snapshot without created figures) |
 | `/ui/races` | `GET` | Playable race demographics with cascading region/DC/world filters, stat tiles (characters, active players and the most chosen race with its share; the page no longer repeats the new-characters card since #94), global percentage shares, active ratios, and demographic charts. Filtering selects precomputed snapshot groups and performs no aggregate database query. |
 | `/ui/grand-companies` | `GET` | Grand Companies with the region/DC/world filter bar and chips: "the standards" (one hanging banner per company filled to its share, plus an outline banner for No Grand Company), "Who still plays" (each company's active share as a meter in its colour), the race lean (a 100%-stacked bar per race, whole game) and "Show the numbers" tables. On a schema v2 snapshot it shows the "arrives with the next refresh" state. |
@@ -132,8 +132,8 @@ cmd/http/ui/
 │   │   ├── ladder.html     # Shared "ladder": ranked board (rank gutter, hairline bars, Show all, number table)
 │   │   ├── filters.html    # Shared "filter-bar" (labelled selects, region pills, removable chips)
 │   │   ├── figures.html    # Shared "trend" line for new-character tiles
-│   │   └── new_characters.html # Shared new-characters card and weekly chart (created bars, chocobo line)
-│   ├── dashboard.html      # Realm tally, stat tiles, race and MSQ panels, new characters per week, region table
+│   │   └── new_characters.html # New-characters card, daily chart (dashboard) and weekly chart (world pages)
+│   ├── dashboard.html      # Realm tally, stat tiles, race and MSQ panels, new characters per day, region table
 │   ├── races.html          # Races and clans: filter bar, stat tiles, race/gender doughnuts, clan and race×gender bars, race table
 │   ├── grand_companies.html # Grand Companies: filter bar, the standards, who still plays, race lean, number tables
 │   ├── jobs.html            # Jobs: filter bar, freshness and coverage lines, the Armoury (switch region), party balance, number tables
@@ -168,7 +168,7 @@ cmd/http/ui/
 ├── free_company_rankings.go # Controller for /ui/rankings/free-companies and the world page's top five
 ├── ladder.go               # Ladder / LadderRung view model of the shared ladder component
 ├── world_detail.go         # Controller for /ui/worlds/{world}
-├── timeline.go             # Weekly new-character series behind the shared chart
+├── timeline.go             # Daily (dashboard) and weekly (world page) new-character series
 ├── new_characters.go       # New-characters card, world-table count and weekly chart builders
 ├── expansions.go           # Controller for /ui/expansions (progression steps and retention)
 ├── character.go            # Controller for /ui/characters/{id} & /ui/characters/search
@@ -423,10 +423,10 @@ inventing their own. Each is covered by tests in `design_v2_test.go` and `switch
   week, a tooltip naming the week's first and last day, and a "Show the numbers" table of week ranges
   ("Oct 17 – Oct 23") and counts. The snapshot keeps the daily series for the whole game only; each
   world group carries its weekly series and its window totals (the tile's trend). The panel is the
-  shared `new-characters-weekly` component, also on the dashboard (whole game, summed from the daily
-  series by `census.NewCharactersWeekly`): the bars chart the created characters, weeks with an
-  estimated day drawn as a lighter wash with an outline and marked "estimated" in the table, and the
-  company chocobos ride along as a line in the comparison colour, with a legend. Before the snapshot has
+  `new-characters-weekly` component: the bars chart the created characters, weeks with an estimated
+  day drawn as a lighter wash with an outline and marked "estimated" in the table, and the company
+  chocobos ride along as a line in the comparison colour on their own right-hand axis, with a legend.
+  The dashboard charts the whole game per day instead (`new-characters-daily`, v1.27.1). Before the snapshot has
   created figures the bars chart the company chocobos alone, as before #94.
 - **World detail Grand Company band**: a panel under the stat tiles with a 14px band split by company
   (an SVG of `rect`s whose `x`/`width` are the shares, in GC colours; No Grand Company is the empty
@@ -630,11 +630,12 @@ always names the snapshot's new-characters window.
 "New characters, last 90 days" tiles and their trend (`census.NewCharactersTotals`) cover the
 new-characters window's complete UTC days before the snapshot's generation day (one boundary helper,
 `census.NewCharactersBounds`: end = start of the generation UTC day, exclusive; current window
-[end − W, end); previous [end − 2W, end − W); used by the refresh SQL, the totals, the weekly series
-and the API), so the partial current
-day never shows as a false drop or biases the trend. The weekly chart has one bar per 7-day week (13 for
-90 days); its summary and "Show the numbers" table print weeks like "Oct 17 – Oct 23" (the table wraps
-each in `<time datetime="2026-10-17">`). Copy never hard-codes the length: pages read it from
+[end − W, end); previous [end − 2W, end − W); used by the refresh SQL, the totals, the timeline, the
+weekly series and the API), so the partial current
+day never shows as a false drop or biases the trend. The dashboard's timeline has one point per day of
+the window (90 by default); its summary and "Show the numbers" table print dates like "Oct 23" (the
+table wraps each in `<time datetime="2026-10-23">`), and marks the estimated created days. A world
+page's weekly chart has one bar per 7-day week (13 for 90 days), printed like "Oct 17 – Oct 23". Copy never hard-codes the length: pages read it from
 `PageData.NewCharactersWindow` (a `Window`, from `UIStatsState.NewCharactersWindowDays`), the same
 helper as the activity window, and `TestNewCharacterCopyStatesTheSnapshotWindow` renders the pages from a
 60-day snapshot and rejects any "30 days" or "(30d)" left in them.

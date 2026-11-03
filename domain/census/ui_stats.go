@@ -386,31 +386,6 @@ func WorldNewCharactersWeekly(snapshot *contract.UIStatsSnapshot, world string) 
 	return out
 }
 
-// NewCharactersWeekly is the whole game's weekly new-character series,
-// summed from the daily series, oldest week first; like
-// WorldNewCharactersWeekly.
-func NewCharactersWeekly(snapshot *contract.UIStatsSnapshot) []WeeklyCount {
-	if snapshot == nil || snapshot.NewCharactersWindowDays <= 0 {
-		return nil
-	}
-	out := emptyWeeks(snapshot)
-	bounds := SnapshotNewCharactersBounds(snapshot)
-	add := func(days []contract.ScopedDailyCount, into func(*WeeklyCount, int64)) {
-		for _, day := range days {
-			parsed, err := time.Parse("2006-01-02", day.Day)
-			if err != nil || day.Scope != (contract.StatsScope{}) {
-				continue
-			}
-			if week := bounds.Week(parsed); week >= 0 && week < len(out) {
-				into(&out[week], day.Count)
-			}
-		}
-	}
-	add(snapshot.NewCharacters, func(w *WeeklyCount, n int64) { w.Count += n })
-	add(snapshot.Created, func(w *WeeklyCount, n int64) { w.Created += n })
-	return out
-}
-
 // emptyWeeks lays out the snapshot's weeks (NewCharactersBounds.Weeks),
 // marking those with an estimated created day.
 func emptyWeeks(snapshot *contract.UIStatsSnapshot) []WeeklyCount {

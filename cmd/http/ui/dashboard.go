@@ -18,8 +18,8 @@ type DashboardViewData struct {
 	MaxLevelPercent    string
 	MaxLevel           uint32
 	NewCharactersCard  NewCharactersCard
-	// Weekly is the whole game's new characters per week.
-	Weekly               WeeklyTimeline
+	// Timeline is the whole game's new characters per day.
+	Timeline             Timeline
 	Regions              []RegionSummary
 	RaceLabels           []string
 	RaceData             []int64
@@ -130,7 +130,7 @@ func (c *UIController) Dashboard(w http.ResponseWriter, r *http.Request) {
 		ActiveCharacters:     active,
 		ActivePercent:        formatPercent(active, total),
 		NewCharactersCard:    newCharactersCard(snapshot, newCharactersWindow),
-		Weekly:               newCharactersWeekly(snapshot, census.NewCharactersWeekly(snapshot), ""),
+		Timeline:             newCharactersTimeline(snapshot),
 		MaxLevelCharacters:   maxLevelCount,
 		MaxLevelPercent:      formatPercent(maxLevelCount, total),
 		MaxLevel:             maxLevel,

@@ -5,10 +5,10 @@ new-characters-card: the "New characters" stat card. The argument is a
 NewCharactersCard (new_characters.go).
     {{template "new-characters-card" .Data.NewCharactersCard}}
 
-new-characters-weekly: the weekly bar chart, its summary and its "Show the
-numbers" table. The argument is a WeeklyTimeline (timeline.go); the bars
+new-characters-weekly: a world's weekly bar chart, its summary and its "Show
+the numbers" table. The argument is a WeeklyTimeline (timeline.go); the bars
 chart the created characters, estimated weeks drawn lighter, and the company
-chocobos ride along as a line.
+chocobos ride along as a line on their own right-hand axis.
     {{template "new-characters-weekly" .Data.Weekly}}
 */}}
 {{define "new-characters-card"}}
@@ -94,8 +94,19 @@ document.addEventListener("DOMContentLoaded", function () {
             pointBackgroundColor: comparison,
             pointBorderColor: theme.surface(),
             fill: false,
+            yAxisID: "y1",
             order: 1
         });
+    }
+    var scales = {
+        x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 16 } },
+        y: { beginAtZero: true, ticks: { precision: 0, callback: theme.compact, maxTicksLimit: 5 } }
+    };
+    if (hasCreated) {
+        scales.y.title = { display: true, text: "Created" };
+        scales.y1 = { position: "right", beginAtZero: true, grid: { drawOnChartArea: false },
+            title: { display: true, text: "Company chocobos" },
+            ticks: { precision: 0, callback: theme.compact, maxTicksLimit: 5 } };
     }
     new Chart(canvas, {
         data: { labels: {{jsonSafe .Labels}}, datasets: datasets },
@@ -118,13 +129,122 @@ document.addEventListener("DOMContentLoaded", function () {
                     }
                 }
             },
-            scales: {
-                x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 16 } },
-                y: { beginAtZero: true, ticks: { precision: 0, callback: theme.compact, maxTicksLimit: 5 } }
-            }
+            scales: scales
         }
     });
 });
 </script>
 {{end}}
+{{end}}
+
+{{/*
+new-characters-daily: the whole game's daily line chart, its summary and its
+"Show the numbers" table. The argument is a Timeline (timeline.go); the line
+charts the created characters, dashed over the estimated days, and the
+company chocobos follow on their own right-hand axis, far fewer as they are.
+    {{template "new-characters-daily" .Data.Timeline}}
+*/}}
+{{define "new-characters-daily"}}
+<section class="panel" aria-labelledby="timeline-heading">
+    <div class="panel-header">
+        <h2 id="timeline-heading" class="panel-title">New characters per day</h2>
+        <p class="panel-meta">Last {{.Days}} days</p>
+    </div>
+    <div class="panel-body">
+        <div class="chart-container">
+            <canvas id="newCharactersChart" role="img" aria-label="Line chart of new characters per day over the last {{.Days}} days" aria-describedby="timeline-summary"></canvas>
+        </div>
+        {{if .HasCreated}}
+        <p id="timeline-summary" class="chart-summary">{{formatNumber .CreatedTotal}} characters created in the last {{.Days}} days{{if .PeakCount}}, peaking at {{formatNumber .PeakCount}} on {{.PeakDate}}{{end}}. {{formatNumber .Total}} earned their first company chocobo.{{if .EstimatedBefore}} Days before {{.EstimatedBefore}} are estimated from character IDs.{{end}}</p>
+        {{else}}
+        <p id="timeline-summary" class="chart-summary">{{formatNumber .Total}} new characters in the last {{.Days}} days{{if .PeakCount}}, peaking at {{formatNumber .PeakCount}} on {{.PeakDate}}{{end}}.</p>
+        {{end}}
+        <details class="chart-data">
+            <summary>Show the numbers</summary>
+            <div class="table-responsive">
+                <table class="data-table">
+                    <caption class="visually-hidden">New characters per day</caption>
+                    {{if .HasCreated}}
+                    <thead><tr><th scope="col">Date</th><th scope="col" class="text-right">Created</th><th scope="col" class="text-right">Reached company chocobo</th></tr></thead>
+                    {{else}}
+                    <thead><tr><th scope="col">Date</th><th scope="col" class="text-right">New characters</th></tr></thead>
+                    {{end}}
+                    <tbody>
+                        {{$t := .}}
+                        {{range $i, $day := .Dates}}
+                        <tr><th scope="row"><time datetime="{{$day}}">{{index $t.Labels $i}}</time></th>{{if $t.HasCreated}}<td class="text-right">{{formatNumber (index $t.Created $i)}}{{if index $t.Estimated $i}}<span class="table-note"> estimated</span>{{end}}</td>{{end}}<td class="text-right">{{formatNumber (index $t.Counts $i)}}</td></tr>
+                        {{end}}
+                    </tbody>
+                </table>
+            </div>
+        </details>
+    </div>
+</section>
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+    var theme = window.CensusCharts;
+    var canvas = document.getElementById("newCharactersChart");
+    if (!window.Chart || !theme || !canvas) { return; }
+    var dates = {{jsonSafe .Dates}};
+    var hasCreated = {{.HasCreated}};
+    var estimated = {{jsonSafe .Estimated}};
+    var primary = theme.primary();
+    var datasets = [{
+        label: hasCreated ? "Created" : "New characters",
+        data: hasCreated ? {{jsonSafe .Created}} : {{jsonSafe .Counts}},
+        borderColor: primary,
+        backgroundColor: theme.wash(primary),
+        pointBackgroundColor: primary,
+        pointBorderColor: theme.surface(),
+        fill: true,
+        yAxisID: "y",
+        segment: { borderDash: function (ctx) { return estimated[ctx.p1DataIndex] ? [6, 4] : undefined; } }
+    }];
+    if (hasCreated) {
+        var comparison = theme.comparison();
+        datasets.push({
+            label: "Reached company chocobo",
+            data: {{jsonSafe .Counts}},
+            borderColor: comparison,
+            backgroundColor: comparison,
+            pointBackgroundColor: comparison,
+            pointBorderColor: theme.surface(),
+            fill: false,
+            yAxisID: "y1"
+        });
+    }
+    var scales = {
+        x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 16 } },
+        y: { beginAtZero: true, ticks: { precision: 0, callback: theme.compact, maxTicksLimit: 5 } }
+    };
+    if (hasCreated) {
+        scales.y.title = { display: true, text: "Created" };
+        scales.y1 = { position: "right", beginAtZero: true, grid: { drawOnChartArea: false },
+            title: { display: true, text: "Company chocobos" },
+            ticks: { precision: 0, callback: theme.compact, maxTicksLimit: 5 } };
+    }
+    new Chart(canvas, {
+        type: "line",
+        data: { labels: {{jsonSafe .Labels}}, datasets: datasets },
+        options: {
+            interaction: { mode: "index", intersect: false },
+            plugins: {
+                legend: { display: hasCreated },
+                censusCrosshair: { enabled: true },
+                tooltip: {
+                    callbacks: {
+                        title: function (items) { return items.length ? theme.formatDate(dates[items[0].dataIndex]) : ""; },
+                        label: function (ctx) {
+                            if (!hasCreated) { return theme.format(ctx.parsed.y) + " new characters"; }
+                            if (ctx.datasetIndex === 1) { return theme.format(ctx.parsed.y) + " reached their company chocobo"; }
+                            return theme.format(ctx.parsed.y) + " created" + (estimated[ctx.dataIndex] ? " (estimated)" : "");
+                        }
+                    }
+                }
+            },
+            scales: scales
+        }
+    });
+});
+</script>
 {{end}}
