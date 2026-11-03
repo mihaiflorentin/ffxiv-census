@@ -468,7 +468,7 @@ func carryCreatedStats(prev, snapshot *contract.UIStatsSnapshot) {
 	}
 	for i, g := range snapshot.Groups {
 		if c, ok := carried[g.Key]; ok && g.Scope == (contract.StatsScope{}) && g.Dimension == "world" {
-			snapshot.Groups[i].Created, snapshot.Groups[i].CreatedPrevious, snapshot.Groups[i].CreatedWeekly = c.Created, c.CreatedPrevious, c.CreatedWeekly
+			snapshot.Groups[i].Created, snapshot.Groups[i].CreatedPrevious, snapshot.Groups[i].CreatedDaily = c.Created, c.CreatedPrevious, c.CreatedDaily
 		}
 	}
 }
@@ -484,9 +484,10 @@ func createdCarried(snapshot *contract.UIStatsSnapshot, exactFromID int64) bool 
 // readMilestoneStats reads the MSQ completions (whole game and per world)
 // and the new-character figures: the daily series over the current and the
 // previous new-characters window at whole-game scope, and each world's
-// totals for both windows and its weekly series (census.NewCharactersBounds
-// Weeks) on its world group, all from the same pass. The windows and the
-// weeks end with the last complete UTC day before the generation day.
+// totals for both windows and its daily series over the current window
+// (census.NewCharactersBounds.Day) on its world group, all from the same
+// pass. The windows end with the last complete UTC day before the
+// generation day.
 func (r *UIStatsRepository) readMilestoneStats(ctx context.Context, tx *sql.Tx, snapshot *contract.UIStatsSnapshot) error {
 	bounds := census.NewCharactersWindowBounds(snapshot.GeneratedAt, snapshot.NewCharactersWindowDays)
 	rows, err := tx.QueryContext(ctx, `
@@ -536,7 +537,7 @@ func (r *UIStatsRepository) readMilestoneStats(ctx context.Context, tx *sql.Tx, 
 		UNION ALL
 		SELECT 'world_day', world, day, 0, count, 0
 		FROM world_daily_stats`,
-		bounds.PreviousStart, bounds.CurrentStart, bounds.End, bounds.WeeksStart())
+		bounds.PreviousStart, bounds.CurrentStart, bounds.End, bounds.CurrentStart)
 	if err != nil {
 		return fmt.Errorf("query UI milestone statistics: %w", err)
 	}
@@ -546,7 +547,7 @@ func (r *UIStatsRepository) readMilestoneStats(ctx context.Context, tx *sql.Tx, 
 		if group.Scope == (contract.StatsScope{}) && group.Dimension == "world" {
 			worldGroups[group.Key] = i
 			snapshot.Groups[i].NewCharacters, snapshot.Groups[i].NewCharactersPrevious = 0, 0
-			snapshot.Groups[i].NewCharactersWeekly = nil
+			snapshot.Groups[i].NewCharactersDaily = nil
 		}
 	}
 	for rows.Next() {
@@ -581,11 +582,11 @@ func (r *UIStatsRepository) readMilestoneStats(ctx context.Context, tx *sql.Tx, 
 			if !ok || parseErr != nil {
 				continue
 			}
-			if week := bounds.Week(day); week >= 0 {
-				if snapshot.Groups[i].NewCharactersWeekly == nil {
-					snapshot.Groups[i].NewCharactersWeekly = make([]int64, bounds.Weeks())
+			if d := bounds.Day(day); d >= 0 {
+				if snapshot.Groups[i].NewCharactersDaily == nil {
+					snapshot.Groups[i].NewCharactersDaily = make([]int64, bounds.Days)
 				}
-				snapshot.Groups[i].NewCharactersWeekly[week] += count
+				snapshot.Groups[i].NewCharactersDaily[d] += count
 			}
 		}
 	}

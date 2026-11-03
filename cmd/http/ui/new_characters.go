@@ -48,19 +48,3 @@ func newCharactersCount(snapshot *contract.UIStatsSnapshot, totals census.NewCha
 	}
 	return totals.Current
 }
-
-// newCharactersWeekly builds the weekly chart of weeks for a place: where
-// is "on Balmung", or empty for the whole game.
-func newCharactersWeekly(snapshot *contract.UIStatsSnapshot, weeks []census.WeeklyCount, where string) WeeklyTimeline {
-	tl := weeklyTimeline(weeks, census.CreatedReady(snapshot))
-	tl.Where = where
-	if exact, ok := census.CreatedEstimatedBefore(snapshot); ok {
-		for _, estimated := range tl.Estimated {
-			if estimated {
-				tl.EstimatedBefore = exact.Format("Jan 2")
-				break
-			}
-		}
-	}
-	return tl
-}

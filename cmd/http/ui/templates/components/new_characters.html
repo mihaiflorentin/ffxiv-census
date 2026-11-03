@@ -4,12 +4,6 @@ New-character components, parsed into every page.
 new-characters-card: the "New characters" stat card. The argument is a
 NewCharactersCard (new_characters.go).
     {{template "new-characters-card" .Data.NewCharactersCard}}
-
-new-characters-weekly: a world's weekly bar chart, its summary and its "Show
-the numbers" table. The argument is a WeeklyTimeline (timeline.go); the bars
-chart the created characters, estimated weeks drawn lighter, and the company
-chocobos ride along as a line on their own right-hand axis.
-    {{template "new-characters-weekly" .Data.Weekly}}
 */}}
 {{define "new-characters-card"}}
 <div class="stat-card">
@@ -23,147 +17,34 @@ chocobos ride along as a line on their own right-hand axis.
 </div>
 {{end}}
 
-{{define "new-characters-weekly"}}
-{{if .Counts}}
-<section class="panel" aria-labelledby="weekly-heading">
-    <div class="panel-header">
-        <h2 id="weekly-heading" class="panel-title">New characters per week</h2>
-        <p class="panel-meta">Last {{.Weeks}} weeks{{if .Where}} {{.Where}}{{end}}</p>
-    </div>
-    <div class="panel-body">
-        <div class="chart-container">
-            <canvas id="weeklyNewCharactersChart" role="img" aria-label="Bar chart of new characters per week{{if .Where}} {{.Where}}{{end}} over the last {{.Weeks}} weeks" aria-describedby="weekly-summary"></canvas>
-        </div>
-        {{if .HasCreated}}
-        <p id="weekly-summary" class="chart-summary">{{formatNumber .CreatedTotal}} characters created{{if .Where}} {{.Where}}{{end}} in the last {{.Weeks}} weeks{{if .PeakCount}}, peaking at {{formatNumber .PeakCount}} in the week of {{.PeakLabel}}{{end}}. {{formatNumber .Total}} earned their first company chocobo.{{if .EstimatedBefore}} Weeks before {{.EstimatedBefore}} are estimated from character IDs.{{end}}</p>
-        {{else}}
-        <p id="weekly-summary" class="chart-summary">{{formatNumber .Total}} new characters{{if .Where}} {{.Where}}{{end}} in the last {{.Weeks}} weeks{{if .PeakCount}}, peaking at {{formatNumber .PeakCount}} in the week of {{.PeakLabel}}{{end}}.</p>
-        {{end}}
-        <details class="chart-data">
-            <summary>Show the numbers</summary>
-            <div class="table-scroll" role="region" aria-label="New characters per week{{if .Where}} {{.Where}}{{end}}" tabindex="0">
-                <table class="data-table">
-                    <caption class="visually-hidden">New characters per week{{if .Where}} {{.Where}}{{end}}</caption>
-                    {{if .HasCreated}}
-                    <thead><tr><th scope="col">Week</th><th scope="col" class="text-right">Created</th><th scope="col" class="text-right">Reached company chocobo</th></tr></thead>
-                    {{else}}
-                    <thead><tr><th scope="col">Week</th><th scope="col" class="text-right">New characters</th></tr></thead>
-                    {{end}}
-                    <tbody>
-                        {{$t := .}}
-                        {{range $i, $start := .Starts}}
-                        <tr><th scope="row"><time datetime="{{$start}}">{{index $t.Ranges $i}}</time></th>{{if $t.HasCreated}}<td class="text-right">{{formatNumber (index $t.Created $i)}}{{if index $t.Estimated $i}}<span class="table-note"> estimated</span>{{end}}</td>{{end}}<td class="text-right">{{formatNumber (index $t.Counts $i)}}</td></tr>
-                        {{end}}
-                    </tbody>
-                </table>
-            </div>
-        </details>
-    </div>
-</section>
-<script>
-document.addEventListener("DOMContentLoaded", function () {
-    var theme = window.CensusCharts;
-    var canvas = document.getElementById("weeklyNewCharactersChart");
-    if (!window.Chart || !theme || !canvas) { return; }
-    var weekStarts = {{jsonSafe .Starts}};
-    var weekEnds = {{jsonSafe .Ends}};
-    var hasCreated = {{.HasCreated}};
-    var estimated = {{jsonSafe .Estimated}};
-    var primary = theme.primary();
-    var bars = estimated.map(function (e) { return e ? theme.wash(primary) : primary; });
-    var datasets = [{
-        type: "bar",
-        label: hasCreated ? "Created" : "New characters",
-        data: hasCreated ? {{jsonSafe .Created}} : {{jsonSafe .Counts}},
-        backgroundColor: bars,
-        hoverBackgroundColor: bars,
-        borderColor: primary,
-        borderWidth: estimated.map(function (e) { return e ? 1 : 0; }),
-        borderRadius: 3,
-        maxBarThickness: 40,
-        order: 2
-    }];
-    if (hasCreated) {
-        var comparison = theme.comparison();
-        datasets.push({
-            type: "line",
-            label: "Reached company chocobo",
-            data: {{jsonSafe .Counts}},
-            borderColor: comparison,
-            backgroundColor: comparison,
-            pointBackgroundColor: comparison,
-            pointBorderColor: theme.surface(),
-            fill: false,
-            yAxisID: "y1",
-            order: 1
-        });
-    }
-    var scales = {
-        x: { grid: { display: false }, ticks: { maxRotation: 0, autoSkipPadding: 16 } },
-        y: { beginAtZero: true, ticks: { precision: 0, callback: theme.compact, maxTicksLimit: 5 } }
-    };
-    if (hasCreated) {
-        scales.y.title = { display: true, text: "Created" };
-        scales.y1 = { position: "right", beginAtZero: true, grid: { drawOnChartArea: false },
-            title: { display: true, text: "Company chocobos" },
-            ticks: { precision: 0, callback: theme.compact, maxTicksLimit: 5 } };
-    }
-    new Chart(canvas, {
-        data: { labels: {{jsonSafe .Labels}}, datasets: datasets },
-        options: {
-            interaction: { mode: "index", intersect: false },
-            plugins: {
-                legend: { display: hasCreated },
-                tooltip: {
-                    callbacks: {
-                        title: function (items) {
-                            if (!items.length) { return ""; }
-                            var i = items[0].dataIndex;
-                            return "Week of " + theme.formatDate(weekStarts[i]) + " to " + theme.formatDate(weekEnds[i]);
-                        },
-                        label: function (ctx) {
-                            if (!hasCreated) { return theme.format(ctx.parsed.y) + " new characters"; }
-                            if (ctx.dataset.type === "line") { return theme.format(ctx.parsed.y) + " reached their company chocobo"; }
-                            return theme.format(ctx.parsed.y) + " created" + (estimated[ctx.dataIndex] ? " (estimated)" : "");
-                        }
-                    }
-                }
-            },
-            scales: scales
-        }
-    });
-});
-</script>
-{{end}}
-{{end}}
-
 {{/*
-new-characters-daily: the whole game's daily line chart, its summary and its
-"Show the numbers" table. The argument is a Timeline (timeline.go); the line
+new-characters-daily: the daily line chart of the whole game or a world, its
+summary and its "Show the numbers" table. The argument is a Timeline (timeline.go); the line
 charts the created characters, dashed over the estimated days, and the
 company chocobos follow on their own right-hand axis, far fewer as they are.
     {{template "new-characters-daily" .Data.Timeline}}
 */}}
 {{define "new-characters-daily"}}
+{{if .Dates}}
 <section class="panel" aria-labelledby="timeline-heading">
     <div class="panel-header">
         <h2 id="timeline-heading" class="panel-title">New characters per day</h2>
-        <p class="panel-meta">Last {{.Days}} days</p>
+        <p class="panel-meta">Last {{.Days}} days{{if .Where}} {{.Where}}{{end}}</p>
     </div>
     <div class="panel-body">
         <div class="chart-container">
-            <canvas id="newCharactersChart" role="img" aria-label="Line chart of new characters per day over the last {{.Days}} days" aria-describedby="timeline-summary"></canvas>
+            <canvas id="newCharactersChart" role="img" aria-label="Line chart of new characters per day{{if .Where}} {{.Where}}{{end}} over the last {{.Days}} days" aria-describedby="timeline-summary"></canvas>
         </div>
         {{if .HasCreated}}
-        <p id="timeline-summary" class="chart-summary">{{formatNumber .CreatedTotal}} characters created in the last {{.Days}} days{{if .PeakCount}}, peaking at {{formatNumber .PeakCount}} on {{.PeakDate}}{{end}}. {{formatNumber .Total}} earned their first company chocobo.{{if .EstimatedBefore}} Days before {{.EstimatedBefore}} are estimated from character IDs.{{end}}</p>
+        <p id="timeline-summary" class="chart-summary">{{formatNumber .CreatedTotal}} characters created{{if .Where}} {{.Where}}{{end}} in the last {{.Days}} days{{if .PeakCount}}, peaking at {{formatNumber .PeakCount}} on {{.PeakDate}}{{end}}. {{formatNumber .Total}} earned their first company chocobo.{{if .EstimatedBefore}} Days before {{.EstimatedBefore}} are estimated from character IDs.{{end}}</p>
         {{else}}
-        <p id="timeline-summary" class="chart-summary">{{formatNumber .Total}} new characters in the last {{.Days}} days{{if .PeakCount}}, peaking at {{formatNumber .PeakCount}} on {{.PeakDate}}{{end}}.</p>
+        <p id="timeline-summary" class="chart-summary">{{formatNumber .Total}} new characters{{if .Where}} {{.Where}}{{end}} in the last {{.Days}} days{{if .PeakCount}}, peaking at {{formatNumber .PeakCount}} on {{.PeakDate}}{{end}}.</p>
         {{end}}
         <details class="chart-data">
             <summary>Show the numbers</summary>
             <div class="table-responsive">
                 <table class="data-table">
-                    <caption class="visually-hidden">New characters per day</caption>
+                    <caption class="visually-hidden">New characters per day{{if .Where}} {{.Where}}{{end}}</caption>
                     {{if .HasCreated}}
                     <thead><tr><th scope="col">Date</th><th scope="col" class="text-right">Created</th><th scope="col" class="text-right">Reached company chocobo</th></tr></thead>
                     {{else}}
@@ -247,4 +128,5 @@ document.addEventListener("DOMContentLoaded", function () {
     });
 });
 </script>
+{{end}}
 {{end}}

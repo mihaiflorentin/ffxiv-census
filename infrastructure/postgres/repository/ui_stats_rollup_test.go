@@ -145,7 +145,8 @@ func v2Equivalent(snapshot *contract.UIStatsSnapshot) *contract.UIStatsSnapshot 
 			continue
 		}
 		g.MaxLevel, g.Private, g.Unchecked, g.InFreeCompany = 0, 0, 0, 0
-		g.NewCharacters, g.NewCharactersPrevious, g.NewCharactersWeekly = 0, 0, nil
+		g.NewCharacters, g.NewCharactersPrevious, g.NewCharactersDaily = 0, 0, nil
+		g.Created, g.CreatedPrevious, g.CreatedDaily = 0, 0, nil
 		v2.Groups = append(v2.Groups, g)
 	}
 	return &v2

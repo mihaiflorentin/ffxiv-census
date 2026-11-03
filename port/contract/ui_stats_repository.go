@@ -14,9 +14,10 @@ import (
 // totals. Readers treat a snapshot without a window as the fixed 30-day
 // window of schema 3 and earlier (census.SnapshotNewCharactersWindowDays).
 // Schema 5 adds the created characters, dated by character ID
-// (UIStatsSnapshot.Created).
+// (UIStatsSnapshot.Created). Schema 6 replaces the world groups' weekly
+// series with daily ones (ScopedGroupCount.NewCharactersDaily).
 const (
-	UIStatsSchemaVersion    = 5
+	UIStatsSchemaVersion    = 6
 	UIStatsMinSchemaVersion = 2
 )
 
@@ -69,17 +70,17 @@ type ScopedGroupCount struct {
 	// chocobo in the current and the previous new-characters window.
 	NewCharacters         int64 `json:"new_characters,omitempty"`
 	NewCharactersPrevious int64 `json:"new_characters_previous,omitempty"`
-	// NewCharactersWeekly is the world's new characters per 7-day week,
-	// oldest first, the weeks ending with the last complete UTC day and
-	// covering the current window (census.NewCharactersBounds.Weeks). Set on
-	// the global-scope world groups only (schema 4).
-	NewCharactersWeekly []int64 `json:"new_characters_weekly,omitempty"`
-	// Created, CreatedPrevious and CreatedWeekly are the same figures for
+	// NewCharactersDaily is the world's new characters per UTC day of the
+	// current window, oldest first (census.NewCharactersBounds.Day). Set on
+	// the global-scope world groups only (schema 6; schemas 4 and 5 kept a
+	// weekly series instead, which readers ignore).
+	NewCharactersDaily []int64 `json:"new_characters_daily,omitempty"`
+	// Created, CreatedPrevious and CreatedDaily are the same figures for
 	// the created characters (UIStatsSnapshot.Created), set on the
-	// global-scope world groups only (schema 5).
+	// global-scope world groups only (schema 5; CreatedDaily schema 6).
 	Created         int64   `json:"created,omitempty"`
 	CreatedPrevious int64   `json:"created_previous,omitempty"`
-	CreatedWeekly   []int64 `json:"created_weekly,omitempty"`
+	CreatedDaily    []int64 `json:"created_daily,omitempty"`
 }
 
 // StatsLevelBand is one level band of the Levels figures: the characters

@@ -65,44 +65,42 @@ func TestSnapshotMemoWorldNewCharactersBuildsOncePerSnapshot(t *testing.T) {
 	}
 }
 
-// A world's weekly series is the 7-day buckets ending with the last
-// complete UTC day, oldest first, enough of them to cover the current
-// window (13 for 90 days, the oldest reaching a day before the window).
-func TestWorldNewCharactersWeekly(t *testing.T) {
+// A world's daily series has one count per complete UTC day of the current
+// window, oldest first (90 for 90 days, Jul 26 to Oct 23). A world without
+// new characters has a zero series; a snapshot from before the daily series
+// (schema 5 and earlier) has none.
+func TestWorldNewCharactersDaily(t *testing.T) {
 	s := worldWindowSnapshot()
-	weekly := make([]int64, 13)
-	weekly[0], weekly[12] = 2, 5
+	daily := make([]int64, 90)
+	daily[0], daily[89] = 2, 5
 	for i, g := range s.Groups {
 		if g.Key == "Balmung" {
-			s.Groups[i].NewCharactersWeekly = weekly
+			s.Groups[i].NewCharactersDaily = daily
 		}
 	}
-	got := WorldNewCharactersWeekly(s, "balmung")
-	if len(got) != 13 {
-		t.Fatalf("weeks = %d, want 13", len(got))
+	got := NewCharactersDaily(s, "balmung")
+	if len(got) != 90 {
+		t.Fatalf("days = %d, want 90", len(got))
 	}
-	first, last := got[0], got[12]
-	if first != (WeeklyCount{Start: "2026-07-25", End: "2026-07-31", Count: 2}) {
-		t.Errorf("first week = %+v, want Jul 25 to Jul 31 with 2", first)
+	if got[0] != (DailyNewCharacters{Day: "2026-07-26", Count: 2}) || got[89] != (DailyNewCharacters{Day: "2026-10-23", Count: 5}) {
+		t.Errorf("first and last day = %+v, %+v; want Jul 26 with 2 and Oct 23 with 5", got[0], got[89])
 	}
-	if last != (WeeklyCount{Start: "2026-10-17", End: "2026-10-23", Count: 5}) {
-		t.Errorf("last week = %+v, want Oct 17 to Oct 23 with 5", last)
+	if coeurl := NewCharactersDaily(s, "Coeurl"); len(coeurl) != 90 || coeurl[5].Count != 0 {
+		t.Errorf("Coeurl days = %+v, want 90 empty days", coeurl)
 	}
-
-	// A world without new characters has a zero series; a snapshot from
-	// before the weekly series has none.
-	if coeurl := WorldNewCharactersWeekly(s, "Coeurl"); len(coeurl) != 13 || coeurl[5].Count != 0 {
-		t.Errorf("Coeurl weeks = %+v, want 13 empty weeks", coeurl)
+	s.SchemaVersion = 5
+	if older := NewCharactersDaily(s, "Balmung"); older != nil {
+		t.Errorf("schema 5 days = %+v, want none", older)
 	}
-	if legacy := WorldNewCharactersWeekly(legacyWorldSnapshot(), "Balmung"); legacy != nil {
-		t.Errorf("schema 3 weeks = %+v, want none", legacy)
+	if legacy := NewCharactersDaily(legacyWorldSnapshot(), "Balmung"); legacy != nil {
+		t.Errorf("schema 3 days = %+v, want none", legacy)
 	}
 }
 
-func TestValidateRejectsNegativeWeeklyCounts(t *testing.T) {
+func TestValidateRejectsNegativeDailyCounts(t *testing.T) {
 	s := worldWindowSnapshot()
-	s.Groups[len(s.Groups)-1].NewCharactersWeekly = []int64{1, -1}
+	s.Groups[len(s.Groups)-1].NewCharactersDaily = []int64{1, -1}
 	if err := ValidateUIStatsSnapshot(s); err == nil {
-		t.Fatal("a negative weekly count must fail validation")
+		t.Fatal("a negative daily count must fail validation")
 	}
 }

@@ -101,6 +101,6 @@ func TestWorldDetailRendersItsFiguresFromTheSnapshot(t *testing.T) {
 
 func TestWorldDetailChartsUseSharedThemeAndHaveTextAlternatives(t *testing.T) {
 	doc := renderPage(t, "/ui/worlds/Balmung")
-	// Race distribution and the weekly new characters.
+	// Race distribution and the daily new characters.
 	assertChartsThemedAndDescribed(t, doc, 2)
 }
