@@ -4,7 +4,84 @@ import (
 	"time"
 
 	"github.com/mihaiflorentin88/ffxiv-census/domain/census"
+	"github.com/mihaiflorentin88/ffxiv-census/port/contract"
 )
+
+// Timeline is the whole game's daily new-character series behind the shared
+// "new-characters-daily" chart, its "Show the numbers" table and its
+// summary: one new-characters window, its complete UTC days before the
+// generation day (the generation day is still in progress, so including it
+// would end the chart on a false drop). Labels are axis labels ("Oct 23"),
+// Dates the ISO days; all share one index, oldest day first. Days without
+// new characters are zero. Counts are the company chocobos earned each day,
+// Created the characters created, Estimated the days dated by the
+// calibration curve.
+type Timeline struct {
+	Labels    []string
+	Dates     []string
+	Counts    []int64
+	Created   []int64
+	Estimated []bool
+	// HasCreated marks a series with created characters: the chart draws
+	// them, with the company chocobos on their own axis.
+	HasCreated bool
+	// Total and CreatedTotal sum Counts and Created.
+	Total        int64
+	CreatedTotal int64
+	// PeakDate is the busiest day of the charted series ("Oct 23"); empty
+	// without new characters.
+	PeakDate  string
+	PeakCount int64
+	// Days is the window's length; EstimatedBefore the display day ("Oct
+	// 21") before which the created days are estimated, empty when none are.
+	Days            int
+	EstimatedBefore string
+}
+
+// newCharactersTimeline builds the snapshot's daily series over its
+// new-characters window at whole-game scope.
+func newCharactersTimeline(snapshot *contract.UIStatsSnapshot) Timeline {
+	var tl Timeline
+	if snapshot == nil {
+		return tl
+	}
+	chocobos := make(map[string]int64)
+	for _, day := range census.SnapshotDaily(snapshot, contract.StatsScope{}) {
+		chocobos[day.Day] = day.Count
+	}
+	created := make(map[string]int64)
+	for _, day := range snapshot.Created {
+		if day.Scope == (contract.StatsScope{}) {
+			created[day.Day] = day.Count
+		}
+	}
+	tl.HasCreated = census.CreatedReady(snapshot)
+	exact, _ := census.CreatedEstimatedBefore(snapshot)
+	bounds := census.SnapshotNewCharactersBounds(snapshot)
+	tl.Days = bounds.Days
+	for date := bounds.CurrentStart; date.Before(bounds.End); date = date.AddDate(0, 0, 1) {
+		day := date.Format("2006-01-02")
+		estimated := tl.HasCreated && date.Before(exact)
+		tl.Labels = append(tl.Labels, date.Format("Jan 2"))
+		tl.Dates = append(tl.Dates, day)
+		tl.Counts = append(tl.Counts, chocobos[day])
+		tl.Created = append(tl.Created, created[day])
+		tl.Estimated = append(tl.Estimated, estimated)
+		tl.Total += chocobos[day]
+		tl.CreatedTotal += created[day]
+		if estimated {
+			tl.EstimatedBefore = exact.Format("Jan 2")
+		}
+		value := chocobos[day]
+		if tl.HasCreated {
+			value = created[day]
+		}
+		if value > tl.PeakCount {
+			tl.PeakCount, tl.PeakDate = value, date.Format("Jan 2")
+		}
+	}
+	return tl
+}
 
 // WeeklyTimeline is a weekly new-character series behind the shared
 // "new-characters-weekly" bar chart, its "Show the numbers" table and its

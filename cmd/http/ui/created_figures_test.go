@@ -62,25 +62,33 @@ func newCharactersCardText(t *testing.T, doc *html.Node) string {
 }
 
 // The New characters card counts the created characters with their trend,
-// and the company chocobos beside them; the weekly chart carries both and
-// marks the estimated weeks.
+// and the company chocobos beside them. The dashboard charts both per day,
+// marking the estimated days; the world page charts them per week, the
+// world groups' series.
 func TestNewCharacterFiguresCountTheCreatedCharacters(t *testing.T) {
 	mux := snapshotMux(t, createdFiguresSnapshot())
 	tests := []struct {
-		path, card, summary string
-		weeks               [][]string
+		path, card, summaryID, summary, caption string
+		rows                                    map[int][]string
+		wantRows                                int
 	}{
 		{
-			path:    "/",
-			card:    "New characters, last 14 days 10 Up +1 (+11.1%) on the previous 14 days 2 reached their company chocobo Days before Oct 17 estimated from character IDs",
-			summary: "10 characters created in the last 2 weeks, peaking at 6 in the week of Oct 17. 2 earned their first company chocobo. Weeks before Oct 17 are estimated from character IDs.",
-			weeks:   [][]string{{"Oct 10 – Oct 16", "4 estimated", "0"}, {"Oct 17 – Oct 23", "6", "2"}},
+			path:      "/",
+			card:      "New characters, last 14 days 10 Up +1 (+11.1%) on the previous 14 days 2 reached their company chocobo Days before Oct 17 estimated from character IDs",
+			summaryID: "timeline-summary",
+			summary:   "10 characters created in the last 14 days, peaking at 6 on Oct 20. 2 earned their first company chocobo. Days before Oct 17 are estimated from character IDs.",
+			caption:   "New characters per day",
+			wantRows:  14,
+			rows:      map[int][]string{0: {"Oct 10", "0 estimated", "0"}, 2: {"Oct 12", "4 estimated", "0"}, 7: {"Oct 17", "0", "0"}, 8: {"Oct 18", "0", "2"}, 10: {"Oct 20", "6", "0"}},
 		},
 		{
-			path:    "/ui/worlds/Balmung",
-			card:    "New characters, last 14 days 3 Up +2 (+200.0%) on the previous 14 days 10 reached their company chocobo Days before Oct 17 estimated from character IDs",
-			summary: "3 characters created on Balmung in the last 2 weeks, peaking at 2 in the week of Oct 17. 10 earned their first company chocobo. Weeks before Oct 17 are estimated from character IDs.",
-			weeks:   [][]string{{"Oct 10 – Oct 16", "1 estimated", "3"}, {"Oct 17 – Oct 23", "2", "7"}},
+			path:      "/ui/worlds/Balmung",
+			card:      "New characters, last 14 days 3 Up +2 (+200.0%) on the previous 14 days 10 reached their company chocobo Days before Oct 17 estimated from character IDs",
+			summaryID: "weekly-summary",
+			summary:   "3 characters created on Balmung in the last 2 weeks, peaking at 2 in the week of Oct 17. 10 earned their first company chocobo. Weeks before Oct 17 are estimated from character IDs.",
+			caption:   "New characters per week on Balmung",
+			wantRows:  2,
+			rows:      map[int][]string{0: {"Oct 10 – Oct 16", "1 estimated", "3"}, 1: {"Oct 17 – Oct 23", "2", "7"}},
 		},
 	}
 	for _, tt := range tests {
@@ -93,18 +101,17 @@ func TestNewCharacterFiguresCountTheCreatedCharacters(t *testing.T) {
 			if got := newCharactersCardText(t, doc); got != tt.card {
 				t.Errorf("card = %q\nwant   %q", got, tt.card)
 			}
-			if got := flatText(byID(doc, "weekly-summary")); got != tt.summary {
+			if got := flatText(byID(doc, tt.summaryID)); got != tt.summary {
 				t.Errorf("summary = %q\nwant      %q", got, tt.summary)
 			}
-			caption := "New characters per week"
-			if tt.path != "/" {
-				caption += " on Balmung"
+			got := tableBodyRows(tableCaptioned(t, doc, tt.caption))
+			if len(got) != tt.wantRows {
+				t.Fatalf("%s has %d rows, want %d", tt.caption, len(got), tt.wantRows)
 			}
-			if got := tableBodyRows(tableCaptioned(t, doc, caption)); !reflect.DeepEqual(got, tt.weeks) {
-				t.Errorf("weekly table = %v, want %v", got, tt.weeks)
-			}
-			if strings.Contains(rec.Body.String(), "New characters per day") {
-				t.Error("the daily chart is gone: new characters are charted per week")
+			for i, want := range tt.rows {
+				if !reflect.DeepEqual(got[i], want) {
+					t.Errorf("row %d = %v, want %v", i, got[i], want)
+				}
 			}
 		})
 	}

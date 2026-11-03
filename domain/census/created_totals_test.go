@@ -83,9 +83,9 @@ func TestCreatedEstimatedBefore(t *testing.T) {
 	}
 }
 
-// The weekly series carry both figures, and mark the weeks with an
-// estimated day.
-func TestNewCharactersWeeklyCarryBothFigures(t *testing.T) {
+// A world's weekly series carries both figures, and marks the weeks with
+// an estimated day.
+func TestWorldNewCharactersWeeklyCarriesBothFigures(t *testing.T) {
 	s := createdSnapshot()
 	world := WorldNewCharactersWeekly(s, "Balmung")
 	if len(world) != 13 {
@@ -95,27 +95,13 @@ func TestNewCharactersWeeklyCarryBothFigures(t *testing.T) {
 		t.Fatalf("world weeks = %+v ... %+v, want 1 and 3 created, both estimated", world[0], world[12])
 	}
 
-	global := NewCharactersWeekly(s)
-	if len(global) != 13 || global[0].Start != "2026-07-25" || global[12].End != "2026-10-23" {
-		t.Fatalf("global weeks = %+v, want 13 from 25 Jul to 23 Oct", global)
-	}
-	if global[0].Created != 5 || global[12].Created != 5 || global[12].Count != 2 {
-		t.Fatalf("global weeks = %+v ... %+v, want 5 created in the first, 5 created and 2 chocobos in the last", global[0], global[12])
-	}
-
 	s.CreatedExactFrom = "2026-10-17"
-	if weeks := NewCharactersWeekly(s); weeks[11].Estimated != true || weeks[12].Estimated {
+	if weeks := WorldNewCharactersWeekly(s, "Balmung"); !weeks[11].Estimated || weeks[12].Estimated {
 		t.Fatalf("exact from the last week's first day: weeks 11/12 estimated = %v/%v, want true/false", weeks[11].Estimated, weeks[12].Estimated)
 	}
-
-	none := worldWindowSnapshot()
-	none.NewCharacters = []contract.ScopedDailyCount{{Day: "2026-10-22", Count: 2}}
-	for _, w := range NewCharactersWeekly(none) {
+	for _, w := range WorldNewCharactersWeekly(worldWindowSnapshot(), "Balmung") {
 		if w.Created != 0 || w.Estimated {
 			t.Fatalf("week %+v without created figures, want none and not estimated", w)
 		}
-	}
-	if NewCharactersWeekly(legacyWorldSnapshot()) != nil {
-		t.Fatal("a schema 3 snapshot has weekly series")
 	}
 }
