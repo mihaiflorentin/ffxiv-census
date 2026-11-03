@@ -28,6 +28,21 @@ type CharacterRepository struct {
 // the active and in the recent census tier.
 type tierWindows struct {
 	activeDays, recentDays int
+	// createdFromID is the first character ID whose first sighting is its
+	// creation (census.DefaultCreatedExactFromID); 0 for none.
+	createdFromID int64
+}
+
+// WithCreatedExactFromID sets the first character ID the ID frontier sees
+// within hours of its creation: a character first seen at or past it has
+// changed at its first sighting, so it counts as active at once.
+// Non-positive IDs keep every first sighting no change.
+func WithCreatedExactFromID(id int64) CharacterRepositoryOption {
+	return func(r *CharacterRepository) {
+		if id > 0 {
+			r.windows.createdFromID = id
+		}
+	}
 }
 
 // WithActiveWindowDays sets how many days after its last activity a character
@@ -310,8 +325,10 @@ func toCharacterColumns(writes []contract.CharacterWrite, maxLevel uint32) chara
 // has a levelled or newly unlocked job (levelled, see levelledCharactersTx),
 // a higher highest job level, another non-empty name, world, Free Company or
 // Grand Company, or another current job (when both are known) has changed:
-// last_change_at becomes this census. A first sighting is never a change. The
-// census tier follows from the latest achievement and last change (tierCase).
+// last_change_at becomes this census. A first sighting is no change, except
+// past the created cut (WithCreatedExactFromID): such a character was just
+// created, so its first sighting is its last change. The census tier follows
+// from the latest achievement and last change (tierCase).
 func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.CharacterWrite, maxLevel uint32, windows tierWindows, levelled []int64) error {
 	c := toCharacterColumns(writes, maxLevel)
 	query := `INSERT INTO characters (
@@ -347,6 +364,7 @@ func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.Chara
 			       OR (t.name <> '' AND t.grand_company IS DISTINCT FROM c.grand_company)
 			       OR (t.active_job <> '' AND c.active_job <> '' AND t.active_job <> c.active_job))
 			     THEN COALESCE(t.last_census_at, NOW())
+			     WHEN c.id IS NULL AND $26::bigint > 0 AND t.id >= $26::bigint THEN t.first_seen_at
 			     ELSE c.last_change_at END AS last_change_at) ch
 		 ORDER BY t.id
 		ON CONFLICT (id) DO UPDATE SET
@@ -378,7 +396,7 @@ func upsertCharactersTx(ctx context.Context, tx *sql.Tx, writes []contract.Chara
 		c.fcIDs, c.fcNames, c.bios, c.activeJobs,
 		c.private, c.latestIDs, c.latestAts, c.firstSeens, c.lastCensuses, c.deleteds, c.maxLevels,
 		c.levelledMasks, c.atCapMasks, levelled,
-		windows.activeDays, windows.recentDays); err != nil {
+		windows.activeDays, windows.recentDays, windows.createdFromID); err != nil {
 		return fmt.Errorf("character upsert: %w", err)
 	}
 	return nil

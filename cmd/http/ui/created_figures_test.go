@@ -174,3 +174,12 @@ func TestRacesPageNamesTheMostChosenRace(t *testing.T) {
 	}
 	t.Fatal("no Most chosen race card")
 }
+
+// The dashboard's activity note names creation among the changes, as the
+// Methodology page does: a new character counts as active.
+func TestDashboardActivityNoteCountsNewCharacters(t *testing.T) {
+	body := serveMuxGet(t, snapshotMux(t, createdFiguresSnapshot()), "/").Body.String()
+	if !strings.Contains(body, "such as a new character, a job levelled or switched") {
+		t.Error("the activity note leaves out new characters")
+	}
+}

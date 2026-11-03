@@ -31,7 +31,7 @@
         <p class="rankings-scope">{{.Data.Scope}}</p>
         {{with .Data.Membership}}<p class="rankings-membership">{{.}}</p>{{end}}
         {{if .Data.Active}}
-        <p class="rankings-explain">Members with a public achievement or a change the census saw in the last {{.Data.ActivityWindow.Long}}, such as a job levelled or switched, or a new name, world or company. Play that changes nothing the census can see can’t be detected, so read these counts as a lower bound.</p>
+        <p class="rankings-explain">Members with a public achievement or a change the census saw in the last {{.Data.ActivityWindow.Long}}, such as a new character, a job levelled or switched, or a new name, world or company. Play that changes nothing the census can see can’t be detected, so read these counts as a lower bound.</p>
         {{else}}
         <p class="rankings-explain">Members seen by the census: the characters it has found in each company, not the official roster.</p>
         {{end}}

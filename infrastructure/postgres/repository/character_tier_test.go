@@ -68,6 +68,47 @@ func TestCharacterTier_FirstSightingIsNotAChange(t *testing.T) {
 	}
 }
 
+// A character first seen at or past the created cut was created within
+// hours of its first sighting, so the sighting is its last change: it lands
+// in the active tier at once, at any level. Below the cut a first sighting
+// stays no change, and a stored character keeps its own last change.
+func TestCharacterTier_FirstSightingPastTheCreatedCutIsAChange(t *testing.T) {
+	driver := newTestDriver(t)
+	repo := repository.NewCharacterRepository(driver, repository.WithCreatedExactFromID(9500))
+
+	before := batchWrite(9499, "Old", paladin(90))
+	at := batchWrite(9500, "AtCut")
+	past := privateWrite(9501, "Past", paladin(1))
+	storeCharacter(t, repo, before)
+	storeCharacter(t, repo, at)
+	storeCharacter(t, repo, past)
+
+	if tier, changed := censusTier(t, driver, 9499); tier != contract.CensusTierDormant || changed != nil {
+		t.Errorf("below the cut: tier=%d changed=%v, want the dormant tier and no change", tier, changed)
+	}
+	for _, w := range []contract.CharacterWrite{at, past} {
+		tier, changed := censusTier(t, driver, w.Record.ID)
+		if tier != contract.CensusTierActive || changed == nil || !changed.Equal(w.Record.FirstSeenAt) {
+			t.Errorf("%d past the cut: tier=%d changed=%v, want the active tier changed at first sighting %v", w.Record.ID, tier, changed, w.Record.FirstSeenAt)
+		}
+	}
+
+	// Seen again unchanged, the character keeps its first sighting as its
+	// last change.
+	again := batchWrite(9500, "AtCut")
+	storeCharacter(t, repo, again)
+	if _, changed := censusTier(t, driver, 9500); changed == nil || !changed.Equal(at.Record.FirstSeenAt) {
+		t.Errorf("seen again unchanged: changed=%v, want the first sighting %v", changed, at.Record.FirstSeenAt)
+	}
+
+	// Without a cut every first sighting stays no change.
+	plain := repository.NewCharacterRepository(driver)
+	storeCharacter(t, plain, batchWrite(9600, "NoCut"))
+	if tier, changed := censusTier(t, driver, 9600); tier != contract.CensusTierDormant || changed != nil {
+		t.Errorf("without a cut: tier=%d changed=%v, want the dormant tier and no change", tier, changed)
+	}
+}
+
 func TestCharacterTier_CharacterThatChangesMovesToTheActiveTier(t *testing.T) {
 	for _, private := range []bool{false, true} {
 		for _, tc := range []struct {
